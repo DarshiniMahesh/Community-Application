@@ -1,0 +1,54 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# ── Root ──────────────────────────────────────────────────────────────────────
+/node_modules
+
+# ── All apps (user, admin, sangha3) ──────────────────────────────────────────
+user/node_modules
+user/.next
+user/out
+user/build
+
+admin/node_modules
+admin/.next
+admin/out
+admin/build
+
+sangha/node_modules
+sangha/.next
+sangha/out
+sangha/build
+
+backend/node_modules
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+.DS_Store
+*.pem
+
+# ── Debug ─────────────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Env files ─────────────────────────────────────────────────────────────────
+.env*
+
+# ── Vercel ────────────────────────────────────────────────────────────────────
+.vercel
+
+# ── TypeScript ────────────────────────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ── pnp / yarn ────────────────────────────────────────────────────────────────
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+/coverage

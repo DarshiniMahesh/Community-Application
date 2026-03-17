@@ -1,0 +1,13 @@
+{
+  "name": "census-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "user": "concurrently \"cd backend && npm run dev\" \"cd user && npm run dev\"",
+    "admin": "concurrently \"cd backend && npm run dev\" \"cd admin && npm run dev\"",
+    "sangha": "concurrently \"cd backend && npm run dev\" \"cd sangha && npm run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
