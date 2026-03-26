@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, ArrowRight, ArrowDown } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { ArrowLeft, ArrowRight, ArrowDown, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
@@ -38,6 +39,9 @@ const steps = [
 export default function Page() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [canReset, setCanReset] = useState(false);
   const [formData, setFormData] = useState({
     gotra: "", pravara: "", upanama: "", kuladevata: "", kuladevataOther: "",
     surnameInUse: "", surnameAsPerGotra: "", priestName: "", priestLocation: "",
@@ -47,6 +51,11 @@ export default function Page() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    api.get("/users/profile").then(meta => {
+      const s = (meta as Record<string,string>).status;
+      setCanReset(s === "draft" || s === "changes_requested" || s === "approved");
+    }).catch(() => {});
+
     api.get("/users/profile/full").then((data) => {
       const s = data.step2;
       if (s) {
@@ -122,14 +131,36 @@ export default function Page() {
     }
   };
 
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      await api.post("/users/profile/reset", {});
+      toast.success("Profile reset successfully.");
+      router.push("/dashboard");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setResetting(false);
+      setShowResetDialog(false);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-10">
-      <div>
-        <Button variant="ghost" onClick={() => router.push("/dashboard/profile")} className="gap-2 mb-4">
-          <ArrowLeft className="h-4 w-4" /> Back to Profile
-        </Button>
-        <h1 className="text-3xl font-semibold text-foreground">Religious Details</h1>
-        <p className="text-muted-foreground mt-1">Step 2 of 7: Enter your religious and lineage information</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <Button variant="ghost" onClick={() => router.push("/dashboard/profile")} className="gap-2 mb-4">
+            <ArrowLeft className="h-4 w-4" /> Back to Profile
+          </Button>
+          <h1 className="text-3xl font-semibold text-foreground">Religious Details</h1>
+          <p className="text-muted-foreground mt-1">Step 2 of 7: Enter your religious and lineage information</p>
+        </div>
+        {canReset && (
+          <Button variant="outline" size="sm" className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
+            onClick={() => setShowResetDialog(true)}>
+            <RotateCcw className="h-4 w-4" /> Reset Profile
+          </Button>
+        )}
       </div>
 
       <Stepper steps={steps} currentStep={1} />
@@ -176,7 +207,7 @@ export default function Page() {
             </div>
             <div className="space-y-2">
               <Label>Upanama <span className="text-destructive">*</span></Label>
-              <Select value={formData.upanama} onValueChange={v => { setFormData(p => ({...p, upanama: v})); setErrors(e => ({...e, upanama: ""})) }} disabled={!formData.pravara}>
+              <Select value={formData.upanama} onValueChange={v => { setFormData(p => ({...p, upanama: v})); setErrors(e => ({...e, upanama: ""})); }} disabled={!formData.pravara}>
                 <SelectTrigger className={errors.upanama ? "border-destructive" : ""}><SelectValue placeholder={formData.pravara ? "Select Upanama" : "Select Pravara first"} /></SelectTrigger>
                 <SelectContent>{upanamaOptions.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
               </Select>
@@ -184,7 +215,7 @@ export default function Page() {
             </div>
             <div className="space-y-2">
               <Label>Kuladevata <span className="text-destructive">*</span></Label>
-              <Select value={formData.kuladevata} onValueChange={v => { setFormData(p => ({...p, kuladevata: v, kuladevataOther: ""})); setErrors(e => ({...e, kuladevata: ""})) }} disabled={!formData.upanama}>
+              <Select value={formData.kuladevata} onValueChange={v => { setFormData(p => ({...p, kuladevata: v, kuladevataOther: ""})); setErrors(e => ({...e, kuladevata: ""})); }} disabled={!formData.upanama}>
                 <SelectTrigger className={errors.kuladevata ? "border-destructive" : ""}><SelectValue placeholder={formData.upanama ? "Select Kuladevata" : "Select Upanama first"} /></SelectTrigger>
                 <SelectContent>
                   {kuladevatas.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}
@@ -199,7 +230,7 @@ export default function Page() {
             <div className="space-y-2">
               <Label>Enter Kuladevata <span className="text-destructive">*</span></Label>
               <Input placeholder="Type your Kuladevata name" value={formData.kuladevataOther}
-                onChange={e => { setFormData(p => ({...p, kuladevataOther: e.target.value})); setErrors(ev => ({...ev, kuladevataOther: ""})) }}
+                onChange={e => { setFormData(p => ({...p, kuladevataOther: e.target.value})); setErrors(ev => ({...ev, kuladevataOther: ""})); }}
                 className={errors.kuladevataOther ? "border-destructive" : ""} />
               {errors.kuladevataOther && <p className="text-xs text-destructive">{errors.kuladevataOther}</p>}
             </div>
@@ -214,7 +245,7 @@ export default function Page() {
             <div className="space-y-2">
               <Label>Surname (In Use) <span className="text-destructive">*</span></Label>
               <Input placeholder="Current surname" value={formData.surnameInUse}
-                onChange={e => { setFormData(p => ({...p, surnameInUse: e.target.value})); setErrors(ev => ({...ev, surnameInUse: ""})) }}
+                onChange={e => { setFormData(p => ({...p, surnameInUse: e.target.value})); setErrors(ev => ({...ev, surnameInUse: ""})); }}
                 className={errors.surnameInUse ? "border-destructive" : ""} />
               {errors.surnameInUse && <p className="text-xs text-destructive">{errors.surnameInUse}</p>}
             </div>
@@ -245,6 +276,21 @@ export default function Page() {
           {loading ? "Saving..." : "Save & Continue"} <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
+
+      <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset Profile?</AlertDialogTitle>
+            <AlertDialogDescription>This will clear all your profile data. Your account remains but all filled information will be deleted. This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleReset} disabled={resetting} className="bg-destructive hover:bg-destructive/90">
+              {resetting ? "Resetting..." : "Yes, Reset"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

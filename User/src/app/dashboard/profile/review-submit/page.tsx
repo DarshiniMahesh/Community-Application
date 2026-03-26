@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ArrowLeft, Send, Edit, CheckCircle2, Loader2, Lock, Calendar } from "lucide-react";
 import { toast } from "sonner";
@@ -24,6 +24,38 @@ const steps = [
   { id: "6", name: "Economic",  href: "/dashboard/profile/economic-details" },
   { id: "7", name: "Review",    href: "/dashboard/profile/review-submit" },
 ];
+
+function Field({ label, value }: { label: string; value?: string | null | boolean }) {
+  if (value === undefined || value === null || value === "") return null;
+  return (
+    <div className="space-y-0.5">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <p className="text-sm font-medium text-foreground">
+        {typeof value === "boolean" ? (value ? "Yes" : "No") : value}
+      </p>
+    </div>
+  );
+}
+
+function SectionHeader({ title, href, isLocked, memberIndex }: { title: string; href: string; isLocked: boolean; memberIndex?: number }) {
+  const router = useRouter();
+  return (
+    <div className="flex items-center justify-between py-2 border-b border-border mb-4">
+      <h3 className="font-semibold text-foreground">{title}</h3>
+      {!isLocked && (
+        <Button variant="ghost" size="sm" className="gap-1.5 text-primary h-7"
+          onClick={() => {
+            if (memberIndex !== undefined) {
+              sessionStorage.setItem("openMemberIndex", String(memberIndex));
+            }
+            router.push(href);
+          }}>
+          <Edit className="h-3.5 w-3.5" /> Edit
+        </Button>
+      )}
+    </div>
+  );
+}
 
 export default function Page() {
   const router = useRouter();
@@ -46,8 +78,8 @@ export default function Page() {
     .finally(() => setLoading(false));
   }, []);
 
-  const status = profileMeta?.status as string;
-  const isLocked = ["submitted", "under_review", "approved"].includes(status);
+  const status      = profileMeta?.status as string;
+  const isLocked    = ["submitted", "under_review", "approved"].includes(status);
   const submittedAt = profileMeta?.submitted_at as string | null;
 
   const handleSubmit = () => {
@@ -71,18 +103,29 @@ export default function Page() {
 
   if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="h-6 w-6 animate-spin mr-2" />Loading...</div>;
 
-  const s1 = profileData?.step1 as Record<string, string> | null;
-  const s2 = profileData?.step2 as Record<string, string> | null;
-  const s3 = profileData?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
-  const s4 = profileData?.step4 as Record<string, string>[] | null;
-  const s5 = profileData?.step5 as Record<string, string>[] | null;
+  const s1    = profileData?.step1 as Record<string, string> | null;
+  const s2    = profileData?.step2 as Record<string, string> | null;
+  const s3    = profileData?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
+  const s4    = profileData?.step4 as Record<string, string>[] | null;
+  const s5    = profileData?.step5 as Record<string, unknown>[] | null;
   const s6eco = (profileData?.step6 as { economic?: Record<string, unknown> } | null)?.economic;
+  const s6ins = (profileData?.step6 as { insurance?: Record<string, unknown>[] } | null)?.insurance || [];
+  const s6doc = (profileData?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || [];
+
   const currentAddr  = s4?.find(a => a.address_type === "current");
   const hometownAddr = s4?.find(a => a.address_type === "hometown");
 
+  // User's education = first entry in step5 (Self)
+  const userEdu = s5?.[0];
+  // User's insurance/documents
+  const userIns = s6ins[0];
+  const userDoc = s6doc[0];
+
+  const familyMembers = s3?.members || [];
+
   return (
     <>
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-6 pb-10">
         <div>
           <Button variant="ghost" onClick={() => router.push("/dashboard/profile")} className="gap-2 mb-4">
             <ArrowLeft className="h-4 w-4" /> Back to Profile
@@ -101,9 +144,7 @@ export default function Page() {
                 <Lock className="h-5 w-5 text-blue-600 flex-shrink-0" />
                 <div className="flex-1">
                   <p className="font-medium text-blue-800">Profile Locked</p>
-                  <p className="text-sm text-blue-600">
-                    Your profile is under review. Editing is disabled until Sangha completes the review.
-                  </p>
+                  <p className="text-sm text-blue-600">Your profile is under review. Editing is disabled until Sangha completes the review.</p>
                 </div>
                 <Badge className="bg-blue-100 text-blue-800 capitalize">{status.replace("_", " ")}</Badge>
               </div>
@@ -117,110 +158,237 @@ export default function Page() {
           </Card>
         )}
 
+        {/* ═══ YOUR INFORMATION ═══ */}
         <Card className="shadow-sm border-l-4 border-l-primary">
-          <CardHeader><CardTitle>Profile Summary</CardTitle></CardHeader>
-          <CardContent>
-            <Accordion type="multiple" defaultValue={["item-1"]} className="w-full">
+          <CardHeader>
+            <CardTitle className="text-lg">Your Information</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
 
-              <AccordionItem value="item-1">
-                <AccordionTrigger>Personal Details</AccordionTrigger>
-                <AccordionContent>
-                  {!isLocked && <div className="flex justify-end mb-3"><Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/profile/personal-details")} className="gap-2"><Edit className="h-4 w-4" /> Edit</Button></div>}
-                  {s1 ? (
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div><Label className="text-muted-foreground">Full Name</Label><p className="font-medium">{[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")}</p></div>
-                      <div><Label className="text-muted-foreground">Gender</Label><p className="font-medium capitalize">{s1.gender}</p></div>
-                      <div><Label className="text-muted-foreground">Date of Birth</Label><p className="font-medium">{s1.date_of_birth ? new Date(s1.date_of_birth).toLocaleDateString("en-IN") : "—"}</p></div>
-                      <div><Label className="text-muted-foreground">Marital Status</Label><p className="font-medium">{s1.is_married ? "Married" : "Unmarried"}</p></div>
-                      {s1.fathers_name && <div><Label className="text-muted-foreground">Father&apos;s Name</Label><p className="font-medium">{s1.fathers_name}</p></div>}
+            {/* Personal */}
+            <div>
+              <SectionHeader title="Personal Details" href="/dashboard/profile/personal-details" isLocked={isLocked} />
+              {s1 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <Field label="Full Name" value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
+                  <Field label="Gender" value={s1.gender} />
+                  <Field label="Date of Birth" value={s1.date_of_birth ? new Date(s1.date_of_birth).toLocaleDateString("en-IN") : null} />
+                  <Field label="Marital Status" value={s1.is_married ? "Married" : "Single"} />
+                  {s1.is_married && <Field label="Spouse Name" value={s1.wife_name || s1.husbands_name} />}
+                  <Field label="Father's Name" value={s1.fathers_name} />
+                  <Field label="Mother's Name" value={s1.mothers_name} />
+                  <Field label="Surname in Use" value={s1.surname_in_use} />
+                  <Field label="Disability" value={s1.has_disability === "yes" ? "Yes" : s1.has_disability === "no" ? "No" : null} />
+                  {s1.is_part_of_sangha === "yes" && <>
+                    <Field label="Sangha Name" value={s1.sangha_name} />
+                    <Field label="Sangha Role" value={s1.sangha_role} />
+                  </>}
+                </div>
+              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+            </div>
+
+            <Separator />
+
+            {/* Religious */}
+            <div>
+              <SectionHeader title="Religious Details" href="/dashboard/profile/religious-details" isLocked={isLocked} />
+              {s2 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <Field label="Gotra"          value={s2.gotra} />
+                  <Field label="Pravara"        value={s2.pravara} />
+                  <Field label="Upanama"        value={s2.upanama} />
+                  <Field label="Kuladevata"     value={s2.kuladevata_other || s2.kuladevata} />
+                  <Field label="Surname"        value={s2.surname_in_use} />
+                  <Field label="Family Priest"  value={s2.priest_name} />
+                  <Field label="Priest Location" value={s2.priest_location} />
+                </div>
+              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+            </div>
+
+            <Separator />
+
+            {/* Location */}
+            <div>
+              <SectionHeader title="Location" href="/dashboard/profile/location-information" isLocked={isLocked} />
+              {currentAddr ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Current Address</Label>
+                    <p className="text-sm font-medium mt-0.5">
+                      {[currentAddr.flat_no, currentAddr.building, currentAddr.street, currentAddr.area, currentAddr.city, currentAddr.state, currentAddr.pincode].filter(Boolean).join(", ")}
+                    </p>
+                  </div>
+                  {hometownAddr && (
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Home Town</Label>
+                      <p className="text-sm font-medium mt-0.5">
+                        {[hometownAddr.city, hometownAddr.state].filter(Boolean).join(", ")}
+                      </p>
                     </div>
-                  ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
-                </AccordionContent>
-              </AccordionItem>
+                  )}
+                </div>
+              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+            </div>
 
-              <AccordionItem value="item-2">
-                <AccordionTrigger>Religious Details</AccordionTrigger>
-                <AccordionContent>
-                  {!isLocked && <div className="flex justify-end mb-3"><Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/profile/religious-details")} className="gap-2"><Edit className="h-4 w-4" /> Edit</Button></div>}
-                  {s2 ? (
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div><Label className="text-muted-foreground">Gotra</Label><p className="font-medium">{s2.gotra || "—"}</p></div>
-                      <div><Label className="text-muted-foreground">Pravara</Label><p className="font-medium">{s2.pravara || "—"}</p></div>
-                      <div><Label className="text-muted-foreground">Upanama</Label><p className="font-medium">{s2.upanama || "—"}</p></div>
-                      <div><Label className="text-muted-foreground">Kuladevata</Label><p className="font-medium">{s2.kuladevata_other || s2.kuladevata || "—"}</p></div>
-                      <div><Label className="text-muted-foreground">Surname</Label><p className="font-medium">{s2.surname_in_use || "—"}</p></div>
-                      <div><Label className="text-muted-foreground">Family Priest</Label><p className="font-medium">{s2.priest_name || "—"}</p></div>
+            <Separator />
+
+            {/* User's Education */}
+            <div>
+              <SectionHeader title="Education & Profession" href="/dashboard/profile/education-profession" isLocked={isLocked} />
+              {userEdu ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <Field label="Highest Education" value={userEdu.highest_education as string} />
+                  <Field label="Profession"        value={userEdu.profession_type as string} />
+                  <Field label="Industry"          value={userEdu.industry as string} />
+                  <Field label="Brief Profile"     value={userEdu.brief_profile as string} />
+                  {(userEdu.certifications as string[])?.filter(c => c).length > 0 && (
+                    <div className="col-span-2">
+                      <Label className="text-xs text-muted-foreground">Certifications</Label>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(userEdu.certifications as string[]).filter(c => c).map((c, i) => (
+                          <Badge key={i} variant="secondary" className="text-xs">{c}</Badge>
+                        ))}
+                      </div>
                     </div>
-                  ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="item-3">
-                <AccordionTrigger>Family Information</AccordionTrigger>
-                <AccordionContent>
-                  {!isLocked && <div className="flex justify-end mb-3"><Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/profile/family-information")} className="gap-2"><Edit className="h-4 w-4" /> Edit</Button></div>}
-                  {s3?.family_info ? (
-                    <div className="space-y-3">
-                      <div><Label className="text-muted-foreground">Family Type</Label><p className="font-medium capitalize">{s3.family_info.family_type}</p></div>
-                      {s3.members?.map((m, i) => (
-                        <div key={i} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                          <div><p className="font-medium">{m.name}</p><p className="text-sm text-muted-foreground">{m.relation}, Age: {m.age}</p></div>
-                          <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded capitalize">{m.status}</span>
-                        </div>
-                      ))}
+                  )}
+                  {(userEdu.languages as { language: string }[])?.length > 0 && (
+                    <div className="col-span-2">
+                      <Label className="text-xs text-muted-foreground">Languages</Label>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(userEdu.languages as { language: string; language_other?: string }[]).map((l, i) => (
+                          <Badge key={i} variant="secondary" className="text-xs">
+                            {l.language === "Other" ? l.language_other : l.language}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
-                  ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
-                </AccordionContent>
-              </AccordionItem>
+                  )}
+                </div>
+              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+            </div>
 
-              <AccordionItem value="item-4">
-                <AccordionTrigger>Location Information</AccordionTrigger>
-                <AccordionContent>
-                  {!isLocked && <div className="flex justify-end mb-3"><Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/profile/location-information")} className="gap-2"><Edit className="h-4 w-4" /> Edit</Button></div>}
-                  {currentAddr ? (
-                    <div className="space-y-3">
-                      <div><Label className="text-muted-foreground">Current Address</Label><p className="font-medium">{[currentAddr.flat_no, currentAddr.building, currentAddr.street, currentAddr.area, currentAddr.city, currentAddr.state, currentAddr.pincode].filter(Boolean).join(", ")}</p></div>
-                      {hometownAddr && <div><Label className="text-muted-foreground">Home Town</Label><p className="font-medium">{[hometownAddr.city, hometownAddr.state].filter(Boolean).join(", ")}</p></div>}
+            <Separator />
+
+            {/* User's Economic */}
+            <div>
+              <SectionHeader title="Economic Details" href="/dashboard/profile/economic-details" isLocked={isLocked} />
+              {s6eco ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <Field label="Self Income"   value={INCOME_SLAB_REVERSE[s6eco.self_income as string]} />
+                    <Field label="Family Income" value={INCOME_SLAB_REVERSE[s6eco.family_income as string]} />
+                  </div>
+                  {userIns && (
+                    <div className="grid grid-cols-3 gap-4">
+                      <Field label="Health Insurance" value={(userIns.health_coverage as string[])?.length > 0 ? "Yes" : "No"} />
+                      <Field label="Life Insurance"   value={(userIns.life_coverage as string[])?.length > 0 ? "Yes" : "No"} />
+                      <Field label="Term Insurance"   value={(userIns.term_coverage as string[])?.length > 0 ? "Yes" : "No"} />
                     </div>
-                  ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="item-5">
-                <AccordionTrigger>Education & Profession</AccordionTrigger>
-                <AccordionContent>
-                  {!isLocked && <div className="flex justify-end mb-3"><Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/profile/education-profession")} className="gap-2"><Edit className="h-4 w-4" /> Edit</Button></div>}
-                  {s5?.length ? (
-                    <div className="space-y-2">
-                      {s5.map((m, i) => (
-                        <div key={i} className="p-3 bg-muted rounded-lg">
-                          <p className="font-medium">{m.member_name || `Member ${i + 1}`} — {m.member_relation}</p>
-                          <p className="text-sm text-muted-foreground">{m.highest_education} · {m.profession_type}</p>
-                        </div>
-                      ))}
+                  )}
+                  {userDoc && (
+                    <div className="grid grid-cols-3 gap-4">
+                      <Field label="Aadhaar"      value={(userDoc.aadhaar_coverage as string[])?.length > 0 ? "Yes" : "No"} />
+                      <Field label="PAN"          value={(userDoc.pan_coverage as string[])?.length > 0 ? "Yes" : "No"} />
+                      <Field label="Konkani Card" value={(userDoc.all_records_coverage as string[])?.length > 0 ? "Yes" : "No"} />
                     </div>
-                  ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
-                </AccordionContent>
-              </AccordionItem>
+                  )}
+                </div>
+              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+            </div>
 
-              <AccordionItem value="item-6">
-                <AccordionTrigger>Economic Details</AccordionTrigger>
-                <AccordionContent>
-                  {!isLocked && <div className="flex justify-end mb-3"><Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/profile/economic-details")} className="gap-2"><Edit className="h-4 w-4" /> Edit</Button></div>}
-                  {s6eco ? (
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div><Label className="text-muted-foreground">Self Income</Label><p className="font-medium">{INCOME_SLAB_REVERSE[s6eco.self_income as string] || "—"}</p></div>
-                      <div><Label className="text-muted-foreground">Family Income</Label><p className="font-medium">{INCOME_SLAB_REVERSE[s6eco.family_income as string] || "—"}</p></div>
-                    </div>
-                  ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
-                </AccordionContent>
-              </AccordionItem>
-
-            </Accordion>
           </CardContent>
         </Card>
 
-        {/* Submit section — hidden when locked */}
+        {/* ═══ FAMILY MEMBERS ═══ */}
+        {familyMembers.length > 0 && (
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg">Family Members</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-8">
+              {familyMembers.map((member, idx) => {
+                // Find this member's education (index + 1 since 0 is Self)
+                const memberEdu = s5?.[idx + 1];
+                const memberIns = s6ins[idx + 1];
+                const memberDoc = s6doc[idx + 1];
+
+                return (
+                  <div key={idx} className="space-y-4">
+                    {idx > 0 && <Separator />}
+
+                    {/* Member header */}
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-bold text-primary">{idx + 1}</span>
+                      </div>
+                      <div>
+                        <p className="font-semibold text-foreground">{member.name}</p>
+                        <p className="text-xs text-muted-foreground">{member.relation}</p>
+                      </div>
+                    </div>
+
+                    {/* Member info */}
+                    <div>
+                      <SectionHeader title="Member Details" href="/dashboard/profile/family-information" isLocked={isLocked} />
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <Field label="Name"       value={member.name} />
+                        <Field label="Relation"   value={member.relation} />
+                        <Field label="Date of Birth" value={member.dob || (member.age ? `Age: ${member.age}` : null)} />
+                        <Field label="Gender"     value={member.gender} />
+                        <Field label="Status"     value={member.status} />
+                        <Field label="Disability" value={member.disability === "yes" ? "Yes" : member.disability === "no" ? "No" : null} />
+                      </div>
+                    </div>
+
+                    {/* Member's Education */}
+                    <div>
+                      <SectionHeader title="Education & Profession" href="/dashboard/profile/education-profession" isLocked={isLocked} memberIndex={idx + 1} />
+                      {memberEdu ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                          <Field label="Highest Education" value={memberEdu.highest_education as string} />
+                          <Field label="Profession"        value={memberEdu.profession_type as string} />
+                          <Field label="Industry"          value={memberEdu.industry as string} />
+                          {(memberEdu.languages as { language: string }[])?.length > 0 && (
+                            <div className="col-span-2">
+                              <Label className="text-xs text-muted-foreground">Languages</Label>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {(memberEdu.languages as { language: string; language_other?: string }[]).map((l, li) => (
+                                  <Badge key={li} variant="secondary" className="text-xs">
+                                    {l.language === "Other" ? l.language_other : l.language}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+                    </div>
+
+                    {/* Member's Economic Coverage */}
+                    <div>
+                      <SectionHeader title="Insurance & Documents" href="/dashboard/profile/economic-details" isLocked={isLocked} memberIndex={idx + 1} />
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        {memberIns && <>
+                          <Field label="Health Insurance" value={(memberIns.health_coverage as string[])?.length > 0 ? "Yes" : "No"} />
+                          <Field label="Life Insurance"   value={(memberIns.life_coverage as string[])?.length > 0 ? "Yes" : "No"} />
+                          <Field label="Term Insurance"   value={(memberIns.term_coverage as string[])?.length > 0 ? "Yes" : "No"} />
+                        </>}
+                        {memberDoc && <>
+                          <Field label="Aadhaar"      value={(memberDoc.aadhaar_coverage as string[])?.length > 0 ? "Yes" : "No"} />
+                          <Field label="PAN"          value={(memberDoc.pan_coverage as string[])?.length > 0 ? "Yes" : "No"} />
+                          <Field label="Konkani Card" value={(memberDoc.all_records_coverage as string[])?.length > 0 ? "Yes" : "No"} />
+                        </>}
+                      </div>
+                    </div>
+
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Submit section */}
         {!isLocked && (
           <>
             <Card className="shadow-sm bg-secondary/30">
@@ -230,7 +398,7 @@ export default function Page() {
                     onCheckedChange={c => { setConfirmed(c as boolean); setErrors(e => ({...e, confirmation: ""})) }} />
                   <div className="space-y-1">
                     <Label htmlFor="confirmation" className="cursor-pointer leading-relaxed">
-                      I confirm that all the information provided above is accurate and true to the best of my knowledge.
+                      I confirm that all the information provided above is accurate and true to the best of my knowledge. I understand that providing false information may result in rejection of my application.
                     </Label>
                     {errors.confirmation && <p className="text-xs text-destructive">{errors.confirmation}</p>}
                   </div>

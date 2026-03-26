@@ -6,8 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { User, Users, MapPin, GraduationCap, Wallet, FileText, Clock, CheckCircle2, Edit, ArrowRight, AlertCircle } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { User, Users, MapPin, GraduationCap, Wallet, FileText, Clock, CheckCircle2, Edit, ArrowRight, AlertCircle, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 const profileSections = [
   { name: "Personal Details",       stepKey: "step1_completed", href: "/dashboard/profile/personal-details",   icon: User },
@@ -25,22 +27,38 @@ export default function Page() {
   const router = useRouter();
   const [profile, setProfile] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
-  useEffect(() => {
+  const fetchProfile = () => {
     api.get("/users/profile")
       .then(data => setProfile(data))
       .catch(() => setProfile(null))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { fetchProfile(); }, []);
 
   const status = (profile?.status as ProfileStatus) || "draft";
-  const isLocked = ["submitted", "under_review", "approved"].includes(status);
+  const isLocked = ["submitted", "under_review"].includes(status);
+  const canReset = status === "draft" || status === "changes_requested" || status === "approved";
   const completionPct = (profile?.overall_completion_pct as number) || 0;
   const completedCount = profileSections.filter(s => s.stepKey && profile?.[s.stepKey]).length;
+  const nextStep = profileSections.find(s => s.stepKey && !profile?.[s.stepKey])?.href || "/dashboard/profile/review-submit";
 
-  // Find next incomplete step for "Continue Editing"
-  const nextStep = profileSections.find(s => s.stepKey && !profile?.[s.stepKey])?.href
-    || "/dashboard/profile/review-submit";
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      await api.post("/users/profile/reset", {});
+      toast.success("Profile reset successfully. You can start fresh.");
+      fetchProfile();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setResetting(false);
+      setShowResetDialog(false);
+    }
+  };
 
   const getStatusConfig = (status: ProfileStatus) => {
     switch (status) {
@@ -58,7 +76,6 @@ export default function Page() {
 
   if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
 
-  // Approved — show completion view
   if (status === "approved") {
     return (
       <div className="max-w-2xl mx-auto space-y-6">
@@ -72,22 +89,53 @@ export default function Page() {
                 <h2 className="text-2xl font-semibold text-foreground">Profile Approved!</h2>
                 <p className="text-muted-foreground mt-2">Your community registration has been verified and approved by the Sangha.</p>
               </div>
-              <div className="flex gap-3 mt-2">
+              <div className="flex gap-3 mt-2 flex-wrap justify-center">
                 <Button onClick={() => router.push("/dashboard/profile")}>View Profile</Button>
                 <Button variant="outline" onClick={() => router.push("/dashboard/status")}>View Status</Button>
+                {canReset && (
+                  <Button variant="outline" className="gap-2 text-destructive border-destructive hover:bg-destructive/10"
+                    onClick={() => setShowResetDialog(true)}>
+                    <RotateCcw className="h-4 w-4" /> Reset & Re-apply
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>
         </Card>
+
+        <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Reset Profile?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will clear all your profile data and let you start fresh. Your account will remain but all filled information will be deleted. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleReset} disabled={resetting} className="bg-destructive hover:bg-destructive/90">
+                {resetting ? "Resetting..." : "Yes, Reset Everything"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   }
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold text-foreground">Welcome to Your Dashboard</h1>
-        <p className="text-muted-foreground mt-1">Manage your community profile and track your registration status</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold text-foreground">Welcome to Your Dashboard</h1>
+          <p className="text-muted-foreground mt-1">Manage your community profile and track your registration status</p>
+        </div>
+        {canReset && (
+          <Button variant="outline" size="sm" className="gap-2 text-destructive border-destructive hover:bg-destructive/10"
+            onClick={() => setShowResetDialog(true)}>
+            <RotateCcw className="h-4 w-4" /> Reset Profile
+          </Button>
+        )}
       </div>
 
       <Card className="border-l-4 border-l-primary shadow-sm">
@@ -153,22 +201,36 @@ export default function Page() {
             <Button variant="outline" className="h-auto flex-col gap-2 py-4"
               disabled={isLocked}
               onClick={() => router.push(nextStep)}>
-              <Edit className="h-6 w-6 text-primary" />
-              <span>Continue Editing</span>
+              <Edit className="h-6 w-6 text-primary" /><span>Continue Editing</span>
             </Button>
             <Button variant="outline" className="h-auto flex-col gap-2 py-4"
               onClick={() => router.push("/dashboard/profile/review-submit")}>
-              <FileText className="h-6 w-6 text-primary" />
-              <span>Review Details</span>
+              <FileText className="h-6 w-6 text-primary" /><span>Review Details</span>
             </Button>
             <Button variant="outline" className="h-auto flex-col gap-2 py-4"
               onClick={() => router.push("/dashboard/status")}>
-              <Clock className="h-6 w-6 text-primary" />
-              <span>View Status</span>
+              <Clock className="h-6 w-6 text-primary" /><span>View Status</span>
             </Button>
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset Profile?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear all your profile data and let you start fresh. Your account will remain but all filled information will be deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleReset} disabled={resetting} className="bg-destructive hover:bg-destructive/90">
+              {resetting ? "Resetting..." : "Yes, Reset Everything"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

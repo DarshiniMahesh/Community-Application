@@ -5,17 +5,16 @@ import { useRouter } from "next/navigation";
 import { Stepper } from "../Stepper";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { ArrowLeft, ArrowRight, Plus, Trash2 } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { ArrowLeft, ArrowRight, RotateCcw, Check } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
-import { INCOME_SLAB_MAP, INCOME_SLAB_REVERSE, COVERAGE_MAP } from "@/lib/constants";
+import { INCOME_SLAB_MAP, INCOME_SLAB_REVERSE } from "@/lib/constants";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -27,33 +26,94 @@ const steps = [
   { id: "7", name: "Review",    href: "/dashboard/profile/review-submit" },
 ];
 
-const incomeSlabs       = ["Less than ₹1 Lakh","₹1 – 2 Lakh","₹2 – 3 Lakh","₹3 – 5 Lakh","₹5 – 10 Lakh","₹10 – 25 Lakh","₹25 Lakh+"];
-const familyFacilities  = ["Stay in Rented House","Own a House","Own Agricultural Land","Own a Two Wheeler","Own a Car"];
-const insuranceTypes    = ["Have Health Insurance","Have Life Insurance","Have Term Insurance"];
-const documentTypes     = ["Have Ration Card","Have AADHAR","Have PAN","Have All Records in Place"];
-const coverageOptions   = ["Self","Wife","Kids","Parents","All"];
-const investmentOptions = ["Fixed Deposits","Mutual Funds / SIP","Trading in Shares / Demat Account","Investment - Others"];
+const incomeSlabs = [
+  "Less than ₹1 Lakh","₹1 – 2 Lakh","₹2 – 3 Lakh",
+  "₹3 – 5 Lakh","₹5 – 10 Lakh","₹10 – 25 Lakh","₹25 Lakh+",
+];
+const familyFacilities = [
+  "Stay in Rented House","Own a House",
+  "Own Agricultural Land","Own a Two Wheeler","Own a Car",
+];
+const investmentOptions = [
+  "Fixed Deposits","Mutual Funds / SIP",
+  "Trading in Shares / Demat Account","Investment - Others",
+];
 
-interface MemberCoverage { id: string; name: string; relation: string; insurance: Record<string, string[]>; documents: Record<string, string[]>; }
+interface MemberCoverage {
+  id: string;
+  name: string;
+  relation: string;
+  healthInsurance: boolean;
+  lifeInsurance: boolean;
+  termInsurance: boolean;
+  aadhaar: boolean;
+  pan: boolean;
+  voterId: boolean;
+  landDocuments: boolean;
+  drivingLicense: boolean;
+  konkaniCard: boolean;
+}
 
-function blankMember(id: string): MemberCoverage {
-  const ins: Record<string,string[]> = {}; insuranceTypes.forEach(t => { ins[t] = []; });
-  const doc: Record<string,string[]> = {}; documentTypes.forEach(d => { doc[d] = []; });
-  return { id, name: "", relation: "", insurance: ins, documents: doc };
+function blankMember(id: string, name = "", relation = ""): MemberCoverage {
+  return {
+    id, name, relation,
+    healthInsurance: false, lifeInsurance: false, termInsurance: false,
+    aadhaar: false, pan: false, voterId: false,
+    landDocuments: false, drivingLicense: false, konkaniCard: false,
+  };
+}
+
+function ToggleCell({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <div className="flex items-center justify-center">
+      <button
+        type="button"
+        onClick={onChange}
+        className={`inline-flex items-center justify-center gap-1 px-3 py-1 rounded-lg border-2 text-xs font-medium transition-all min-w-[52px] ${
+          checked
+            ? "border-primary bg-primary/10 text-primary"
+            : "border-border text-muted-foreground hover:border-primary/40"
+        }`}
+      >
+        {checked ? <><Check className="h-3 w-3" />Yes</> : <span>—</span>}
+      </button>
+    </div>
+  );
 }
 
 export default function Page() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [selfIncome, setSelfIncome]       = useState("");
-  const [familyIncome, setFamilyIncome]   = useState("");
+  const [loading, setLoading]                         = useState(false);
+  const [selfIncome, setSelfIncome]                   = useState("");
+  const [familyIncome, setFamilyIncome]               = useState("");
   const [selectedFacilities, setSelectedFacilities]   = useState<string[]>([]);
   const [selectedInvestments, setSelectedInvestments] = useState<string[]>([]);
-  const [members, setMembers] = useState<MemberCoverage[]>([blankMember("1")]);
-  const [errors, setErrors] = useState<Record<string,string>>({});
+  const [members, setMembers]                         = useState<MemberCoverage[]>([blankMember("self", "You", "Self")]);
+  const [errors, setErrors]                           = useState<Record<string, string>>({});
+  const [showResetDialog, setShowResetDialog]         = useState(false);
+  const [resetting, setResetting]                     = useState(false);
+  const [canReset, setCanReset]                       = useState(false);
 
   useEffect(() => {
+    api.get("/users/profile").then(meta => {
+      const s = (meta as Record<string, string>).status;
+      setCanReset(s === "draft" || s === "changes_requested" || s === "approved");
+    }).catch(() => {});
+
     api.get("/users/profile/full").then((data) => {
+      const s1 = data.step1;
+      const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "You";
+      const familyMems: Record<string, string>[] = data.step3?.members || [];
+
+      const allBases = [
+        { id: "self", name: userName, relation: "Self" },
+        ...familyMems.map((fm, i) => ({
+          id:       String(i),
+          name:     fm.name     || `Member ${i + 1}`,
+          relation: fm.relation || "",
+        })),
+      ];
+
       const eco = data.step6?.economic;
       if (eco) {
         if (eco.self_income)   setSelfIncome(INCOME_SLAB_REVERSE[eco.self_income] || "");
@@ -66,18 +126,45 @@ export default function Page() {
         if (eco.fac_car)               fac.push("Own a Car");
         setSelectedFacilities(fac);
         const inv: string[] = [];
-        if (eco.inv_fixed_deposits)    inv.push("Fixed Deposits");
-        if (eco.inv_mutual_funds_sip)  inv.push("Mutual Funds / SIP");
-        if (eco.inv_shares_demat)      inv.push("Trading in Shares / Demat Account");
-        if (eco.inv_others)            inv.push("Investment - Others");
+        if (eco.inv_fixed_deposits)   inv.push("Fixed Deposits");
+        if (eco.inv_mutual_funds_sip) inv.push("Mutual Funds / SIP");
+        if (eco.inv_shares_demat)     inv.push("Trading in Shares / Demat Account");
+        if (eco.inv_others)           inv.push("Investment - Others");
         setSelectedInvestments(inv);
       }
+
+      const insurance = (data.step6?.insurance || []) as Record<string, unknown>[];
+      const documents = (data.step6?.documents  || []) as Record<string, unknown>[];
+
+      const mapped = allBases.map(base => {
+        const ins = insurance.find(i => i.member_name === base.name) || {};
+        const doc = documents.find(d => d.member_name === base.name) || {};
+        return {
+          ...blankMember(base.id, base.name, base.relation),
+          healthInsurance: ((ins.health_coverage as string[]) || []).length > 0,
+          lifeInsurance:   ((ins.life_coverage   as string[]) || []).length > 0,
+          termInsurance:   ((ins.term_coverage   as string[]) || []).length > 0,
+          aadhaar:         ((doc.aadhaar_coverage     as string[]) || []).length > 0,
+          pan:             ((doc.pan_coverage         as string[]) || []).length > 0,
+          voterId:         ((doc.voter_id_coverage    as string[]) || []).length > 0,
+          landDocuments:   ((doc.land_doc_coverage    as string[]) || []).length > 0,
+          drivingLicense:  ((doc.dl_coverage          as string[]) || []).length > 0,
+          konkaniCard:     ((doc.all_records_coverage as string[]) || []).length > 0,
+        };
+      });
+
+      setMembers(mapped);
     }).catch(() => {});
   }, []);
 
+  const toggleFacility   = (f: string) => setSelectedFacilities(p  => p.includes(f) ? p.filter(x => x !== f) : [...p, f]);
+  const toggleInvestment = (i: string) => setSelectedInvestments(p => p.includes(i) ? p.filter(x => x !== i) : [...p, i]);
+  const toggleMember = (id: string, field: keyof MemberCoverage) =>
+    setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: !m[field] } : m));
+
   const buildPayload = () => ({
     economic: {
-      self_income:           INCOME_SLAB_MAP[selfIncome] || null,
+      self_income:           INCOME_SLAB_MAP[selfIncome]   || null,
       family_income:         INCOME_SLAB_MAP[familyIncome] || null,
       fac_rented_house:      selectedFacilities.includes("Stay in Rented House"),
       fac_own_house:         selectedFacilities.includes("Own a House"),
@@ -90,41 +177,30 @@ export default function Page() {
       inv_others:            selectedInvestments.includes("Investment - Others"),
     },
     insurance: members.map((m, i) => ({
-      member_name:     m.name || null,
+      member_name:     m.name     || null,
       member_relation: m.relation || null,
       sort_order:      i,
-      health_coverage: m.insurance["Have Health Insurance"].map(c => COVERAGE_MAP[c]).filter(Boolean),
-      life_coverage:   m.insurance["Have Life Insurance"].map(c => COVERAGE_MAP[c]).filter(Boolean),
-      term_coverage:   m.insurance["Have Term Insurance"].map(c => COVERAGE_MAP[c]).filter(Boolean),
+      health_coverage: m.healthInsurance ? ["self"] : [],
+      life_coverage:   m.lifeInsurance   ? ["self"] : [],
+      term_coverage:   m.termInsurance   ? ["self"] : [],
     })),
     documents: members.map((m, i) => ({
-      member_name:          m.name || null,
+      member_name:          m.name     || null,
       member_relation:      m.relation || null,
       sort_order:           i,
-      ration_card_coverage: m.documents["Have Ration Card"].map(c => COVERAGE_MAP[c]).filter(Boolean),
-      aadhaar_coverage:     m.documents["Have AADHAR"].map(c => COVERAGE_MAP[c]).filter(Boolean),
-      pan_coverage:         m.documents["Have PAN"].map(c => COVERAGE_MAP[c]).filter(Boolean),
-      all_records_coverage: m.documents["Have All Records in Place"].map(c => COVERAGE_MAP[c]).filter(Boolean),
+      aadhaar_coverage:     m.aadhaar        ? ["self"] : [],
+      pan_coverage:         m.pan            ? ["self"] : [],
+      voter_id_coverage:    m.voterId        ? ["self"] : [],
+      land_doc_coverage:    m.landDocuments  ? ["self"] : [],
+      dl_coverage:          m.drivingLicense ? ["self"] : [],
+      all_records_coverage: m.konkaniCard    ? ["self"] : [],
     })),
   });
 
   useAutoSave("/users/profile/step6", buildPayload, [selfIncome, familyIncome, selectedFacilities, selectedInvestments, members]);
 
-  const toggleFacility   = (f: string) => setSelectedFacilities(prev => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]);
-  const toggleInvestment = (i: string) => setSelectedInvestments(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]);
-  const addMember    = () => setMembers(prev => [...prev, blankMember(Date.now().toString())]);
-  const removeMember = (id: string) => { if (members.length === 1) return; setMembers(prev => prev.filter(m => m.id !== id)); };
-  const updateMember = (id: string, field: "name"|"relation", value: string) => setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: value } : m));
-  const toggleCoverage = (memberId: string, section: "insurance"|"documents", key: string, option: string) => {
-    setMembers(prev => prev.map(m => {
-      if (m.id !== memberId) return m;
-      const cur = m[section][key];
-      return { ...m, [section]: { ...m[section], [key]: cur.includes(option) ? cur.filter(x => x !== option) : [...cur, option] } };
-    }));
-  };
-
   const validate = () => {
-    const e: Record<string,string> = {};
+    const e: Record<string, string> = {};
     if (!selfIncome)   e.selfIncome   = "Please select your income slab";
     if (!familyIncome) e.familyIncome = "Please select family income slab";
     setErrors(e);
@@ -145,66 +221,99 @@ export default function Page() {
     }
   };
 
-  const renderCoverageGrid = (member: MemberCoverage, section: "insurance"|"documents", types: string[]) => (
-    <div className="space-y-3">
-      {types.map(type => (
-        <div key={type} className="space-y-2">
-          <p className="text-sm font-medium text-foreground">{type}</p>
-          <div className="flex flex-wrap gap-2">
-            {coverageOptions.map(opt => {
-              const checked = member[section][type]?.includes(opt);
-              return (
-                <button key={opt} type="button" onClick={() => toggleCoverage(member.id, section, type, opt)}
-                  className={`px-3 py-1.5 rounded-lg border-2 text-xs font-medium transition-all ${checked ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/40 text-muted-foreground"}`}>
-                  {opt}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      await api.post("/users/profile/reset", {});
+      toast.success("Profile reset successfully.");
+      router.push("/dashboard");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setResetting(false);
+      setShowResetDialog(false);
+    }
+  };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-10">
-      <div>
-        <Button variant="ghost" onClick={() => router.push("/dashboard/profile")} className="gap-2 mb-4"><ArrowLeft className="h-4 w-4" /> Back to Profile</Button>
-        <h1 className="text-3xl font-semibold text-foreground">Economic Details</h1>
-        <p className="text-muted-foreground mt-1">Step 6 of 7 — Financial and asset information</p>
+    <div className="max-w-5xl mx-auto space-y-6 pb-10">
+
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <Button variant="ghost" onClick={() => router.push("/dashboard/profile")} className="gap-2 mb-4">
+            <ArrowLeft className="h-4 w-4" /> Back to Profile
+          </Button>
+          <h1 className="text-3xl font-semibold text-foreground">Economic Details</h1>
+          <p className="text-muted-foreground mt-1">Step 6 of 7 — Financial and asset information</p>
+        </div>
+        {canReset && (
+          <Button
+            variant="outline" size="sm"
+            className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
+            onClick={() => setShowResetDialog(true)}>
+            <RotateCcw className="h-4 w-4" /> Reset Profile
+          </Button>
+        )}
       </div>
 
       <Stepper steps={steps} currentStep={5} />
 
+      {/* Annual Income */}
       <Card className="shadow-sm border-l-4 border-l-primary">
-        <CardHeader><CardTitle>Annual Income</CardTitle><CardDescription>Select the applicable income range</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle>Annual Income</CardTitle>
+          <CardDescription>Select the applicable income range</CardDescription>
+        </CardHeader>
         <CardContent className="grid md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Self Income <span className="text-destructive">*</span></Label>
-            <Select value={selfIncome} onValueChange={v => { setSelfIncome(v); setErrors(e => ({...e, selfIncome: ""})) }}>
-              <SelectTrigger className={errors.selfIncome ? "border-destructive" : ""}><SelectValue placeholder="Select income range" /></SelectTrigger>
-              <SelectContent>{incomeSlabs.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            <Select value={selfIncome} onValueChange={v => { setSelfIncome(v); setErrors(e => ({...e, selfIncome: ""})); }}>
+              <SelectTrigger className={errors.selfIncome ? "border-destructive" : ""}>
+                <SelectValue placeholder="Select income range" />
+              </SelectTrigger>
+              <SelectContent>
+                {incomeSlabs.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
             </Select>
             {errors.selfIncome && <p className="text-xs text-destructive">{errors.selfIncome}</p>}
           </div>
           <div className="space-y-2">
             <Label>Family Income <span className="text-destructive">*</span></Label>
-            <Select value={familyIncome} onValueChange={v => { setFamilyIncome(v); setErrors(e => ({...e, familyIncome: ""})) }}>
-              <SelectTrigger className={errors.familyIncome ? "border-destructive" : ""}><SelectValue placeholder="Select income range" /></SelectTrigger>
-              <SelectContent>{incomeSlabs.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            <Select value={familyIncome} onValueChange={v => { setFamilyIncome(v); setErrors(e => ({...e, familyIncome: ""})); }}>
+              <SelectTrigger className={errors.familyIncome ? "border-destructive" : ""}>
+                <SelectValue placeholder="Select income range" />
+              </SelectTrigger>
+              <SelectContent>
+                {incomeSlabs.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
             </Select>
             {errors.familyIncome && <p className="text-xs text-destructive">{errors.familyIncome}</p>}
           </div>
         </CardContent>
       </Card>
 
+      {/* Family Facilities */}
       <Card className="shadow-sm">
-        <CardHeader><CardTitle>Family Facilities</CardTitle><CardDescription>Select all that apply</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle>Family Facilities</CardTitle>
+          <CardDescription>Select all that apply</CardDescription>
+        </CardHeader>
         <CardContent>
           <div className="grid md:grid-cols-2 gap-3">
             {familyFacilities.map(f => (
-              <div key={f} onClick={() => toggleFacility(f)} className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedFacilities.includes(f) ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
-                <Checkbox checked={selectedFacilities.includes(f)} onCheckedChange={() => toggleFacility(f)} />
+              <div
+                key={f}
+                onClick={() => toggleFacility(f)}
+                className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                  selectedFacilities.includes(f)
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/40"
+                }`}>
+                <Checkbox
+                  checked={selectedFacilities.includes(f)}
+                  onCheckedChange={() => toggleFacility(f)}
+                />
                 <Label className="font-normal cursor-pointer text-sm">{f}</Label>
               </div>
             ))}
@@ -212,64 +321,27 @@ export default function Page() {
         </CardContent>
       </Card>
 
+      {/* Investments */}
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle>Insurance & Documents — Per Member</CardTitle>
-          <CardDescription>Add each family member and select their coverage</CardDescription>
+          <CardTitle>Investments</CardTitle>
+          <CardDescription>Select all investment types that apply</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <Accordion type="multiple" defaultValue={[members[0]?.id]} className="space-y-3">
-            {members.map((member, index) => (
-              <AccordionItem key={member.id} value={member.id} className="border border-border rounded-xl overflow-hidden bg-white">
-                <div className="flex items-center pr-2">
-                  <AccordionTrigger className="flex-1 px-5 py-4 hover:no-underline hover:bg-muted/20 [&[data-state=open]]:bg-muted/10">
-                    <div className="flex items-center gap-3 w-full">
-                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-bold text-primary">{index + 1}</span>
-                      </div>
-                      <div className="flex-1 text-left">
-                        <p className="font-semibold text-foreground">{member.name || `Member ${index + 1}`}</p>
-                        <p className="text-xs text-muted-foreground">{member.relation || "Relation not set"}</p>
-                      </div>
-                      <Badge variant="outline" className="mr-2 bg-orange-50 text-orange-600 border-orange-200">Coverage</Badge>
-                    </div>
-                  </AccordionTrigger>
-                  {members.length > 1 && (
-                    <button aria-label="Remove member" type="button" onClick={() => removeMember(member.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 ml-1">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-                <AccordionContent className="px-5 pb-6 pt-4 border-t border-border space-y-6">
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div className="space-y-2"><Label>Member Name</Label><Input placeholder="Full name" value={member.name} onChange={e => updateMember(member.id, "name", e.target.value)} /></div>
-                    <div className="space-y-2"><Label>Relation to You</Label><Input placeholder="E.g. Son, Wife" value={member.relation} onChange={e => updateMember(member.id, "relation", e.target.value)} /></div>
-                  </div>
-                  <div className="space-y-3">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Insurance Coverage</p>
-                    {renderCoverageGrid(member, "insurance", insuranceTypes)}
-                  </div>
-                  <div className="space-y-3">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Document Status</p>
-                    {renderCoverageGrid(member, "documents", documentTypes)}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-          <Button type="button" variant="outline" onClick={addMember} className="w-full gap-2 border-dashed border-2 border-primary/40 text-primary hover:bg-primary/5 py-5 mt-2">
-            <Plus className="h-4 w-4" /> Add Another Member
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card className="shadow-sm">
-        <CardHeader><CardTitle>Investments</CardTitle><CardDescription>Select all investment types that apply</CardDescription></CardHeader>
         <CardContent>
           <div className="grid md:grid-cols-2 gap-3">
             {investmentOptions.map(inv => (
-              <div key={inv} onClick={() => toggleInvestment(inv)} className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedInvestments.includes(inv) ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
-                <Checkbox checked={selectedInvestments.includes(inv)} onCheckedChange={() => toggleInvestment(inv)} />
+              <div
+                key={inv}
+                onClick={() => toggleInvestment(inv)}
+                className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                  selectedInvestments.includes(inv)
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/40"
+                }`}>
+                <Checkbox
+                  checked={selectedInvestments.includes(inv)}
+                  onCheckedChange={() => toggleInvestment(inv)}
+                />
                 <Label className="font-normal cursor-pointer text-sm">{inv}</Label>
               </div>
             ))}
@@ -277,12 +349,137 @@ export default function Page() {
         </CardContent>
       </Card>
 
+      {/* Insurance Coverage */}
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle>Insurance Coverage</CardTitle>
+          <CardDescription>
+            Members are auto-loaded from Family Information. Click a cell to toggle Yes / —
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="border rounded-lg overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead className="min-w-[140px]">Member</TableHead>
+                    <TableHead className="min-w-[100px]">Relation</TableHead>
+                    <TableHead className="text-center min-w-[120px]">Health Insurance</TableHead>
+                    <TableHead className="text-center min-w-[120px]">Life Insurance</TableHead>
+                    <TableHead className="text-center min-w-[120px]">Term Insurance</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {members.map(m => (
+                    <TableRow key={m.id}>
+                      <TableCell className="font-medium">{m.name}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">{m.relation}</TableCell>
+                      <TableCell>
+                        <ToggleCell checked={m.healthInsurance} onChange={() => toggleMember(m.id, "healthInsurance")} />
+                      </TableCell>
+                      <TableCell>
+                        <ToggleCell checked={m.lifeInsurance} onChange={() => toggleMember(m.id, "lifeInsurance")} />
+                      </TableCell>
+                      <TableCell>
+                        <ToggleCell checked={m.termInsurance} onChange={() => toggleMember(m.id, "termInsurance")} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Document Information */}
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle>Document Information</CardTitle>
+          <CardDescription>
+            Select which documents each member has. Click a cell to toggle Yes / —
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="border rounded-lg overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead className="min-w-[140px]">Member</TableHead>
+                    <TableHead className="min-w-[100px]">Relation</TableHead>
+                    <TableHead className="text-center min-w-[90px]">Aadhaar</TableHead>
+                    <TableHead className="text-center min-w-[70px]">PAN</TableHead>
+                    <TableHead className="text-center min-w-[90px]">Voter ID</TableHead>
+                    <TableHead className="text-center min-w-[100px]">Land Docs</TableHead>
+                    <TableHead className="text-center min-w-[70px]">DL</TableHead>
+                    <TableHead className="text-center min-w-[110px]">Konkani Card</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {members.map(m => (
+                    <TableRow key={m.id}>
+                      <TableCell className="font-medium">{m.name}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">{m.relation}</TableCell>
+                      <TableCell>
+                        <ToggleCell checked={m.aadhaar} onChange={() => toggleMember(m.id, "aadhaar")} />
+                      </TableCell>
+                      <TableCell>
+                        <ToggleCell checked={m.pan} onChange={() => toggleMember(m.id, "pan")} />
+                      </TableCell>
+                      <TableCell>
+                        <ToggleCell checked={m.voterId} onChange={() => toggleMember(m.id, "voterId")} />
+                      </TableCell>
+                      <TableCell>
+                        <ToggleCell checked={m.landDocuments} onChange={() => toggleMember(m.id, "landDocuments")} />
+                      </TableCell>
+                      <TableCell>
+                        <ToggleCell checked={m.drivingLicense} onChange={() => toggleMember(m.id, "drivingLicense")} />
+                      </TableCell>
+                      <TableCell>
+                        <ToggleCell checked={m.konkaniCard} onChange={() => toggleMember(m.id, "konkaniCard")} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Nav buttons */}
       <div className="flex justify-between items-center pt-4 border-t border-border">
-        <Button variant="outline" onClick={() => router.push("/dashboard/profile/education-profession")} className="gap-2"><ArrowLeft className="h-4 w-4" /> Previous Step</Button>
+        <Button variant="outline" onClick={() => router.push("/dashboard/profile/education-profession")} className="gap-2">
+          <ArrowLeft className="h-4 w-4" /> Previous Step
+        </Button>
         <Button onClick={handleNext} disabled={loading} className="gap-2">
           {loading ? "Saving..." : "Save & Continue"} <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
+
+      {/* Reset dialog */}
+      <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset Profile?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear all your profile data. Your account remains but all filled information will be deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReset}
+              disabled={resetting}
+              className="bg-destructive hover:bg-destructive/90">
+              {resetting ? "Resetting..." : "Yes, Reset"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }

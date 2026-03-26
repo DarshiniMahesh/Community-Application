@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, Lock, Mail, Phone, Eye, EyeOff } from "lucide-react"
+import { Users, Lock, Eye, EyeOff, AtSign } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { api, saveAuth } from "@/lib/api"
 
@@ -15,7 +15,6 @@ export default function RegisterPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [loginType, setLoginType] = useState<"email" | "phone">("email")
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({ identifier: "", password: "", confirmPassword: "" })
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -35,11 +34,13 @@ export default function RegisterPage() {
 
     const newErrors: Record<string, string> = {}
     if (!formData.identifier) {
-      newErrors.identifier = loginType === "email" ? "Email is required" : "Phone number is required"
-    } else if (loginType === "email" && !formData.identifier.includes("@")) {
-      newErrors.identifier = "Please enter a valid email address"
-    } else if (loginType === "phone" && formData.identifier.length !== 10) {
-      newErrors.identifier = "Please enter a valid 10-digit phone number"
+      newErrors.identifier = "Email or phone number is required"
+    } else {
+      const isEmail = formData.identifier.includes("@")
+      const isPhone = /^\d{10}$/.test(formData.identifier)
+      if (!isEmail && !isPhone) {
+        newErrors.identifier = "Enter a valid email address or 10-digit phone number"
+      }
     }
     if (!formData.password) newErrors.password = "Password is required"
     else if (formData.password.length < 8) newErrors.password = "Password must be at least 8 characters"
@@ -53,7 +54,8 @@ export default function RegisterPage() {
 
     setLoading(true)
     try {
-      const body = loginType === "email"
+      const isEmail = formData.identifier.includes("@")
+      const body = isEmail
         ? { email: formData.identifier, password: formData.password }
         : { phone: formData.identifier, password: formData.password }
 
@@ -87,28 +89,17 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {/* Toggle */}
-            <div className="flex gap-2 p-1 bg-muted rounded-lg">
-              <button type="button" onClick={() => setLoginType("email")}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md transition-colors ${loginType === "email" ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-                <Mail className="h-4 w-4" /> Email
-              </button>
-              <button type="button" onClick={() => setLoginType("phone")}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md transition-colors ${loginType === "phone" ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-                <Phone className="h-4 w-4" /> Phone
-              </button>
-            </div>
-
-            {/* Identifier */}
+            {/* Email or Phone */}
             <div className="space-y-2">
-              <Label htmlFor="identifier">{loginType === "email" ? "Email Address" : "Phone Number"}</Label>
+              <Label htmlFor="identifier">Email or Phone Number</Label>
               <div className="relative">
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  {loginType === "email" ? <Mail className="h-4 w-4" /> : <Phone className="h-4 w-4" />}
+                  <AtSign className="h-4 w-4" />
                 </div>
-                <Input id="identifier"
-                  type={loginType === "email" ? "email" : "tel"}
-                  placeholder={loginType === "email" ? "name@example.com" : "1234567890"}
+                <Input
+                  id="identifier"
+                  type="text"
+                  placeholder="Enter User credentials"
                   value={formData.identifier}
                   onChange={(e) => { setFormData({ ...formData, identifier: e.target.value }); setErrors({ ...errors, identifier: "" }) }}
                   className={`pl-10 ${errors.identifier ? "border-destructive" : ""}`}
@@ -124,7 +115,8 @@ export default function RegisterPage() {
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                   <Lock className="h-4 w-4" />
                 </div>
-                <Input id="password"
+                <Input
+                  id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="Create a strong password"
                   value={formData.password}
@@ -154,7 +146,8 @@ export default function RegisterPage() {
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                   <Lock className="h-4 w-4" />
                 </div>
-                <Input id="confirmPassword"
+                <Input
+                  id="confirmPassword"
                   type={showConfirmPassword ? "text" : "password"}
                   placeholder="Re-enter your password"
                   value={formData.confirmPassword}

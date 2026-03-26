@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { User, Mail, Phone, Calendar, FileText, Users, MapPin, GraduationCap, Wallet, Edit, CheckCircle2 } from "lucide-react";
+import { User, Calendar, FileText, Users, MapPin, GraduationCap, Wallet, Edit, CheckCircle2 } from "lucide-react";
 import { api } from "@/lib/api";
 
 function InfoField({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
@@ -19,7 +19,9 @@ function InfoField({ icon: Icon, label, value }: { icon: React.ElementType; labe
   );
 }
 
-function Section({ title, href, filled, isLocked, children }: { title: string; href: string; filled: boolean; isLocked: boolean; children: React.ReactNode }) {
+function Section({ title, href, filled, isLocked, children }: {
+  title: string; href: string; filled: boolean; isLocked: boolean; children: React.ReactNode;
+}) {
   const router = useRouter();
   return (
     <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
@@ -38,9 +40,8 @@ function Section({ title, href, filled, isLocked, children }: { title: string; h
 
 export default function Page() {
   const router = useRouter();
-  const [data, setData] = useState<Record<string, unknown> | null>(null);
+  const [data, setData]       = useState<Record<string, unknown> | null>(null);
   const [profile, setProfile] = useState<Record<string, unknown> | null>(null);
-  const [user, setUser] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,19 +57,19 @@ export default function Page() {
 
   if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
 
-  const s1 = data?.step1 as Record<string, string> | null;
-  const s2 = data?.step2 as Record<string, string> | null;
-  const s3 = data?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
-  const s4 = data?.step4 as Record<string, string>[] | null;
-  const s5 = data?.step5 as Record<string, string>[] | null;
+  const s1    = data?.step1 as Record<string, string> | null;
+  const s2    = data?.step2 as Record<string, string> | null;
+  const s3    = data?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
+  const s4    = data?.step4 as Record<string, string>[] | null;
+  const s5    = data?.step5 as Record<string, string>[] | null;
   const s6eco = (data?.step6 as { economic?: Record<string, unknown> } | null)?.economic;
 
-  const status = profile?.status as string;
-  const isLocked = ["submitted", "under_review", "approved"].includes(status);
+  const status        = profile?.status as string;
+  const isLocked      = ["submitted", "under_review", "approved"].includes(status);
   const completionPct = (profile?.overall_completion_pct as number) || 0;
 
-  const fullName = s1 ? [s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ") : "Your Name";
-  const initials = s1 ? `${s1.first_name?.[0] || ""}${s1.last_name?.[0] || ""}`.toUpperCase() : "?";
+  const fullName    = s1 ? [s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ") : "Your Name";
+  const initials    = s1 ? `${s1.first_name?.[0] || ""}${s1.last_name?.[0] || ""}`.toUpperCase() : "?";
   const currentAddr = s4?.find(a => a.address_type === "current");
 
   return (
@@ -90,8 +91,11 @@ export default function Page() {
         <div className="flex-1">
           <p className="font-semibold text-lg text-foreground">{fullName}</p>
           <div className="flex items-center gap-2 mt-1">
-            <div className="flex-1 h-1.5 bg-muted rounded-full max-w-[160px]">
-              <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${completionPct}%` }} />
+            <div className="flex-1 h-1.5 bg-muted rounded-full max-w-[160px] overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${completionPct}%` }}
+              />
             </div>
             <span className="text-xs text-muted-foreground">{completionPct}% completed</span>
           </div>
@@ -99,35 +103,32 @@ export default function Page() {
         {completionPct === 100 && <CheckCircle2 className="h-6 w-6 text-green-500 flex-shrink-0" />}
       </div>
 
-      {/* Personal */}
       <Section title="Personal Details" href="/dashboard/profile/personal-details" filled={!!s1} isLocked={isLocked}>
         {s1 ? (
           <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-            <InfoField icon={User}     label="Full Name"     value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
-            <InfoField icon={Calendar} label="Date of Birth" value={s1.date_of_birth ? new Date(s1.date_of_birth).toLocaleDateString("en-IN") : null} />
-            <InfoField icon={User}     label="Gender"        value={s1.gender} />
-            <InfoField icon={Users}    label="Marital Status" value={s1.is_married ? "Married" : "Unmarried"} />
+            <InfoField icon={User}     label="Full Name"      value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
+            <InfoField icon={Calendar} label="Date of Birth"  value={s1.date_of_birth ? new Date(s1.date_of_birth).toLocaleDateString("en-IN") : null} />
+            <InfoField icon={User}     label="Gender"         value={s1.gender} />
+            <InfoField icon={Users}    label="Marital Status" value={s1.is_married ? "Married" : "Single"} />
             {s1.fathers_name && <InfoField icon={User} label="Father's Name" value={s1.fathers_name} />}
             {s1.mothers_name && <InfoField icon={User} label="Mother's Name" value={s1.mothers_name} />}
           </div>
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
 
-      {/* Religious */}
       <Section title="Religious Details" href="/dashboard/profile/religious-details" filled={!!s2} isLocked={isLocked}>
         {s2 ? (
           <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-            <InfoField icon={FileText} label="Gotra"       value={s2.gotra} />
-            <InfoField icon={FileText} label="Pravara"     value={s2.pravara} />
-            <InfoField icon={FileText} label="Upanama"     value={s2.upanama} />
-            <InfoField icon={FileText} label="Kuladevata"  value={s2.kuladevata_other || s2.kuladevata} />
-            <InfoField icon={User}     label="Surname"     value={s2.surname_in_use} />
+            <InfoField icon={FileText} label="Gotra"         value={s2.gotra} />
+            <InfoField icon={FileText} label="Pravara"       value={s2.pravara} />
+            <InfoField icon={FileText} label="Upanama"       value={s2.upanama} />
+            <InfoField icon={FileText} label="Kuladevata"    value={s2.kuladevata_other || s2.kuladevata} />
+            <InfoField icon={User}     label="Surname"       value={s2.surname_in_use} />
             <InfoField icon={User}     label="Family Priest" value={s2.priest_name} />
           </div>
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
 
-      {/* Family */}
       <Section title="Family Information" href="/dashboard/profile/family-information" filled={!!s3} isLocked={isLocked}>
         {s3?.family_info ? (
           <div className="space-y-3">
@@ -137,7 +138,9 @@ export default function Page() {
                 {s3.members.map((m, i) => (
                   <div key={i} className="flex items-center justify-between p-2 bg-muted rounded-lg text-sm">
                     <span className="font-medium">{m.name}</span>
-                    <span className="text-muted-foreground">{m.relation}, Age {m.age}</span>
+                    <span className="text-muted-foreground">
+                      {m.relation}{m.dob ? `, DOB: ${new Date(m.dob).toLocaleDateString("en-IN")}` : m.age ? `, Age ${m.age}` : ""}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -146,7 +149,6 @@ export default function Page() {
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
 
-      {/* Location */}
       <Section title="Location" href="/dashboard/profile/location-information" filled={!!currentAddr} isLocked={isLocked}>
         {currentAddr ? (
           <InfoField icon={MapPin} label="Current Address"
@@ -154,8 +156,7 @@ export default function Page() {
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
 
-      {/* Education */}
-      <Section title="Education & Profession" href="/dashboard/profile/education-profession" filled={!!s5?.length} isLocked={isLocked}>
+      <Section title="Education &amp; Profession" href="/dashboard/profile/education-profession" filled={!!s5?.length} isLocked={isLocked}>
         {s5 && s5.length > 0 ? (
           <div className="space-y-2">
             {s5.map((m, i) => (
@@ -168,7 +169,6 @@ export default function Page() {
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
 
-      {/* Economic */}
       <Section title="Economic Details" href="/dashboard/profile/economic-details" filled={!!s6eco} isLocked={isLocked}>
         {s6eco ? (
           <div className="grid grid-cols-2 gap-x-8 gap-y-5">
