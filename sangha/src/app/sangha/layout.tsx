@@ -3,20 +3,23 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  LayoutDashboard,
-  ClipboardList,
   Menu,
   X,
   LogOut,
   Users,
-  UserCircle,
+  UserCog,
+  FileText,
+  Activity,
+  UserCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const navigation = [
-  { name: "Dashboard", href: "/sangha/dashboard", icon: LayoutDashboard },
-  { name: "Pending Applications", href: "/sangha/pending-users", icon: ClipboardList },
-  { name: "Profile", href: "/sangha/profile", icon: UserCircle },
+  { name: "User Management", href: "/sangha/user-management", icon: UserCog },
+  { name: "Sangha Members", href: "/sangha/members", icon: Users },
+  { name: "Reports", href: "/sangha/reports", icon: FileText },
+  { name: "Activity Logs", href: "/sangha/activity-logs", icon: Activity },
+  { name: "Profile", href: "/sangha/profile", icon: UserCircle2 },
 ];
 
 export default function SanghaLayout({ children }: { children: React.ReactNode }) {

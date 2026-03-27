@@ -51,6 +51,18 @@ function ReviewContent() {
         const message = (data && (data.message || data.error)) || `Failed to ${action} application`;
         toast.error(message); return;
       }
+      if (typeof window !== "undefined") {
+        const currentUser = window.localStorage.getItem("currentUser");
+        const logsKey = currentUser ? `activityLogs_${currentUser}` : "activityLogs";
+        const existingLogs = JSON.parse(window.localStorage.getItem(logsKey) || "[]");
+        existingLogs.push({
+          action: action === "approve" ? "Approved" : "Rejected",
+          by: "Sangha",
+          userId: id,
+          date: new Date().toISOString(),
+        });
+        window.localStorage.setItem(logsKey, JSON.stringify(existingLogs));
+      }
       toast.success(`Application ${action === "approve" ? "approved" : "rejected"} successfully`);
       router.push("/sangha/pending-users");
     } catch { toast.error("Something went wrong while updating application"); } finally { setSubmitting(null); }
