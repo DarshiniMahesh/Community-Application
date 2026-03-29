@@ -146,6 +146,10 @@ CREATE TABLE personal_details (
   surname_in_use        VARCHAR(100),
   surname_as_per_gotra  VARCHAR(100),
   is_married            BOOLEAN DEFAULT FALSE,
+  has_disability        VARCHAR(5),
+  is_part_of_sangha     VARCHAR(5),
+  sangha_name           VARCHAR(255),
+  sangha_role           VARCHAR(100),
   created_at            TIMESTAMP DEFAULT NOW(),
   updated_at            TIMESTAMP DEFAULT NOW(),
   UNIQUE(profile_id)
@@ -192,7 +196,9 @@ CREATE TABLE family_members (
   relation        VARCHAR(100) NOT NULL,
   name            VARCHAR(150),
   age             SMALLINT,
+  dob             DATE,
   gender          gender_type,
+  disability      VARCHAR(5) DEFAULT 'no',
   photo_url       TEXT,
   status          member_status DEFAULT 'active',
   sort_order      SMALLINT DEFAULT 0,
@@ -298,9 +304,11 @@ CREATE TABLE member_documents (
   member_name             VARCHAR(150),
   member_relation         VARCHAR(100),
   sort_order              SMALLINT DEFAULT 0,
-  ration_card_coverage    doc_coverage[],
   aadhaar_coverage        doc_coverage[],
   pan_coverage            doc_coverage[],
+  voter_id_coverage       doc_coverage[],
+  land_doc_coverage       doc_coverage[],
+  dl_coverage             doc_coverage[],
   all_records_coverage    doc_coverage[]
 );
 

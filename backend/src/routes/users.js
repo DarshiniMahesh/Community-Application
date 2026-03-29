@@ -9,7 +9,7 @@ router.use(authenticate);
 router.get('/profile',         requireRole('user'), uc.getProfile);
 router.get('/profile/full',    requireRole('user'), uc.getFullProfile);
 
-// Form steps (save as you go)
+// Form steps
 router.post('/profile/step1',  requireRole('user'), uc.saveStep1);
 router.post('/profile/step2',  requireRole('user'), uc.saveStep2);
 router.post('/profile/step3',  requireRole('user'), uc.saveStep3);
@@ -17,8 +17,9 @@ router.post('/profile/step4',  requireRole('user'), uc.saveStep4);
 router.post('/profile/step5',  requireRole('user'), uc.saveStep5);
 router.post('/profile/step6',  requireRole('user'), uc.saveStep6);
 
-// Submit application
+// Submit & Reset
 router.post('/profile/submit', requireRole('user'), uc.submitApplication);
+router.post('/profile/reset',  requireRole('user'), uc.resetProfile);
 
 // Sangha / Admin views
 router.get('/pending',         requireRole('sangha', 'admin'), uc.getPendingUsers);
