@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Users, Phone, Mail, Upload, Clock3, RefreshCw } from "lucide-react";
 
@@ -76,6 +77,7 @@ export default function SanghaProfilePage() {
   const [isVerified, setIsVerified] = useState<boolean>(false);
   const [showOfficeOtp, setShowOfficeOtp] = useState<boolean>(false);
   const [otpInput, setOtpInput] = useState<string>("");
+  const [sameAsRegistered, setSameAsRegistered] = useState<boolean>(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -150,8 +152,7 @@ export default function SanghaProfilePage() {
     if (!formData.pinCode.trim()) newErrors.pinCode = "Pin Code / Zip Code is required";
     if (!formData.description.trim()) newErrors.description = "Description is required";
     setErrors(newErrors);
-    const officeNeedsVerification =
-      !(formData.officePhone === formData.primaryPhone && formData.officeEmail === formData.primaryEmail);
+    const officeNeedsVerification = !sameAsRegistered;
     if (officeNeedsVerification && !isVerified) {
       toast.error("Please verify office contact details");
       return false;
@@ -176,6 +177,27 @@ export default function SanghaProfilePage() {
     handleChange("officeEmail")(e);
   };
 
+  const handleSameAsRegisteredChange = (checked: boolean) => {
+    setSameAsRegistered(checked);
+    if (checked) {
+      setFormData((prev) => ({
+        ...prev,
+        officePhone: prev.primaryPhone,
+        officeEmail: prev.primaryEmail,
+      }));
+      setIsVerified(true);
+      setShowOfficeOtp(false);
+      setErrors((prev) => ({ ...prev, officePhone: "", officeEmail: "" }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        officePhone: "",
+        officeEmail: "",
+      }));
+      setIsVerified(false);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -192,9 +214,6 @@ export default function SanghaProfilePage() {
     setLogoFile(null);
     setLogoPreview("");
   };
-
-  const officeNeedsVerification =
-    !(formData.officePhone === formData.primaryPhone && formData.officeEmail === formData.primaryEmail);
 
   const handleVerifyOfficeOtp = () => {
     if (otpInput === "1234") {
@@ -326,70 +345,49 @@ export default function SanghaProfilePage() {
               <CardTitle>Sangha Details</CardTitle>
               <CardDescription>These details will be used for managing members and applications.</CardDescription>
             </div>
-            <div className="flex flex-col items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (logoPreview) window.open(logoPreview, "_blank", "noopener,noreferrer");
-                }}
-                className="focus:outline-none"
-              >
-                {logoPreview ? (
-                  <img src={logoPreview} alt="Logo preview" className="w-20 h-20 rounded-full object-cover border" />
-                ) : (
-                  <div className="w-20 h-20 rounded-full border bg-muted flex items-center justify-center text-muted-foreground text-xs">
-                    No Logo
-                  </div>
-                )}
-              </button>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="logo"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-                <Label htmlFor="logo" className="cursor-pointer flex items-center space-x-2 border border-dashed border-muted-foreground rounded-md px-3 py-2 hover:bg-muted/50">
-                  <Upload className="h-4 w-4" />
-                  <span>Upload</span>
-                </Label>
-                <Button type="button" variant="outline" onClick={handleResetLogo}>
-                  Reset
-                </Button>
-              </div>
-            </div>
           </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Logo Upload - First */}
             <div className="space-y-3">
-              <h3 className="font-medium text-foreground">Primary Contact</h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="loginPhone">Phone Number</Label>
+              <Label>Sangha Logo</Label>
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (logoPreview) window.open(logoPreview, "_blank", "noopener,noreferrer");
+                  }}
+                  className="focus:outline-none"
+                >
+                  {logoPreview ? (
+                    <img src={logoPreview} alt="Logo preview" className="w-20 h-20 rounded-full object-cover border" />
+                  ) : (
+                    <div className="w-20 h-20 rounded-full border bg-muted flex items-center justify-center text-muted-foreground text-xs">
+                      No Logo
+                    </div>
+                  )}
+                </button>
+                <div className="flex items-center gap-2">
                   <Input
-                    id="loginPhone"
-                    value={formData.primaryPhone}
-                    onChange={handleChange("primaryPhone")}
-                    readOnly={!!loginPhone}
-                    placeholder="Enter phone number"
+                    id="logo"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
                   />
-                  {errors.primaryPhone && <p className="text-xs text-destructive">{errors.primaryPhone}</p>}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="loginEmail">Email</Label>
-                  <Input
-                    id="loginEmail"
-                    value={formData.primaryEmail}
-                    onChange={handleChange("primaryEmail")}
-                    readOnly={!!loginEmail}
-                    placeholder="Enter email"
-                  />
-                  {errors.primaryEmail && <p className="text-xs text-destructive">{errors.primaryEmail}</p>}
+                  <Label htmlFor="logo" className="cursor-pointer flex items-center space-x-2 border border-dashed border-muted-foreground rounded-md px-3 py-2 hover:bg-muted/50">
+                    <Upload className="h-4 w-4" />
+                    <span>Upload</span>
+                  </Label>
+                  <Button type="button" variant="outline" onClick={handleResetLogo}>
+                    Reset
+                  </Button>
                 </div>
               </div>
             </div>
+
+            {/* Sangha Name */}
             {([
               ["name", "Sangha Name", "Enter Sangha name", Users],
             ] as [keyof SanghaProfileForm, string, string, any][]).map(([field, label, placeholder, Icon]) => (
@@ -403,6 +401,7 @@ export default function SanghaProfilePage() {
               </div>
             ))}
 
+            {/* Address Details */}
             <div className="space-y-4">
               <h3 className="font-medium text-foreground">Address Details</h3>
               <div className="space-y-2">
@@ -458,82 +457,140 @@ export default function SanghaProfilePage() {
               {errors.pinCode && <p className="text-xs text-destructive">{errors.pinCode}</p>}
             </div>
 
+            <hr className="my-4" />
+
+            {/* Registered Phone and Email */}
             <div className="space-y-3">
-              <h3 className="font-medium text-foreground">Sangha Office Contact</h3>
+              <h3 className="font-medium text-foreground">Registered Contact</h3>
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="officePhone">Phone Number</Label>
-                  <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"><Phone className="h-4 w-4" /></div>
-                    <Input
-                      id="officePhone"
-                      type="tel"
-                      placeholder="10-digit phone number"
-                      value={formData.officePhone}
-                      onChange={handleOfficePhoneChange}
-                      className={`pl-10 ${errors.officePhone ? "border-destructive" : ""}`}
-                    />
-                  </div>
-                  {errors.officePhone && <p className="text-xs text-destructive">{errors.officePhone}</p>}
+                  <Label htmlFor="loginPhone">Phone Number</Label>
+                  <Input
+                    id="loginPhone"
+                    value={formData.primaryPhone}
+                    onChange={handleChange("primaryPhone")}
+                    readOnly={!!loginPhone}
+                    placeholder="Enter phone number"
+                  />
+                  {errors.primaryPhone && <p className="text-xs text-destructive">{errors.primaryPhone}</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="officeEmail">Email</Label>
-                  <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"><Mail className="h-4 w-4" /></div>
-                    <Input
-                      id="officeEmail"
-                      type="email"
-                      placeholder="name@example.com"
-                      value={formData.officeEmail}
-                      onChange={handleOfficeEmailChange}
-                      className={`pl-10 ${errors.officeEmail ? "border-destructive" : ""}`}
-                    />
-                  </div>
-                  {errors.officeEmail && <p className="text-xs text-destructive">{errors.officeEmail}</p>}
+                  <Label htmlFor="loginEmail">Email</Label>
+                  <Input
+                    id="loginEmail"
+                    value={formData.primaryEmail}
+                    onChange={handleChange("primaryEmail")}
+                    readOnly={!!loginEmail}
+                    placeholder="Enter email"
+                  />
+                  {errors.primaryEmail && <p className="text-xs text-destructive">{errors.primaryEmail}</p>}
                 </div>
               </div>
-
-              {officeNeedsVerification && (
-                <div className="mt-3 space-y-2">
-                  {!isVerified ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setShowOfficeOtp(true);
-                        setOtpInput("");
-                      }}
-                    >
-                      Verify
-                    </Button>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Office contact verified.</p>
-                  )}
-
-                  {showOfficeOtp && (
-                    <div className="space-y-2">
-                      <Label htmlFor="officeOtp">Enter OTP</Label>
-                      <Input
-                        id="officeOtp"
-                        placeholder="OTP"
-                        value={otpInput}
-                        onChange={(e) => setOtpInput(e.target.value)}
-                      />
-                      <Button type="button" onClick={handleVerifyOfficeOtp} disabled={otpInput.length === 0}>
-                        Verify OTP
-                      </Button>
-                      <p className="text-xs text-muted-foreground">OTP is simulated as 1234.</p>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
+            {/* Description */}
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
               <Textarea id="description" placeholder="Briefly describe your Sangha and its purpose" value={formData.description} onChange={handleChange("description")} className={errors.description ? "border-destructive" : ""} />
               {errors.description && <p className="text-xs text-destructive">{errors.description}</p>}
             </div>
+
+            <hr className="my-4" />
+
+            {/* Sangha Office Contact */}
+            <div className="space-y-3">
+              <h3 className="font-medium text-foreground">Sangha Office Contact</h3>
+              
+              {/* Checkbox for same as registered */}
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="sameAsRegistered"
+                  checked={sameAsRegistered}
+                  onCheckedChange={(checked) => handleSameAsRegisteredChange(checked as boolean)}
+                />
+                <Label htmlFor="sameAsRegistered" className="text-sm font-normal cursor-pointer">
+                  Same as registered contact
+                </Label>
+              </div>
+
+              {!sameAsRegistered && (
+                <>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="officePhone">Phone Number</Label>
+                      <div className="relative">
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"><Phone className="h-4 w-4" /></div>
+                        <Input
+                          id="officePhone"
+                          type="tel"
+                          placeholder="10-digit phone number"
+                          value={formData.officePhone}
+                          onChange={handleOfficePhoneChange}
+                          className={`pl-10 ${errors.officePhone ? "border-destructive" : ""}`}
+                        />
+                      </div>
+                      {errors.officePhone && <p className="text-xs text-destructive">{errors.officePhone}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="officeEmail">Email</Label>
+                      <div className="relative">
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"><Mail className="h-4 w-4" /></div>
+                        <Input
+                          id="officeEmail"
+                          type="email"
+                          placeholder="name@example.com"
+                          value={formData.officeEmail}
+                          onChange={handleOfficeEmailChange}
+                          className={`pl-10 ${errors.officeEmail ? "border-destructive" : ""}`}
+                        />
+                      </div>
+                      {errors.officeEmail && <p className="text-xs text-destructive">{errors.officeEmail}</p>}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 space-y-2">
+                    {!isVerified ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setShowOfficeOtp(true);
+                          setOtpInput("");
+                        }}
+                      >
+                        Verify
+                      </Button>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Office contact verified.</p>
+                    )}
+
+                    {showOfficeOtp && (
+                      <div className="space-y-2">
+                        <Label htmlFor="officeOtp">Enter OTP</Label>
+                        <Input
+                          id="officeOtp"
+                          placeholder="OTP"
+                          value={otpInput}
+                          onChange={(e) => setOtpInput(e.target.value)}
+                        />
+                        <Button type="button" onClick={handleVerifyOfficeOtp} disabled={otpInput.length === 0}>
+                          Verify OTP
+                        </Button>
+                        <p className="text-xs text-muted-foreground">OTP is simulated as 1234.</p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {sameAsRegistered && (
+                <div className="rounded-lg border p-3 bg-muted/50 text-sm">
+                  <p><span className="font-medium">Phone:</span> {formData.officePhone || "-"}</p>
+                  <p><span className="font-medium">Email:</span> {formData.officeEmail || "-"}</p>
+                </div>
+              )}
+            </div>
+
             <div className="flex justify-end pt-2">
               <Button type="submit">Submit for Approval</Button>
             </div>
