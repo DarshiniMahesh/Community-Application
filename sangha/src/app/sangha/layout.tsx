@@ -28,7 +28,9 @@ export default function SanghaLayout({ children }: { children: React.ReactNode }
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const isAuthRoute =
-    pathname === "/sangha/login" || pathname === "/sangha/register";
+    pathname === "/sangha/login" ||
+    pathname === "/sangha/register" ||
+    pathname === "/sangha/verify-otp";
 
   useEffect(() => {
     if (isAuthRoute) return;

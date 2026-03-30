@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Users, Mail } from "lucide-react";
+import { Users, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,25 +12,28 @@ import { toast } from "sonner";
 
 export default function SanghaLoginPage() {
   const router = useRouter();
-  const [showOTPField, setShowOTPField] = useState(false);
-  const [formData, setFormData] = useState({ identifier: "", password: "", otp: "" });
+  const [showPassword, setShowPassword] = useState(false);
+  const [formData, setFormData] = useState({ identifier: "", password: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
 
+  // ✅ FIX: Do NOT auto-login. Clear any stale session on mount.
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const role = window.localStorage.getItem("role");
-      if (role === "SANGHA" || role === "ADMIN") {
-        router.replace("/sangha/profile");
-      }
+      // Remove any previously stored session so user must login again
+      window.localStorage.removeItem("role");
+      window.localStorage.removeItem("currentUser");
+      window.localStorage.removeItem("otp_identifier");
+      window.localStorage.removeItem("otp_password");
     }
-  }, [router]);
+  }, []);
 
-  const validateIdentifier = () => {
+  const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.identifier) {
+    const value = formData.identifier.trim();
+    if (!value) {
       newErrors.identifier = "Email or phone number is required";
     } else {
-      const value = formData.identifier.trim();
       const isEmail = value.includes("@");
       const isPhone = /^\d{10}$/.test(value);
       if (!isEmail && !isPhone) {
@@ -40,37 +43,22 @@ export default function SanghaLoginPage() {
     if (!formData.password.trim()) {
       newErrors.password = "Password is required";
     }
-    setErrors((prev) => ({ ...prev, ...newErrors }));
+    setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleGetOTP = () => {
-    if (!validateIdentifier()) return;
-    setShowOTPField(true);
-    toast.success("OTP sent successfully (Use 1234)");
-  };
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newErrors: Record<string, string> = {};
-    if (!validateIdentifier()) return;
-    if (!showOTPField) {
-      newErrors.otp = "Please click Get OTP first";
-    } else if (!formData.otp.trim()) {
-      newErrors.otp = "OTP is required";
-    } else if (formData.otp !== "1234") {
-      newErrors.otp = "Invalid OTP";
-    }
-    if (Object.keys(newErrors).length > 0) {
-      setErrors((prev) => ({ ...prev, ...newErrors }));
-      return;
-    }
+  const handleGetOTP = async () => {
+    if (!validate()) return;
+    setLoading(true);
+    // Store credentials temporarily for the OTP page to use
     if (typeof window !== "undefined") {
-      window.localStorage.setItem("role", "SANGHA");
-      window.localStorage.setItem("currentUser", formData.identifier);
+      window.localStorage.setItem("otp_identifier", formData.identifier.trim());
+      window.localStorage.setItem("otp_password", formData.password);
+      window.localStorage.setItem("otp_flow", "login");
     }
-    toast.success("Login successful");
-    router.push("/sangha/profile");
+    toast.success("OTP sent successfully! (Use 1234)");
+    setLoading(false);
+    router.push("/sangha/verify-otp");
   };
 
   return (
@@ -84,51 +72,74 @@ export default function SanghaLoginPage() {
           <CardDescription>Sign in with email or phone</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleGetOTP(); }}
+            className="space-y-4"
+          >
+            {/* Identifier */}
             <div className="space-y-2">
               <Label htmlFor="identifier">Email or Phone Number</Label>
               <div className="relative">
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                   <Mail className="h-4 w-4" />
                 </div>
-                <Input id="identifier" type="text"
-                  placeholder="Enter email or phone number"
+                <Input
+                  id="identifier"
+                  type="text"
+                  placeholder="Enter email or 10-digit phone"
                   value={formData.identifier}
-                  onChange={(e) => { setFormData({ ...formData, identifier: e.target.value }); setErrors({ ...errors, identifier: "" }); }}
-                  className={`pl-10 ${errors.identifier ? "border-destructive" : ""}`} />
+                  onChange={(e) => {
+                    setFormData({ ...formData, identifier: e.target.value });
+                    setErrors({ ...errors, identifier: "" });
+                  }}
+                  className={`pl-10 ${errors.identifier ? "border-destructive" : ""}`}
+                />
               </div>
+              {errors.identifier && (
+                <p className="text-xs text-destructive">{errors.identifier}</p>
+              )}
             </div>
-            {errors.identifier && <p className="text-xs text-destructive">{errors.identifier}</p>}
+
+            {/* Password */}
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Enter your password"
-                value={formData.password}
-                onChange={(e) => { setFormData({ ...formData, password: e.target.value }); setErrors({ ...errors, password: "" }); }}
-                className={errors.password ? "border-destructive" : ""}
-              />
-              {errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
-            </div>
-            <Button type="button" className="w-full" size="lg" onClick={handleGetOTP}>Get OTP</Button>
-            {showOTPField && (
-              <div className="space-y-2">
-                <Label htmlFor="otp">OTP</Label>
+              <div className="relative">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  <Lock className="h-4 w-4" />
+                </div>
                 <Input
-                  id="otp"
-                  placeholder="Enter OTP"
-                  value={formData.otp}
-                  onChange={(e) => { setFormData({ ...formData, otp: e.target.value }); setErrors({ ...errors, otp: "" }); }}
-                  className={errors.otp ? "border-destructive" : ""}
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Enter your password"
+                  value={formData.password}
+                  onChange={(e) => {
+                    setFormData({ ...formData, password: e.target.value });
+                    setErrors({ ...errors, password: "" });
+                  }}
+                  className={`pl-10 pr-10 ${errors.password ? "border-destructive" : ""}`}
                 />
-                {errors.otp && <p className="text-xs text-destructive">{errors.otp}</p>}
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((p) => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
-            )}
-            <Button type="submit" className="w-full" size="lg">Login</Button>
+              {errors.password && (
+                <p className="text-xs text-destructive">{errors.password}</p>
+              )}
+            </div>
+
+            <Button type="submit" className="w-full" size="lg" disabled={loading}>
+              {loading ? "Sending OTP..." : "Get OTP"}
+            </Button>
+
             <div className="text-center text-sm text-muted-foreground">
               Need to register a Sangha?{" "}
-              <Link href="/sangha/register" className="text-primary hover:underline font-medium">Register here</Link>
+              <Link href="/sangha/register" className="text-primary hover:underline font-medium">
+                Register here
+              </Link>
             </div>
           </form>
         </CardContent>
