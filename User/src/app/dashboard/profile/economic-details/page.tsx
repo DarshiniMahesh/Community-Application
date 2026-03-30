@@ -26,31 +26,64 @@ const steps = [
   { id: "7", name: "Review",    href: "/dashboard/profile/review-submit" },
 ];
 
-const incomeSlabs = ["Less than ₹1 Lakh","₹1 – 2 Lakh","₹2 – 3 Lakh","₹3 – 5 Lakh","₹5 – 10 Lakh","₹10 – 25 Lakh","₹25 Lakh+"];
-const familyFacilities = ["Staying in Rented House","Own a House","Own Agricultural Land","Own a Two Wheeler","Own a Car"];
+const incomeSlabs = [
+  "Less than ₹1 Lakh",
+  "₹1 – 2 Lakh",
+  "₹2 – 3 Lakh",
+  "₹3 – 5 Lakh",
+  "₹5 – 10 Lakh",
+  "₹10 – 25 Lakh",
+  "₹25 Lakh+",
+];
+const familyFacilities  = ["Staying in Rented House","Own a House","Own Agricultural Land","Own a Two Wheeler","Own a Car"];
 const investmentOptions = ["Fixed Deposits","Mutual Funds / SIP","Trading in Shares / Demat Account","Investment - Others"];
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface MemberCoverage {
   id: string; name: string; relation: string;
-  healthInsurance: boolean; lifeInsurance: boolean; termInsurance: boolean;
-  aadhaar: boolean; pan: boolean; voterId: boolean;
-  landDocuments: boolean; drivingLicense: boolean; konkaniCard: boolean;
+  // Insurance (including Konkani Card — moved here from Documents)
+  healthInsurance: boolean;
+  lifeInsurance:   boolean;
+  termInsurance:   boolean;
+  konkaniCard:     boolean;   // ✅ Now lives in Insurance table
+  // Documents (Konkani Card removed)
+  aadhaar:         boolean;
+  pan:             boolean;
+  voterId:         boolean;
+  landDocuments:   boolean;
+  drivingLicense:  boolean;
 }
 
 function blankMember(id: string, name = "", relation = ""): MemberCoverage {
-  return { id, name, relation, healthInsurance: false, lifeInsurance: false, termInsurance: false, aadhaar: false, pan: false, voterId: false, landDocuments: false, drivingLicense: false, konkaniCard: false };
+  return {
+    id, name, relation,
+    healthInsurance: false, lifeInsurance: false, termInsurance: false, konkaniCard: false,
+    aadhaar: false, pan: false, voterId: false, landDocuments: false, drivingLicense: false,
+  };
 }
+
+// ── Toggle cell ───────────────────────────────────────────────────────────────
 
 function ToggleCell({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
     <div className="flex items-center justify-center">
-      <button type="button" onClick={onChange}
-        className={`inline-flex items-center justify-center gap-1 px-3 py-1 rounded-lg border-2 text-xs font-medium transition-all min-w-[52px] ${checked ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-        {checked ? <><Check className="h-3 w-3" />Yes</> : <span>—</span>}
+      <button
+        type="button"
+        onClick={onChange}
+        className={`inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg border-2 text-xs font-semibold transition-all min-w-[56px] ${
+          checked
+            ? "border-primary bg-primary/10 text-primary shadow-sm"
+            : "border-border text-muted-foreground hover:border-primary/40 hover:bg-muted/50"
+        }`}
+      >
+        {checked ? <><Check className="h-3 w-3" />Yes</> : <span className="text-base leading-none">—</span>}
       </button>
     </div>
   );
 }
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function Page() {
   const router = useRouter();
@@ -60,7 +93,7 @@ export default function Page() {
   const [selectedFacilities, setSelectedFacilities]   = useState<string[]>([]);
   const [selectedInvestments, setSelectedInvestments] = useState<string[]>([]);
   const [members, setMembers]                         = useState<MemberCoverage[]>([blankMember("self", "You", "Self")]);
-  const [allBases, setAllBases]                       = useState<{id:string;name:string;relation:string}[]>([]);
+  const [allBases, setAllBases]                       = useState<{ id: string; name: string; relation: string }[]>([]);
   const [errors, setErrors]                           = useState<Record<string, string>>({});
   const [showResetDialog, setShowResetDialog]         = useState(false);
   const [resetting, setResetting]                     = useState(false);
@@ -110,15 +143,16 @@ export default function Page() {
         const doc = documents.find(d => d.member_name === base.name) || {};
         return {
           ...blankMember(base.id, base.name, base.relation),
-          healthInsurance: ((ins.health_coverage as string[]) || []).length > 0,
-          lifeInsurance:   ((ins.life_coverage   as string[]) || []).length > 0,
-          termInsurance:   ((ins.term_coverage   as string[]) || []).length > 0,
+          healthInsurance: ((ins.health_coverage      as string[]) || []).length > 0,
+          lifeInsurance:   ((ins.life_coverage        as string[]) || []).length > 0,
+          termInsurance:   ((ins.term_coverage        as string[]) || []).length > 0,
+          // ✅ Konkani Card loaded from insurance record
+          konkaniCard:     ((ins.konkani_card_coverage as string[]) || []).length > 0,
           aadhaar:         ((doc.aadhaar_coverage     as string[]) || []).length > 0,
           pan:             ((doc.pan_coverage         as string[]) || []).length > 0,
           voterId:         ((doc.voter_id_coverage    as string[]) || []).length > 0,
           landDocuments:   ((doc.land_doc_coverage    as string[]) || []).length > 0,
           drivingLicense:  ((doc.dl_coverage          as string[]) || []).length > 0,
-          konkaniCard:     ((doc.all_records_coverage as string[]) || []).length > 0,
         };
       }));
     }).catch(() => {});
@@ -126,7 +160,7 @@ export default function Page() {
 
   const toggleFacility   = (f: string) => setSelectedFacilities(p  => p.includes(f) ? p.filter(x => x !== f) : [...p, f]);
   const toggleInvestment = (i: string) => setSelectedInvestments(p => p.includes(i) ? p.filter(x => x !== i) : [...p, i]);
-  const toggleMember = (id: string, field: keyof MemberCoverage) =>
+  const toggleMember     = (id: string, field: keyof MemberCoverage) =>
     setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: !m[field] } : m));
 
   const buildPayload = () => ({
@@ -143,20 +177,22 @@ export default function Page() {
       inv_shares_demat:      selectedInvestments.includes("Trading in Shares / Demat Account"),
       inv_others:            selectedInvestments.includes("Investment - Others"),
     },
+    // ✅ Insurance now includes konkani_card_coverage
     insurance: members.map((m, i) => ({
       member_name: m.name || null, member_relation: m.relation || null, sort_order: i,
-      health_coverage: m.healthInsurance ? ["self"] : [],
-      life_coverage:   m.lifeInsurance   ? ["self"] : [],
-      term_coverage:   m.termInsurance   ? ["self"] : [],
+      health_coverage:       m.healthInsurance ? ["self"] : [],
+      life_coverage:         m.lifeInsurance   ? ["self"] : [],
+      term_coverage:         m.termInsurance   ? ["self"] : [],
+      konkani_card_coverage: m.konkaniCard     ? ["self"] : [],
     })),
+    // ✅ Documents no longer has Konkani Card
     documents: members.map((m, i) => ({
       member_name: m.name || null, member_relation: m.relation || null, sort_order: i,
-      aadhaar_coverage:     m.aadhaar        ? ["self"] : [],
-      pan_coverage:         m.pan            ? ["self"] : [],
-      voter_id_coverage:    m.voterId        ? ["self"] : [],
-      land_doc_coverage:    m.landDocuments  ? ["self"] : [],
-      dl_coverage:          m.drivingLicense ? ["self"] : [],
-      all_records_coverage: m.konkaniCard    ? ["self"] : [],
+      aadhaar_coverage:   m.aadhaar        ? ["self"] : [],
+      pan_coverage:       m.pan            ? ["self"] : [],
+      voter_id_coverage:  m.voterId        ? ["self"] : [],
+      land_doc_coverage:  m.landDocuments  ? ["self"] : [],
+      dl_coverage:        m.drivingLicense ? ["self"] : [],
     })),
   });
 
@@ -189,10 +225,8 @@ export default function Page() {
     try {
       await api.post("/users/profile/reset/step6", {});
       toast.success("Economic details cleared.");
-      setSelfIncome("");
-      setFamilyIncome("");
-      setSelectedFacilities([]);
-      setSelectedInvestments([]);
+      setSelfIncome(""); setFamilyIncome("");
+      setSelectedFacilities([]); setSelectedInvestments([]);
       setMembers(allBases.map(b => blankMember(b.id, b.name, b.relation)));
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
@@ -213,8 +247,11 @@ export default function Page() {
           <p className="text-muted-foreground mt-1">Step 6 of 7 — Financial and asset information</p>
         </div>
         {canReset && (
-          <Button variant="outline" size="sm" className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
-            onClick={() => setShowResetDialog(true)}>
+          <Button
+            variant="outline" size="sm"
+            className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
+            onClick={() => setShowResetDialog(true)}
+          >
             <RotateCcw className="h-4 w-4" /> Reset This Step
           </Button>
         )}
@@ -222,35 +259,58 @@ export default function Page() {
 
       <Stepper steps={steps} currentStep={5} />
 
+      {/* ── Annual Income ── */}
       <Card className="shadow-sm border-l-4 border-l-primary">
-        <CardHeader><CardTitle>Annual Income</CardTitle><CardDescription>Select the applicable income range</CardDescription></CardHeader>
-        <CardContent className="grid md:grid-cols-2 gap-4">
+        <CardHeader>
+          <CardTitle>Annual Income</CardTitle>
+          <CardDescription>Select the applicable income range</CardDescription>
+        </CardHeader>
+        <CardContent className="grid md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <Label>Self Income <span className="text-destructive">*</span></Label>
-            <Select value={selfIncome} onValueChange={v => { setSelfIncome(v); setErrors(e => ({...e, selfIncome: ""})); }}>
-              <SelectTrigger className={errors.selfIncome ? "border-destructive" : ""}><SelectValue placeholder="Select income range" /></SelectTrigger>
-              <SelectContent>{incomeSlabs.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            <Select value={selfIncome} onValueChange={v => { setSelfIncome(v); setErrors(e => ({ ...e, selfIncome: "" })); }}>
+              <SelectTrigger className={errors.selfIncome ? "border-destructive" : ""}>
+                <SelectValue placeholder="Select income range" />
+              </SelectTrigger>
+              <SelectContent>
+                {incomeSlabs.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
             </Select>
             {errors.selfIncome && <p className="text-xs text-destructive">{errors.selfIncome}</p>}
           </div>
           <div className="space-y-2">
             <Label>Family Income <span className="text-destructive">*</span></Label>
-            <Select value={familyIncome} onValueChange={v => { setFamilyIncome(v); setErrors(e => ({...e, familyIncome: ""})); }}>
-              <SelectTrigger className={errors.familyIncome ? "border-destructive" : ""}><SelectValue placeholder="Select income range" /></SelectTrigger>
-              <SelectContent>{incomeSlabs.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            <Select value={familyIncome} onValueChange={v => { setFamilyIncome(v); setErrors(e => ({ ...e, familyIncome: "" })); }}>
+              <SelectTrigger className={errors.familyIncome ? "border-destructive" : ""}>
+                <SelectValue placeholder="Select income range" />
+              </SelectTrigger>
+              <SelectContent>
+                {incomeSlabs.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
             </Select>
             {errors.familyIncome && <p className="text-xs text-destructive">{errors.familyIncome}</p>}
           </div>
         </CardContent>
       </Card>
 
+      {/* ── Family Facilities ── */}
       <Card className="shadow-sm">
-        <CardHeader><CardTitle>Family Facilities</CardTitle><CardDescription>Select all that apply</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle>Family Facilities</CardTitle>
+          <CardDescription>Select all that apply</CardDescription>
+        </CardHeader>
         <CardContent>
           <div className="grid md:grid-cols-2 gap-3">
             {familyFacilities.map(f => (
-              <div key={f} onClick={() => toggleFacility(f)}
-                className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedFacilities.includes(f) ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
+              <div
+                key={f}
+                onClick={() => toggleFacility(f)}
+                className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                  selectedFacilities.includes(f)
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/40"
+                }`}
+              >
                 <Checkbox checked={selectedFacilities.includes(f)} onCheckedChange={() => toggleFacility(f)} />
                 <Label className="font-normal cursor-pointer text-sm">{f}</Label>
               </div>
@@ -259,13 +319,24 @@ export default function Page() {
         </CardContent>
       </Card>
 
+      {/* ── Investments ── */}
       <Card className="shadow-sm">
-        <CardHeader><CardTitle>Investments</CardTitle><CardDescription>Select all investment types that apply</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle>Investments</CardTitle>
+          <CardDescription>Select all investment types that apply</CardDescription>
+        </CardHeader>
         <CardContent>
           <div className="grid md:grid-cols-2 gap-3">
             {investmentOptions.map(inv => (
-              <div key={inv} onClick={() => toggleInvestment(inv)}
-                className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedInvestments.includes(inv) ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
+              <div
+                key={inv}
+                onClick={() => toggleInvestment(inv)}
+                className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                  selectedInvestments.includes(inv)
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/40"
+                }`}
+              >
                 <Checkbox checked={selectedInvestments.includes(inv)} onCheckedChange={() => toggleInvestment(inv)} />
                 <Label className="font-normal cursor-pointer text-sm">{inv}</Label>
               </div>
@@ -274,10 +345,16 @@ export default function Page() {
         </CardContent>
       </Card>
 
+      {/* ── Insurance Coverage — Konkani Card added here ── */}
       <Card className="shadow-sm">
-        <CardHeader><CardTitle>Insurance Coverage</CardTitle><CardDescription>Members are auto-loaded from Family Information. Click a cell to toggle Yes / —</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle>Insurance Coverage</CardTitle>
+          <CardDescription>
+            Members are auto-loaded from Family Information. Click a cell to toggle Yes / —
+          </CardDescription>
+        </CardHeader>
         <CardContent>
-          <div className="border rounded-lg overflow-hidden">
+          <div className="border rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -287,16 +364,20 @@ export default function Page() {
                     <TableHead className="text-center min-w-[120px]">Health Insurance</TableHead>
                     <TableHead className="text-center min-w-[120px]">Life Insurance</TableHead>
                     <TableHead className="text-center min-w-[120px]">Term Insurance</TableHead>
+                    {/* ✅ Konkani Card column added here */}
+                    <TableHead className="text-center min-w-[120px]">Konkani Card</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {members.map(m => (
-                    <TableRow key={m.id}>
+                    <TableRow key={m.id} className="hover:bg-muted/20 transition-colors">
                       <TableCell className="font-medium">{m.name}</TableCell>
                       <TableCell className="text-muted-foreground text-sm">{m.relation}</TableCell>
                       <TableCell><ToggleCell checked={m.healthInsurance} onChange={() => toggleMember(m.id, "healthInsurance")} /></TableCell>
                       <TableCell><ToggleCell checked={m.lifeInsurance}   onChange={() => toggleMember(m.id, "lifeInsurance")} /></TableCell>
                       <TableCell><ToggleCell checked={m.termInsurance}   onChange={() => toggleMember(m.id, "termInsurance")} /></TableCell>
+                      {/* ✅ Konkani Card toggle */}
+                      <TableCell><ToggleCell checked={m.konkaniCard}     onChange={() => toggleMember(m.id, "konkaniCard")} /></TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -306,10 +387,16 @@ export default function Page() {
         </CardContent>
       </Card>
 
+      {/* ── Document Information — Konkani Card removed ── */}
       <Card className="shadow-sm">
-        <CardHeader><CardTitle>Document Information</CardTitle><CardDescription>Select which documents each member has. Click a cell to toggle Yes / —</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle>Document Information</CardTitle>
+          <CardDescription>
+            Select which documents each member has. Click a cell to toggle Yes / —
+          </CardDescription>
+        </CardHeader>
         <CardContent>
-          <div className="border rounded-lg overflow-hidden">
+          <div className="border rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -321,12 +408,12 @@ export default function Page() {
                     <TableHead className="text-center min-w-[90px]">Voter ID</TableHead>
                     <TableHead className="text-center min-w-[100px]">Land Docs</TableHead>
                     <TableHead className="text-center min-w-[70px]">DL</TableHead>
-                    <TableHead className="text-center min-w-[110px]">Konkani Card</TableHead>
+                    {/* ✅ Konkani Card column removed from here */}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {members.map(m => (
-                    <TableRow key={m.id}>
+                    <TableRow key={m.id} className="hover:bg-muted/20 transition-colors">
                       <TableCell className="font-medium">{m.name}</TableCell>
                       <TableCell className="text-muted-foreground text-sm">{m.relation}</TableCell>
                       <TableCell><ToggleCell checked={m.aadhaar}        onChange={() => toggleMember(m.id, "aadhaar")} /></TableCell>
@@ -334,7 +421,6 @@ export default function Page() {
                       <TableCell><ToggleCell checked={m.voterId}        onChange={() => toggleMember(m.id, "voterId")} /></TableCell>
                       <TableCell><ToggleCell checked={m.landDocuments}  onChange={() => toggleMember(m.id, "landDocuments")} /></TableCell>
                       <TableCell><ToggleCell checked={m.drivingLicense} onChange={() => toggleMember(m.id, "drivingLicense")} /></TableCell>
-                      <TableCell><ToggleCell checked={m.konkaniCard}    onChange={() => toggleMember(m.id, "konkaniCard")} /></TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -357,11 +443,16 @@ export default function Page() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Reset Economic Details?</AlertDialogTitle>
-            <AlertDialogDescription>This will clear only your economic details. All other steps remain intact.</AlertDialogDescription>
+            <AlertDialogDescription>
+              This will clear only your economic details. All other steps remain intact.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleReset} disabled={resetting} className="bg-destructive hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={handleReset} disabled={resetting}
+              className="bg-destructive hover:bg-destructive/90"
+            >
               {resetting ? "Resetting..." : "Yes, Reset"}
             </AlertDialogAction>
           </AlertDialogFooter>

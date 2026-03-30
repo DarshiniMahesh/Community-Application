@@ -51,7 +51,7 @@ CREATE TYPE doc_coverage AS ENUM ('self', 'wife', 'kids', 'parents', 'all');
 CREATE TYPE review_action AS ENUM ('approved', 'rejected', 'changes_requested');
 
 -- ============================================================
--- 1. USERS — Single table for all roles
+-- 1. USERS
 -- ============================================================
 
 CREATE TABLE users (
@@ -93,7 +93,7 @@ CREATE TABLE sangha_profiles (
 );
 
 -- ============================================================
--- 3. PROFILES — Census form, one per user
+-- 3. PROFILES
 -- ============================================================
 
 CREATE TABLE profiles (
@@ -146,10 +146,12 @@ CREATE TABLE personal_details (
   surname_in_use        VARCHAR(100),
   surname_as_per_gotra  VARCHAR(100),
   is_married            BOOLEAN DEFAULT FALSE,
+  -- ▼▼▼ NEW COLUMNS ▼▼▼
   has_disability        VARCHAR(5),
   is_part_of_sangha     VARCHAR(5),
   sangha_name           VARCHAR(255),
   sangha_role           VARCHAR(100),
+  -- ▲▲▲ NEW COLUMNS ▲▲▲
   created_at            TIMESTAMP DEFAULT NOW(),
   updated_at            TIMESTAMP DEFAULT NOW(),
   UNIQUE(profile_id)
@@ -196,9 +198,11 @@ CREATE TABLE family_members (
   relation        VARCHAR(100) NOT NULL,
   name            VARCHAR(150),
   age             SMALLINT,
+  -- ▼▼▼ NEW COLUMNS ▼▼▼
   dob             DATE,
-  gender          gender_type,
   disability      VARCHAR(5) DEFAULT 'no',
+  -- ▲▲▲ NEW COLUMNS ▲▲▲
+  gender          gender_type,
   photo_url       TEXT,
   status          member_status DEFAULT 'active',
   sort_order      SMALLINT DEFAULT 0,
@@ -245,6 +249,9 @@ CREATE TABLE member_education (
   self_employed_type    self_employed_type,
   self_employed_other   VARCHAR(200),
   industry              VARCHAR(150),
+  -- ▼▼▼ NEW COLUMN ▼▼▼
+  is_currently_studying BOOLEAN DEFAULT FALSE,
+  -- ▲▲▲ NEW COLUMN ▲▲▲
   created_at            TIMESTAMP DEFAULT NOW(),
   updated_at            TIMESTAMP DEFAULT NOW()
 );
@@ -288,14 +295,17 @@ CREATE TABLE economic_details (
 );
 
 CREATE TABLE member_insurance (
-  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id        UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  member_name       VARCHAR(150),
-  member_relation   VARCHAR(100),
-  sort_order        SMALLINT DEFAULT 0,
-  health_coverage   doc_coverage[],
-  life_coverage     doc_coverage[],
-  term_coverage     doc_coverage[]
+  id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  member_name           VARCHAR(150),
+  member_relation       VARCHAR(100),
+  sort_order            SMALLINT DEFAULT 0,
+  health_coverage       doc_coverage[],
+  life_coverage         doc_coverage[],
+  term_coverage         doc_coverage[],
+  -- ▼▼▼ NEW COLUMN — Konkani Card moved here from documents ▼▼▼
+  konkani_card_coverage doc_coverage[]
+  -- ▲▲▲ NEW COLUMN ▲▲▲
 );
 
 CREATE TABLE member_documents (
@@ -306,14 +316,16 @@ CREATE TABLE member_documents (
   sort_order              SMALLINT DEFAULT 0,
   aadhaar_coverage        doc_coverage[],
   pan_coverage            doc_coverage[],
+  -- ▼▼▼ NEW COLUMNS ▼▼▼
   voter_id_coverage       doc_coverage[],
   land_doc_coverage       doc_coverage[],
   dl_coverage             doc_coverage[],
+  -- ▲▲▲ NEW COLUMNS ▲▲▲
   all_records_coverage    doc_coverage[]
 );
 
 -- ============================================================
--- 10. FAMILY HISTORY — Ancestral info
+-- 10. FAMILY HISTORY
 -- ============================================================
 
 CREATE TABLE family_history (
@@ -329,7 +341,7 @@ CREATE TABLE family_history (
 );
 
 -- ============================================================
--- 11. PROFILE REVIEW HISTORY — Audit trail
+-- 11. PROFILE REVIEW HISTORY
 -- ============================================================
 
 CREATE TABLE profile_review_history (

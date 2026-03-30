@@ -373,21 +373,28 @@ const saveStep5 = async (req, res) => {
 
     for (let i = 0; i < members.length; i++) {
       const m = members[i];
+
+      // ── NEW: is_currently_studying added ──
       const eduRes = await pool.query(
         `INSERT INTO member_education
            (profile_id, member_name, member_relation, sort_order,
             highest_education, brief_profile,
             profession_type, profession_other,
-            self_employed_type, self_employed_other, industry)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            self_employed_type, self_employed_other, industry,
+            is_currently_studying)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          RETURNING id`,
         [
           pid,
           m.member_name || null, m.member_relation || null, i,
           m.highest_education || null, m.brief_profile || null,
-          m.profession_type || null, m.profession_other || null,
-          m.self_employed_type || null, m.self_employed_other || null,
-          m.industry || null,
+          // if currently studying, null out all profession fields
+          m.is_currently_studying ? null : (m.profession_type || null),
+          m.is_currently_studying ? null : (m.profession_other || null),
+          m.is_currently_studying ? null : (m.self_employed_type || null),
+          m.is_currently_studying ? null : (m.self_employed_other || null),
+          m.is_currently_studying ? null : (m.industry || null),
+          m.is_currently_studying || false,
         ]
       );
 
@@ -482,22 +489,28 @@ const saveStep6 = async (req, res) => {
       );
     }
 
+    // ── Insurance — now includes konkani_card_coverage ──
     await pool.query('DELETE FROM member_insurance WHERE profile_id=$1', [pid]);
     for (let i = 0; i < insurance.length; i++) {
       const ins = insurance[i];
       await pool.query(
         `INSERT INTO member_insurance
            (profile_id, member_name, member_relation, sort_order,
-            health_coverage, life_coverage, term_coverage)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            health_coverage, life_coverage, term_coverage,
+            konkani_card_coverage)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
         [
           pid,
           ins.member_name || null, ins.member_relation || null, i,
-          ins.health_coverage || [], ins.life_coverage || [], ins.term_coverage || [],
+          ins.health_coverage || [],
+          ins.life_coverage   || [],
+          ins.term_coverage   || [],
+          ins.konkani_card_coverage || [],
         ]
       );
     }
 
+    // ── Documents — no longer includes konkani card ──
     await pool.query('DELETE FROM member_documents WHERE profile_id=$1', [pid]);
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i];
@@ -511,9 +524,12 @@ const saveStep6 = async (req, res) => {
         [
           pid,
           doc.member_name || null, doc.member_relation || null, i,
-          doc.aadhaar_coverage || [], doc.pan_coverage || [],
-          doc.voter_id_coverage || [], doc.land_doc_coverage || [],
-          doc.dl_coverage || [], doc.all_records_coverage || [],
+          doc.aadhaar_coverage     || [],
+          doc.pan_coverage         || [],
+          doc.voter_id_coverage    || [],
+          doc.land_doc_coverage    || [],
+          doc.dl_coverage          || [],
+          doc.all_records_coverage || [],
         ]
       );
     }
@@ -617,9 +633,7 @@ const resetStep1 = async (req, res) => {
     const pid = profile.id;
     await pool.query('DELETE FROM personal_details WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET
-         step1_personal_pct=0, step1_completed=FALSE
-       WHERE id=$1`,
+      `UPDATE profiles SET step1_personal_pct=0, step1_completed=FALSE WHERE id=$1`,
       [pid]
     );
     res.json({ message: 'Step 1 reset successfully' });
@@ -637,9 +651,7 @@ const resetStep2 = async (req, res) => {
     const pid = profile.id;
     await pool.query('DELETE FROM religious_details WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET
-         step2_religious_pct=0, step2_completed=FALSE
-       WHERE id=$1`,
+      `UPDATE profiles SET step2_religious_pct=0, step2_completed=FALSE WHERE id=$1`,
       [pid]
     );
     res.json({ message: 'Step 2 reset successfully' });
@@ -658,9 +670,7 @@ const resetStep3 = async (req, res) => {
     await pool.query('DELETE FROM family_members WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM family_info    WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET
-         step3_family_pct=0, step3_completed=FALSE
-       WHERE id=$1`,
+      `UPDATE profiles SET step3_family_pct=0, step3_completed=FALSE WHERE id=$1`,
       [pid]
     );
     res.json({ message: 'Step 3 reset successfully' });
@@ -678,9 +688,7 @@ const resetStep4 = async (req, res) => {
     const pid = profile.id;
     await pool.query('DELETE FROM addresses WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET
-         step4_location_pct=0, step4_completed=FALSE
-       WHERE id=$1`,
+      `UPDATE profiles SET step4_location_pct=0, step4_completed=FALSE WHERE id=$1`,
       [pid]
     );
     res.json({ message: 'Step 4 reset successfully' });
@@ -703,9 +711,7 @@ const resetStep5 = async (req, res) => {
     }
     await pool.query('DELETE FROM member_education WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET
-         step5_education_pct=0, step5_completed=FALSE
-       WHERE id=$1`,
+      `UPDATE profiles SET step5_education_pct=0, step5_completed=FALSE WHERE id=$1`,
       [pid]
     );
     res.json({ message: 'Step 5 reset successfully' });
@@ -725,9 +731,7 @@ const resetStep6 = async (req, res) => {
     await pool.query('DELETE FROM member_insurance  WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM member_documents  WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET
-         step6_economic_pct=0, step6_completed=FALSE
-       WHERE id=$1`,
+      `UPDATE profiles SET step6_economic_pct=0, step6_completed=FALSE WHERE id=$1`,
       [pid]
     );
     res.json({ message: 'Step 6 reset successfully' });

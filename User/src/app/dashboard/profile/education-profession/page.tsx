@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ArrowRight, Plus, Trash2, User, X, RotateCcw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, Trash2, User, X, RotateCcw, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
@@ -26,7 +26,11 @@ const steps = [
   { id: "7", name: "Review",    href: "/dashboard/profile/review-submit" },
 ];
 
-const educationLevels = ["Below Primary","Primary School","High School (10th)","Higher Secondary (12th)","Diploma","Bachelor's Degree","Master's Degree","Doctorate (PhD)","Professional Degree (MBBS / LLB / CA etc.)","Not Applicable"];
+const educationLevels = [
+  "Below Primary","Primary School","High School (10th)","Higher Secondary (12th)",
+  "Diploma","Bachelor's Degree","Master's Degree","Doctorate (PhD)",
+  "Professional Degree (MBBS / LLB / CA etc.)","Not Applicable",
+];
 const professionTypes = [
   { label: "Working for Private Firm",     value: "private" },
   { label: "Working for Government / PSU", value: "government" },
@@ -45,33 +49,54 @@ const selfEmployedOptions = [
   { label: "Other",            value: "other" },
   { label: "Training",         value: "training" },
 ];
-const languageOptions = ["RSB Konkani","GSB Konkani","Kannada","Tulu","Marathi","Hindi","Malayalam","Gujarati","English","Tamil","Telugu","Other"];
+const languageOptions = [
+  "RSB Konkani","GSB Konkani","Kannada","Tulu","Marathi","Hindi",
+  "Malayalam","Gujarati","English","Tamil","Telugu","Other",
+];
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface MemberData {
   id: string; name: string; relation: string;
-  highestEducation: string; certifications: string[];
-  profession: string; selfEmployedType: string; selfEmployedOther: string;
-  industry: string; briefProfile: string;
-  languages: string[]; otherLanguages: string[]; otherLanguageInput: string;
+  highestEducation:  string;
+  certifications:    string[];
+  isCurrentlyStudying: boolean;   // ✅ NEW field
+  profession:        string;
+  selfEmployedType:  string;
+  selfEmployedOther: string;
+  industry:          string;
+  briefProfile:      string;
+  languages:         string[];
+  otherLanguages:    string[];
+  otherLanguageInput: string;
 }
 
 function blankMember(id: string, name = "", relation = ""): MemberData {
-  return { id, name, relation, highestEducation: "", certifications: [""], profession: "", selfEmployedType: "", selfEmployedOther: "", industry: "", briefProfile: "", languages: [], otherLanguages: [], otherLanguageInput: "" };
+  return {
+    id, name, relation,
+    highestEducation: "", certifications: [""],
+    isCurrentlyStudying: false,
+    profession: "", selfEmployedType: "", selfEmployedOther: "",
+    industry: "", briefProfile: "",
+    languages: [], otherLanguages: [], otherLanguageInput: "",
+  };
 }
+
+// ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Page() {
   const router = useRouter();
-  const [members, setMembers] = useState<MemberData[]>([blankMember("self", "", "Self")]);
-  const [errors, setErrors] = useState<Record<string, Record<string, string>>>({});
-  const [loading, setLoading] = useState(false);
+  const [members, setMembers]               = useState<MemberData[]>([blankMember("self", "", "Self")]);
+  const [errors, setErrors]                 = useState<Record<string, Record<string, string>>>({});
+  const [loading, setLoading]               = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [canReset, setCanReset] = useState(false);
-  const [expectedMembers, setExpectedMembers] = useState<{id:string;name:string;relation:string}[]>([]);
+  const [resetting, setResetting]           = useState(false);
+  const [canReset, setCanReset]             = useState(false);
+  const [expectedMembers, setExpectedMembers] = useState<{ id: string; name: string; relation: string }[]>([]);
 
   useEffect(() => {
     api.get("/users/profile").then(meta => {
-      const s = (meta as Record<string,string>).status;
+      const s = (meta as Record<string, string>).status;
       setCanReset(s === "draft" || s === "changes_requested" || s === "approved");
     }).catch(() => {});
 
@@ -86,6 +111,10 @@ export default function Page() {
       ];
       setExpectedMembers(expected);
 
+      // Check if coming back from review to a specific member
+      const openIdx = sessionStorage.getItem("openMemberIndex");
+      if (openIdx) sessionStorage.removeItem("openMemberIndex");
+
       if (data.step5?.length > 0) {
         const mapped: MemberData[] = data.step5.map((m: Record<string, unknown>, i: number) => {
           const base = expected[i] || { id: String(i), name: (m.member_name as string) || "", relation: (m.member_relation as string) || "" };
@@ -94,14 +123,16 @@ export default function Page() {
           const otherLangs = otherEntry?.language_other?.split(",").map(s => s.trim()).filter(Boolean) || [];
           return {
             id: base.id, name: base.name, relation: base.relation,
-            highestEducation: (m.highest_education as string) || "",
-            certifications: (m.certifications as string[])?.length ? m.certifications as string[] : [""],
-            profession: (m.profession_type as string) || "",
-            selfEmployedType: (m.self_employed_type as string) || "",
-            selfEmployedOther: (m.self_employed_other as string) || "",
-            industry: (m.industry as string) || "",
-            briefProfile: (m.brief_profile as string) || "",
-            languages: rawLangs.filter(l => l.language !== "Other").map(l => l.language),
+            highestEducation:    (m.highest_education    as string)  || "",
+            certifications:      (m.certifications       as string[])?.length ? m.certifications as string[] : [""],
+            // ✅ Load isCurrentlyStudying from DB
+            isCurrentlyStudying: !!(m.is_currently_studying as boolean),
+            profession:          (m.profession_type      as string)  || "",
+            selfEmployedType:    (m.self_employed_type   as string)  || "",
+            selfEmployedOther:   (m.self_employed_other  as string)  || "",
+            industry:            (m.industry             as string)  || "",
+            briefProfile:        (m.brief_profile        as string)  || "",
+            languages:    rawLangs.filter(l => l.language !== "Other").map(l => l.language),
             otherLanguages: otherLangs, otherLanguageInput: "",
           };
         });
@@ -117,9 +148,32 @@ export default function Page() {
     }).catch(() => {});
   }, []);
 
+  // ── Updaters ──────────────────────────────────────────────────────────────
+
   const update = (id: string, field: keyof MemberData, value: unknown) => {
     setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: value } : m));
     setErrors(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [field as string]: "" } }));
+  };
+
+  /** Toggle Currently Studying — when enabled, clear profession-related fields */
+  const toggleCurrentlyStudying = (id: string) => {
+    setMembers(prev => prev.map(m => {
+      if (m.id !== id) return m;
+      const nowStudying = !m.isCurrentlyStudying;
+      return {
+        ...m,
+        isCurrentlyStudying: nowStudying,
+        // ✅ Clear profession fields when studying is checked
+        ...(nowStudying ? {
+          profession: "", selfEmployedType: "", selfEmployedOther: "",
+          industry: "", briefProfile: "",
+        } : {}),
+      };
+    }));
+    setErrors(prev => ({
+      ...prev,
+      [id]: { ...(prev[id] || {}), profession: "", selfEmployedType: "", selfEmployedOther: "" },
+    }));
   };
 
   const toggleLanguage = (id: string, lang: string) => {
@@ -130,9 +184,11 @@ export default function Page() {
   const addOtherLanguage = (id: string) => {
     const m = members.find(x => x.id === id)!;
     const val = m.otherLanguageInput.trim();
-    if (val && !m.otherLanguages.includes(val)) { update(id, "otherLanguages", [...m.otherLanguages, val]); update(id, "otherLanguageInput", ""); }
+    if (val && !m.otherLanguages.includes(val)) {
+      update(id, "otherLanguages", [...m.otherLanguages, val]);
+      update(id, "otherLanguageInput", "");
+    }
   };
-
   const removeOtherLanguage = (id: string, lang: string) => {
     const m = members.find(x => x.id === id)!;
     update(id, "otherLanguages", m.otherLanguages.filter(l => l !== lang));
@@ -141,17 +197,27 @@ export default function Page() {
   const addCert    = (id: string) => { const m = members.find(x => x.id === id)!; update(id, "certifications", [...m.certifications, ""]); };
   const editCert   = (id: string, i: number, v: string) => { const m = members.find(x => x.id === id)!; const c = [...m.certifications]; c[i] = v; update(id, "certifications", c); };
   const removeCert = (id: string, i: number) => { const m = members.find(x => x.id === id)!; if (m.certifications.length <= 1) return; update(id, "certifications", m.certifications.filter((_, ci) => ci !== i)); };
-  const isComplete = (m: MemberData) => !!m.highestEducation && !!m.profession;
+
+  /** A member is "complete" if they have education AND either studying or profession filled */
+  const isComplete = (m: MemberData) => !!m.highestEducation && (m.isCurrentlyStudying || !!m.profession);
+
+  // ── Payload ───────────────────────────────────────────────────────────────
 
   const buildPayload = () => ({
     members: members.map(m => ({
-      member_name: m.name || null, member_relation: m.relation || null,
-      highest_education: m.highestEducation || null, brief_profile: m.briefProfile || null,
-      profession_type: m.profession || null, profession_other: m.profession === "other" ? m.briefProfile : null,
-      self_employed_type: m.profession === "self_employed" ? m.selfEmployedType : null,
-      self_employed_other: m.selfEmployedType === "other" ? m.selfEmployedOther : null,
-      industry: m.industry || null,
-      certifications: m.certifications.filter(c => c.trim()),
+      member_name:          m.name     || null,
+      member_relation:      m.relation || null,
+      highest_education:    m.highestEducation || null,
+      brief_profile:        m.briefProfile     || null,
+      // ✅ Save is_currently_studying to DB
+      is_currently_studying: m.isCurrentlyStudying,
+      // If studying, profession fields are null
+      profession_type:      m.isCurrentlyStudying ? null : (m.profession || null),
+      profession_other:     (!m.isCurrentlyStudying && m.profession === "other") ? m.briefProfile : null,
+      self_employed_type:   (!m.isCurrentlyStudying && m.profession === "self_employed") ? m.selfEmployedType : null,
+      self_employed_other:  (!m.isCurrentlyStudying && m.selfEmployedType === "other") ? m.selfEmployedOther : null,
+      industry:             m.isCurrentlyStudying ? null : (m.industry || null),
+      certifications:       m.certifications.filter(c => c.trim()),
       languages: [
         ...m.languages.filter(l => l !== "Other").map(l => ({ language: l, language_other: null })),
         ...(m.otherLanguages.length > 0 ? [{ language: "Other", language_other: m.otherLanguages.join(", ") }] : []),
@@ -161,15 +227,20 @@ export default function Page() {
 
   useAutoSave("/users/profile/step5", buildPayload, [members]);
 
+  // ── Validation ────────────────────────────────────────────────────────────
+
   const validate = () => {
     const newErrors: Record<string, Record<string, string>> = {};
     let valid = true;
     members.forEach(m => {
       const e: Record<string, string> = {};
       if (!m.highestEducation) { e.highestEducation = "Required"; valid = false; }
-      if (!m.profession)       { e.profession = "Required"; valid = false; }
-      if (m.profession === "self_employed" && !m.selfEmployedType) { e.selfEmployedType = "Please select type"; valid = false; }
-      if (m.selfEmployedType === "other" && !m.selfEmployedOther.trim()) { e.selfEmployedOther = "Please specify"; valid = false; }
+      // Profession only required if NOT currently studying
+      if (!m.isCurrentlyStudying) {
+        if (!m.profession) { e.profession = "Required"; valid = false; }
+        if (m.profession === "self_employed" && !m.selfEmployedType) { e.selfEmployedType = "Please select type"; valid = false; }
+        if (m.selfEmployedType === "other" && !m.selfEmployedOther.trim()) { e.selfEmployedOther = "Please specify"; valid = false; }
+      }
       if (m.languages.includes("Other") && m.otherLanguages.length === 0) { e.otherLanguages = "Please add at least one language"; valid = false; }
       newErrors[m.id] = e;
     });
@@ -205,6 +276,8 @@ export default function Page() {
     }
   };
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-10">
       <div className="flex items-start justify-between">
@@ -216,8 +289,11 @@ export default function Page() {
           <p className="text-muted-foreground mt-1">Step 5 of 7 — Fill education and profession details for each member</p>
         </div>
         {canReset && (
-          <Button variant="outline" size="sm" className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
-            onClick={() => setShowResetDialog(true)}>
+          <Button
+            variant="outline" size="sm"
+            className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
+            onClick={() => setShowResetDialog(true)}
+          >
             <RotateCcw className="h-4 w-4" /> Reset This Step
           </Button>
         )}
@@ -229,13 +305,18 @@ export default function Page() {
         <User className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
         <div>
           <p className="text-sm font-semibold text-foreground">Members are auto-loaded from Family Information</p>
-          <p className="text-sm text-muted-foreground">Highest Education and Profession are required for every member.</p>
+          <p className="text-sm text-muted-foreground">
+            Highest Education is required for every member. If currently studying, profession details are not needed.
+          </p>
         </div>
       </div>
 
       <Accordion type="multiple" defaultValue={members.map(m => m.id)} className="space-y-3">
         {members.map((member, index) => (
-          <AccordionItem key={member.id} value={member.id} className="border border-border rounded-xl overflow-hidden shadow-sm bg-white">
+          <AccordionItem
+            key={member.id} value={member.id}
+            className="border border-border rounded-xl overflow-hidden shadow-sm bg-white"
+          >
             <AccordionTrigger className="px-5 py-4 hover:no-underline hover:bg-muted/20 [&[data-state=open]]:bg-muted/10">
               <div className="flex items-center gap-3 w-full">
                 <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -245,35 +326,96 @@ export default function Page() {
                   <p className="font-semibold text-foreground">{member.name || `Member ${index + 1}`}</p>
                   <p className="text-xs text-muted-foreground">{member.relation || "Relation not set"}</p>
                 </div>
-                <Badge variant="outline" className={`mr-2 ${isComplete(member) ? "bg-green-50 text-green-700 border-green-200" : "bg-orange-50 text-orange-600 border-orange-200"}`}>
-                  {isComplete(member) ? "✓ Complete" : "Incomplete"}
-                </Badge>
+                <div className="flex items-center gap-2 mr-2">
+                  {member.isCurrentlyStudying && (
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 gap-1 text-xs">
+                      <BookOpen className="h-3 w-3" />Currently Studying
+                    </Badge>
+                  )}
+                  <Badge
+                    variant="outline"
+                    className={isComplete(member)
+                      ? "bg-green-50 text-green-700 border-green-200"
+                      : "bg-orange-50 text-orange-600 border-orange-200"
+                    }
+                  >
+                    {isComplete(member) ? "✓ Complete" : "Incomplete"}
+                  </Badge>
+                </div>
               </div>
             </AccordionTrigger>
+
             <AccordionContent className="px-5 pb-6 pt-4 border-t border-border space-y-6">
+              {/* Member identity */}
               <div className="grid md:grid-cols-2 gap-4 p-3 bg-muted/30 rounded-lg">
                 <div><Label className="text-xs text-muted-foreground">Member Name</Label><p className="font-medium text-sm mt-0.5">{member.name || "—"}</p></div>
                 <div><Label className="text-xs text-muted-foreground">Relation</Label><p className="font-medium text-sm mt-0.5">{member.relation || "—"}</p></div>
               </div>
 
+              {/* ── EDUCATION ── */}
               <div className="space-y-4">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Education</p>
+
                 <div className="space-y-2">
                   <Label>Highest Education <span className="text-destructive">*</span></Label>
                   <Select value={member.highestEducation} onValueChange={v => update(member.id, "highestEducation", v)}>
-                    <SelectTrigger className={errors[member.id]?.highestEducation ? "border-destructive" : ""}><SelectValue placeholder="Select highest qualification" /></SelectTrigger>
-                    <SelectContent>{educationLevels.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
+                    <SelectTrigger className={errors[member.id]?.highestEducation ? "border-destructive" : ""}>
+                      <SelectValue placeholder="Select highest qualification" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {educationLevels.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                    </SelectContent>
                   </Select>
-                  {errors[member.id]?.highestEducation && <p className="text-xs text-destructive">{errors[member.id].highestEducation}</p>}
+                  {errors[member.id]?.highestEducation && (
+                    <p className="text-xs text-destructive">{errors[member.id].highestEducation}</p>
+                  )}
                 </div>
+
+                {/* ✅ Currently Studying checkbox */}
+                <div
+                  onClick={() => toggleCurrentlyStudying(member.id)}
+                  className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all select-none ${
+                    member.isCurrentlyStudying
+                      ? "border-blue-400 bg-blue-50"
+                      : "border-border hover:border-blue-300 hover:bg-blue-50/40"
+                  }`}
+                >
+                  <Checkbox
+                    id={`studying-${member.id}`}
+                    checked={member.isCurrentlyStudying}
+                    onCheckedChange={() => toggleCurrentlyStudying(member.id)}
+                    className={member.isCurrentlyStudying ? "border-blue-500 data-[state=checked]:bg-blue-500" : ""}
+                  />
+                  <div className="flex items-center gap-2">
+                    <BookOpen className={`h-4 w-4 ${member.isCurrentlyStudying ? "text-blue-600" : "text-muted-foreground"}`} />
+                    <div>
+                      <Label
+                        htmlFor={`studying-${member.id}`}
+                        className={`font-medium cursor-pointer text-sm ${member.isCurrentlyStudying ? "text-blue-700" : "text-foreground"}`}
+                      >
+                        Currently Studying / Pursuing
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Check this if this member is currently a student — profession details won&apos;t be required
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>Certifications</Label>
-                    <Button type="button" variant="outline" size="sm" onClick={() => addCert(member.id)} className="gap-1 h-7 text-xs"><Plus className="h-3 w-3" /> Add</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => addCert(member.id)} className="gap-1 h-7 text-xs">
+                      <Plus className="h-3 w-3" /> Add
+                    </Button>
                   </div>
                   {member.certifications.map((cert, ci) => (
                     <div key={ci} className="flex gap-2">
-                      <Input placeholder={`Certification ${ci + 1}`} value={cert} onChange={e => editCert(member.id, ci, e.target.value)} />
+                      <Input
+                        placeholder={`Certification ${ci + 1}`}
+                        value={cert}
+                        onChange={e => editCert(member.id, ci, e.target.value)}
+                      />
                       {member.certifications.length > 1 && (
                         <Button aria-label="Remove certification" type="button" variant="ghost" size="icon" onClick={() => removeCert(member.id, ci)}>
                           <Trash2 className="h-4 w-4 text-destructive" />
@@ -284,55 +426,105 @@ export default function Page() {
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Profession</p>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Type of Profession <span className="text-destructive">*</span></Label>
-                    <Select value={member.profession} onValueChange={v => { update(member.id, "profession", v); update(member.id, "selfEmployedType", ""); }}>
-                      <SelectTrigger className={errors[member.id]?.profession ? "border-destructive" : ""}><SelectValue placeholder="Select profession" /></SelectTrigger>
-                      <SelectContent>{professionTypes.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                    {errors[member.id]?.profession && <p className="text-xs text-destructive">{errors[member.id].profession}</p>}
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Industry / Field</Label>
-                    <Input placeholder="E.g. Software, Banking" value={member.industry} onChange={e => update(member.id, "industry", e.target.value)} />
-                  </div>
-                </div>
-                {member.profession === "self_employed" && (
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label>Type of Business <span className="text-destructive">*</span></Label>
-                      <Select value={member.selfEmployedType} onValueChange={v => { update(member.id, "selfEmployedType", v); update(member.id, "selfEmployedOther", ""); }}>
-                        <SelectTrigger className={errors[member.id]?.selfEmployedType ? "border-destructive" : ""}><SelectValue placeholder="Select type" /></SelectTrigger>
-                        <SelectContent>{selfEmployedOptions.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-                      </Select>
-                      {errors[member.id]?.selfEmployedType && <p className="text-xs text-destructive">{errors[member.id].selfEmployedType}</p>}
-                    </div>
-                    {member.selfEmployedType === "other" && (
-                      <div className="space-y-2">
-                        <Label>Please specify <span className="text-destructive">*</span></Label>
-                        <Input placeholder="Describe your business" value={member.selfEmployedOther}
-                          onChange={e => update(member.id, "selfEmployedOther", e.target.value)}
-                          className={errors[member.id]?.selfEmployedOther ? "border-destructive" : ""} />
-                        {errors[member.id]?.selfEmployedOther && <p className="text-xs text-destructive">{errors[member.id].selfEmployedOther}</p>}
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <Label>Brief Profile <span className="text-xs text-muted-foreground font-normal">(Optional)</span></Label>
-                  <Input placeholder="Short note about work or achievements" value={member.briefProfile} onChange={e => update(member.id, "briefProfile", e.target.value)} />
-                </div>
-              </div>
+              {/* ── PROFESSION — hidden when currently studying ── */}
+              {!member.isCurrentlyStudying && (
+                <div className="space-y-4">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Profession</p>
 
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Type of Profession <span className="text-destructive">*</span></Label>
+                      <Select
+                        value={member.profession}
+                        onValueChange={v => { update(member.id, "profession", v); update(member.id, "selfEmployedType", ""); }}
+                      >
+                        <SelectTrigger className={errors[member.id]?.profession ? "border-destructive" : ""}>
+                          <SelectValue placeholder="Select profession" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {professionTypes.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      {errors[member.id]?.profession && (
+                        <p className="text-xs text-destructive">{errors[member.id].profession}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Industry / Field</Label>
+                      <Input
+                        placeholder="E.g. Software, Banking"
+                        value={member.industry}
+                        onChange={e => update(member.id, "industry", e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {member.profession === "self_employed" && (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label>Type of Business <span className="text-destructive">*</span></Label>
+                        <Select
+                          value={member.selfEmployedType}
+                          onValueChange={v => { update(member.id, "selfEmployedType", v); update(member.id, "selfEmployedOther", ""); }}
+                        >
+                          <SelectTrigger className={errors[member.id]?.selfEmployedType ? "border-destructive" : ""}>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {selfEmployedOptions.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        {errors[member.id]?.selfEmployedType && (
+                          <p className="text-xs text-destructive">{errors[member.id].selfEmployedType}</p>
+                        )}
+                      </div>
+                      {member.selfEmployedType === "other" && (
+                        <div className="space-y-2">
+                          <Label>Please specify <span className="text-destructive">*</span></Label>
+                          <Input
+                            placeholder="Describe your business"
+                            value={member.selfEmployedOther}
+                            onChange={e => update(member.id, "selfEmployedOther", e.target.value)}
+                            className={errors[member.id]?.selfEmployedOther ? "border-destructive" : ""}
+                          />
+                          {errors[member.id]?.selfEmployedOther && (
+                            <p className="text-xs text-destructive">{errors[member.id].selfEmployedOther}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label>Brief Profile <span className="text-xs text-muted-foreground font-normal">(Optional)</span></Label>
+                    <Input
+                      placeholder="Short note about work or achievements"
+                      value={member.briefProfile}
+                      onChange={e => update(member.id, "briefProfile", e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ✅ Visual indicator when studying is checked */}
+              {member.isCurrentlyStudying && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-700">
+                  <BookOpen className="h-4 w-4 flex-shrink-0" />
+                  <span>Profession details are not required while currently studying.</span>
+                </div>
+              )}
+
+              {/* ── LANGUAGES ── */}
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Languages Known</p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {languageOptions.map(lang => (
                     <div key={lang} className="flex items-center gap-2">
-                      <Checkbox id={`${member.id}-${lang}`} checked={member.languages.includes(lang)} onCheckedChange={() => toggleLanguage(member.id, lang)} />
+                      <Checkbox
+                        id={`${member.id}-${lang}`}
+                        checked={member.languages.includes(lang)}
+                        onCheckedChange={() => toggleLanguage(member.id, lang)}
+                      />
                       <Label htmlFor={`${member.id}-${lang}`} className="font-normal cursor-pointer text-sm">{lang}</Label>
                     </div>
                   ))}
@@ -344,20 +536,29 @@ export default function Page() {
                       {member.otherLanguages.map(lang => (
                         <Badge key={lang} variant="secondary" className="gap-1 px-2 py-1">
                           {lang}
-                          <button type="button" aria-label={`Remove ${lang}`} onClick={() => removeOtherLanguage(member.id, lang)} className="ml-1 hover:text-destructive">
+                          <button
+                            type="button" aria-label={`Remove ${lang}`}
+                            onClick={() => removeOtherLanguage(member.id, lang)}
+                            className="ml-1 hover:text-destructive"
+                          >
                             <X className="h-3 w-3" />
                           </button>
                         </Badge>
                       ))}
                     </div>
                     <div className="flex gap-2">
-                      <Input placeholder="Type language name and press Enter" value={member.otherLanguageInput}
+                      <Input
+                        placeholder="Type language name and press Enter"
+                        value={member.otherLanguageInput}
                         onChange={e => update(member.id, "otherLanguageInput", e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addOtherLanguage(member.id); } }}
-                        className="flex-1" />
+                        className="flex-1"
+                      />
                       <Button type="button" variant="outline" size="sm" onClick={() => addOtherLanguage(member.id)}>Add</Button>
                     </div>
-                    {errors[member.id]?.otherLanguages && <p className="text-xs text-destructive">{errors[member.id].otherLanguages}</p>}
+                    {errors[member.id]?.otherLanguages && (
+                      <p className="text-xs text-destructive">{errors[member.id].otherLanguages}</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -378,12 +579,17 @@ export default function Page() {
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset Education & Profession?</AlertDialogTitle>
-            <AlertDialogDescription>This will clear only education and profession data. All other steps remain intact.</AlertDialogDescription>
+            <AlertDialogTitle>Reset Education &amp; Profession?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear only education and profession data. All other steps remain intact.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleReset} disabled={resetting} className="bg-destructive hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={handleReset} disabled={resetting}
+              className="bg-destructive hover:bg-destructive/90"
+            >
               {resetting ? "Resetting..." : "Yes, Reset"}
             </AlertDialogAction>
           </AlertDialogFooter>
