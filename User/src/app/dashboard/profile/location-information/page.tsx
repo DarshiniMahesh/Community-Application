@@ -67,11 +67,8 @@ export default function Page() {
     }).catch(() => {});
   }, []);
 
-  // When sameAsCurrent is toggled on, copy current to hometown
   useEffect(() => {
-    if (sameAsCurrent) {
-      setHometownAddress({ ...currentAddress });
-    }
+    if (sameAsCurrent) setHometownAddress({ ...currentAddress });
   }, [sameAsCurrent, currentAddress]);
 
   const buildPayload = () => {
@@ -83,7 +80,7 @@ export default function Page() {
     });
     const addresses = [toAddr(currentAddress, "current")];
     if (!sameAsCurrent) addresses.push(toAddr(hometownAddress, "hometown"));
-    else addresses.push(toAddr(currentAddress, "hometown")); // same as current
+    else addresses.push(toAddr(currentAddress, "hometown"));
     oldAddresses.forEach((a, i) => addresses.push(toAddr(a, `old_${i + 1}`)));
     return { addresses };
   };
@@ -142,9 +139,12 @@ export default function Page() {
   const handleReset = async () => {
     setResetting(true);
     try {
-      await api.post("/users/profile/reset", {});
-      toast.success("Profile reset successfully.");
-      router.push("/dashboard");
+      await api.post("/users/profile/reset/step4", {});
+      toast.success("Location information cleared.");
+      setCurrentAddress(emptyAddress());
+      setHometownAddress(emptyAddress());
+      setOldAddresses([]);
+      setSameAsCurrent(false);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
     } finally {
@@ -219,7 +219,7 @@ export default function Page() {
         {canReset && (
           <Button variant="outline" size="sm" className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
             onClick={() => setShowResetDialog(true)}>
-            <RotateCcw className="h-4 w-4" /> Reset Profile
+            <RotateCcw className="h-4 w-4" /> Reset This Step
           </Button>
         )}
       </div>
@@ -240,28 +240,13 @@ export default function Page() {
             <div className="flex items-center gap-2"><MapPin className="h-5 w-5 text-muted-foreground" /><CardTitle>Home Town Address</CardTitle></div>
           </div>
           <CardDescription>Your native place or ancestral home</CardDescription>
-          {/* Same as current checkbox */}
           <div className="flex items-center gap-2 pt-2">
-            <Checkbox
-              id="sameAsCurrent"
-              checked={sameAsCurrent}
-              onCheckedChange={c => setSameAsCurrent(c as boolean)}
-            />
-            <Label htmlFor="sameAsCurrent" className="font-normal cursor-pointer text-sm">
-              Home Town Address is same as Current Address
-            </Label>
+            <Checkbox id="sameAsCurrent" checked={sameAsCurrent} onCheckedChange={c => setSameAsCurrent(c as boolean)} />
+            <Label htmlFor="sameAsCurrent" className="font-normal cursor-pointer text-sm">Home Town Address is same as Current Address</Label>
           </div>
         </CardHeader>
-        {!sameAsCurrent && (
-          <CardContent>{renderAddressFields(hometownAddress, setHometownAddress, "hometown", "hometown")}</CardContent>
-        )}
-        {sameAsCurrent && (
-          <CardContent>
-            <div className="p-3 bg-muted/40 rounded-lg text-sm text-muted-foreground">
-              Using current address as hometown address.
-            </div>
-          </CardContent>
-        )}
+        {!sameAsCurrent && <CardContent>{renderAddressFields(hometownAddress, setHometownAddress, "hometown", "hometown")}</CardContent>}
+        {sameAsCurrent && <CardContent><div className="p-3 bg-muted/40 rounded-lg text-sm text-muted-foreground">Using current address as hometown address.</div></CardContent>}
       </Card>
 
       <Card className="shadow-sm">
@@ -307,8 +292,8 @@ export default function Page() {
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset Profile?</AlertDialogTitle>
-            <AlertDialogDescription>This will clear all your profile data. Cannot be undone.</AlertDialogDescription>
+            <AlertDialogTitle>Reset Location Information?</AlertDialogTitle>
+            <AlertDialogDescription>This will clear only your location information. All other steps remain intact.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

@@ -28,49 +28,35 @@ const steps = [
 
 const educationLevels = ["Below Primary","Primary School","High School (10th)","Higher Secondary (12th)","Diploma","Bachelor's Degree","Master's Degree","Doctorate (PhD)","Professional Degree (MBBS / LLB / CA etc.)","Not Applicable"];
 const professionTypes = [
-  { label: "Working for Private Firm",    value: "private" },
+  { label: "Working for Private Firm",     value: "private" },
   { label: "Working for Government / PSU", value: "government" },
-  { label: "IAS / IPS / IFS Service",     value: "ias_ips_ifs" },
-  { label: "Self Employed / Business",    value: "self_employed" },
-  { label: "Farmer",                      value: "farmer" },
-  { label: "Training",                    value: "training" },
-  { label: "Other",                       value: "other" },
+  { label: "IAS / IPS / IFS Service",      value: "ias_ips_ifs" },
+  { label: "Self Employed / Business",     value: "self_employed" },
+  { label: "Farmer",                       value: "farmer" },
+  { label: "Training",                     value: "training" },
+  { label: "Other",                        value: "other" },
 ];
 const selfEmployedOptions = [
-  { label: "Own a Small Firm",  value: "self_small_firm" },
-  { label: "Own a Company",     value: "self_company" },
-  { label: "Own a Shop",        value: "self_shop" },
-  { label: "Freelancer",        value: "freelancer" },
-  { label: "Farmer",            value: "farmer" },
-  { label: "Other",             value: "other" },
-  { label: "Training",          value: "training" },
+  { label: "Own a Small Firm", value: "self_small_firm" },
+  { label: "Own a Company",    value: "self_company" },
+  { label: "Own a Shop",       value: "self_shop" },
+  { label: "Freelancer",       value: "freelancer" },
+  { label: "Farmer",           value: "farmer" },
+  { label: "Other",            value: "other" },
+  { label: "Training",         value: "training" },
 ];
 const languageOptions = ["RSB Konkani","GSB Konkani","Kannada","Tulu","Marathi","Hindi","Malayalam","Gujarati","English","Tamil","Telugu","Other"];
 
 interface MemberData {
-  id: string;
-  name: string;
-  relation: string;
-  highestEducation: string;
-  certifications: string[];
-  profession: string;
-  selfEmployedType: string;
-  selfEmployedOther: string;
-  industry: string;
-  briefProfile: string;
-  languages: string[];
-  otherLanguages: string[];
-  otherLanguageInput: string;
+  id: string; name: string; relation: string;
+  highestEducation: string; certifications: string[];
+  profession: string; selfEmployedType: string; selfEmployedOther: string;
+  industry: string; briefProfile: string;
+  languages: string[]; otherLanguages: string[]; otherLanguageInput: string;
 }
 
 function blankMember(id: string, name = "", relation = ""): MemberData {
-  return {
-    id, name, relation,
-    highestEducation: "", certifications: [""],
-    profession: "", selfEmployedType: "", selfEmployedOther: "",
-    industry: "", briefProfile: "",
-    languages: [], otherLanguages: [], otherLanguageInput: "",
-  };
+  return { id, name, relation, highestEducation: "", certifications: [""], profession: "", selfEmployedType: "", selfEmployedOther: "", industry: "", briefProfile: "", languages: [], otherLanguages: [], otherLanguageInput: "" };
 }
 
 export default function Page() {
@@ -81,6 +67,7 @@ export default function Page() {
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [canReset, setCanReset] = useState(false);
+  const [expectedMembers, setExpectedMembers] = useState<{id:string;name:string;relation:string}[]>([]);
 
   useEffect(() => {
     api.get("/users/profile").then(meta => {
@@ -93,21 +80,20 @@ export default function Page() {
       const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "You";
       const familyMembers: Record<string, string>[] = data.step3?.members || [];
 
-      const expectedMembers = [
+      const expected = [
         { id: "self", name: userName, relation: "Self" },
         ...familyMembers.map((fm, i) => ({ id: String(i), name: fm.name || "", relation: fm.relation || "" })),
       ];
+      setExpectedMembers(expected);
 
       if (data.step5?.length > 0) {
         const mapped: MemberData[] = data.step5.map((m: Record<string, unknown>, i: number) => {
-          const base = expectedMembers[i] || { id: String(i), name: (m.member_name as string) || "", relation: (m.member_relation as string) || "" };
+          const base = expected[i] || { id: String(i), name: (m.member_name as string) || "", relation: (m.member_relation as string) || "" };
           const rawLangs = (m.languages as { language: string; language_other?: string }[]) || [];
           const otherEntry = rawLangs.find(l => l.language === "Other");
           const otherLangs = otherEntry?.language_other?.split(",").map(s => s.trim()).filter(Boolean) || [];
           return {
-            id: base.id,
-            name: base.name,
-            relation: base.relation,
+            id: base.id, name: base.name, relation: base.relation,
             highestEducation: (m.highest_education as string) || "",
             certifications: (m.certifications as string[])?.length ? m.certifications as string[] : [""],
             profession: (m.profession_type as string) || "",
@@ -116,18 +102,17 @@ export default function Page() {
             industry: (m.industry as string) || "",
             briefProfile: (m.brief_profile as string) || "",
             languages: rawLangs.filter(l => l.language !== "Other").map(l => l.language),
-            otherLanguages: otherLangs,
-            otherLanguageInput: "",
+            otherLanguages: otherLangs, otherLanguageInput: "",
           };
         });
-        if (mapped.length < expectedMembers.length) {
-          for (let i = mapped.length; i < expectedMembers.length; i++) {
-            mapped.push(blankMember(expectedMembers[i].id, expectedMembers[i].name, expectedMembers[i].relation));
+        if (mapped.length < expected.length) {
+          for (let i = mapped.length; i < expected.length; i++) {
+            mapped.push(blankMember(expected[i].id, expected[i].name, expected[i].relation));
           }
         }
         setMembers(mapped);
       } else {
-        setMembers(expectedMembers.map(m => blankMember(m.id, m.name, m.relation)));
+        setMembers(expected.map(m => blankMember(m.id, m.name, m.relation)));
       }
     }).catch(() => {});
   }, []);
@@ -139,18 +124,13 @@ export default function Page() {
 
   const toggleLanguage = (id: string, lang: string) => {
     const m = members.find(x => x.id === id)!;
-    update(id, "languages", m.languages.includes(lang)
-      ? m.languages.filter(l => l !== lang)
-      : [...m.languages, lang]);
+    update(id, "languages", m.languages.includes(lang) ? m.languages.filter(l => l !== lang) : [...m.languages, lang]);
   };
 
   const addOtherLanguage = (id: string) => {
     const m = members.find(x => x.id === id)!;
     const val = m.otherLanguageInput.trim();
-    if (val && !m.otherLanguages.includes(val)) {
-      update(id, "otherLanguages", [...m.otherLanguages, val]);
-      update(id, "otherLanguageInput", "");
-    }
+    if (val && !m.otherLanguages.includes(val)) { update(id, "otherLanguages", [...m.otherLanguages, val]); update(id, "otherLanguageInput", ""); }
   };
 
   const removeOtherLanguage = (id: string, lang: string) => {
@@ -165,16 +145,13 @@ export default function Page() {
 
   const buildPayload = () => ({
     members: members.map(m => ({
-      member_name:         m.name || null,
-      member_relation:     m.relation || null,
-      highest_education:   m.highestEducation || null,
-      brief_profile:       m.briefProfile || null,
-      profession_type:     m.profession || null,
-      profession_other:    m.profession === "other" ? m.briefProfile : null,
-      self_employed_type:  m.profession === "self_employed" ? m.selfEmployedType : null,
+      member_name: m.name || null, member_relation: m.relation || null,
+      highest_education: m.highestEducation || null, brief_profile: m.briefProfile || null,
+      profession_type: m.profession || null, profession_other: m.profession === "other" ? m.briefProfile : null,
+      self_employed_type: m.profession === "self_employed" ? m.selfEmployedType : null,
       self_employed_other: m.selfEmployedType === "other" ? m.selfEmployedOther : null,
-      industry:            m.industry || null,
-      certifications:      m.certifications.filter(c => c.trim()),
+      industry: m.industry || null,
+      certifications: m.certifications.filter(c => c.trim()),
       languages: [
         ...m.languages.filter(l => l !== "Other").map(l => ({ language: l, language_other: null })),
         ...(m.otherLanguages.length > 0 ? [{ language: "Other", language_other: m.otherLanguages.join(", ") }] : []),
@@ -217,9 +194,9 @@ export default function Page() {
   const handleReset = async () => {
     setResetting(true);
     try {
-      await api.post("/users/profile/reset", {});
-      toast.success("Profile reset successfully.");
-      router.push("/dashboard");
+      await api.post("/users/profile/reset/step5", {});
+      toast.success("Education & profession cleared.");
+      setMembers(expectedMembers.map(m => blankMember(m.id, m.name, m.relation)));
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
     } finally {
@@ -241,7 +218,7 @@ export default function Page() {
         {canReset && (
           <Button variant="outline" size="sm" className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
             onClick={() => setShowResetDialog(true)}>
-            <RotateCcw className="h-4 w-4" /> Reset Profile
+            <RotateCcw className="h-4 w-4" /> Reset This Step
           </Button>
         )}
       </div>
@@ -273,30 +250,18 @@ export default function Page() {
                 </Badge>
               </div>
             </AccordionTrigger>
-
             <AccordionContent className="px-5 pb-6 pt-4 border-t border-border space-y-6">
-
-              {/* Name/Relation — locked display */}
               <div className="grid md:grid-cols-2 gap-4 p-3 bg-muted/30 rounded-lg">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Member Name</Label>
-                  <p className="font-medium text-sm mt-0.5">{member.name || "—"}</p>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Relation</Label>
-                  <p className="font-medium text-sm mt-0.5">{member.relation || "—"}</p>
-                </div>
+                <div><Label className="text-xs text-muted-foreground">Member Name</Label><p className="font-medium text-sm mt-0.5">{member.name || "—"}</p></div>
+                <div><Label className="text-xs text-muted-foreground">Relation</Label><p className="font-medium text-sm mt-0.5">{member.relation || "—"}</p></div>
               </div>
 
-              {/* Education */}
               <div className="space-y-4">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Education</p>
                 <div className="space-y-2">
                   <Label>Highest Education <span className="text-destructive">*</span></Label>
                   <Select value={member.highestEducation} onValueChange={v => update(member.id, "highestEducation", v)}>
-                    <SelectTrigger className={errors[member.id]?.highestEducation ? "border-destructive" : ""}>
-                      <SelectValue placeholder="Select highest qualification" />
-                    </SelectTrigger>
+                    <SelectTrigger className={errors[member.id]?.highestEducation ? "border-destructive" : ""}><SelectValue placeholder="Select highest qualification" /></SelectTrigger>
                     <SelectContent>{educationLevels.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
                   </Select>
                   {errors[member.id]?.highestEducation && <p className="text-xs text-destructive">{errors[member.id].highestEducation}</p>}
@@ -304,20 +269,13 @@ export default function Page() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>Certifications</Label>
-                    <Button type="button" variant="outline" size="sm" onClick={() => addCert(member.id)} className="gap-1 h-7 text-xs">
-                      <Plus className="h-3 w-3" /> Add
-                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => addCert(member.id)} className="gap-1 h-7 text-xs"><Plus className="h-3 w-3" /> Add</Button>
                   </div>
                   {member.certifications.map((cert, ci) => (
                     <div key={ci} className="flex gap-2">
                       <Input placeholder={`Certification ${ci + 1}`} value={cert} onChange={e => editCert(member.id, ci, e.target.value)} />
                       {member.certifications.length > 1 && (
-                        <Button
-                          aria-label="Remove certification"
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeCert(member.id, ci)}>
+                        <Button aria-label="Remove certification" type="button" variant="ghost" size="icon" onClick={() => removeCert(member.id, ci)}>
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       )}
@@ -326,16 +284,13 @@ export default function Page() {
                 </div>
               </div>
 
-              {/* Profession */}
               <div className="space-y-4">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Profession</p>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Type of Profession <span className="text-destructive">*</span></Label>
                     <Select value={member.profession} onValueChange={v => { update(member.id, "profession", v); update(member.id, "selfEmployedType", ""); }}>
-                      <SelectTrigger className={errors[member.id]?.profession ? "border-destructive" : ""}>
-                        <SelectValue placeholder="Select profession" />
-                      </SelectTrigger>
+                      <SelectTrigger className={errors[member.id]?.profession ? "border-destructive" : ""}><SelectValue placeholder="Select profession" /></SelectTrigger>
                       <SelectContent>{professionTypes.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}</SelectContent>
                     </Select>
                     {errors[member.id]?.profession && <p className="text-xs text-destructive">{errors[member.id].profession}</p>}
@@ -350,9 +305,7 @@ export default function Page() {
                     <div className="space-y-2">
                       <Label>Type of Business <span className="text-destructive">*</span></Label>
                       <Select value={member.selfEmployedType} onValueChange={v => { update(member.id, "selfEmployedType", v); update(member.id, "selfEmployedOther", ""); }}>
-                        <SelectTrigger className={errors[member.id]?.selfEmployedType ? "border-destructive" : ""}>
-                          <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
+                        <SelectTrigger className={errors[member.id]?.selfEmployedType ? "border-destructive" : ""}><SelectValue placeholder="Select type" /></SelectTrigger>
                         <SelectContent>{selfEmployedOptions.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
                       </Select>
                       {errors[member.id]?.selfEmployedType && <p className="text-xs text-destructive">{errors[member.id].selfEmployedType}</p>}
@@ -374,22 +327,16 @@ export default function Page() {
                 </div>
               </div>
 
-              {/* Languages */}
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Languages Known</p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {languageOptions.map(lang => (
                     <div key={lang} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`${member.id}-${lang}`}
-                        checked={member.languages.includes(lang)}
-                        onCheckedChange={() => toggleLanguage(member.id, lang)}
-                      />
+                      <Checkbox id={`${member.id}-${lang}`} checked={member.languages.includes(lang)} onCheckedChange={() => toggleLanguage(member.id, lang)} />
                       <Label htmlFor={`${member.id}-${lang}`} className="font-normal cursor-pointer text-sm">{lang}</Label>
                     </div>
                   ))}
                 </div>
-
                 {member.languages.includes("Other") && (
                   <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
                     <Label className="text-sm">Add other languages <span className="text-destructive">*</span></Label>
@@ -397,33 +344,23 @@ export default function Page() {
                       {member.otherLanguages.map(lang => (
                         <Badge key={lang} variant="secondary" className="gap-1 px-2 py-1">
                           {lang}
-                          <button
-                            type="button"
-                            aria-label={`Remove ${lang}`}
-                            onClick={() => removeOtherLanguage(member.id, lang)}
-                            className="ml-1 hover:text-destructive">
+                          <button type="button" aria-label={`Remove ${lang}`} onClick={() => removeOtherLanguage(member.id, lang)} className="ml-1 hover:text-destructive">
                             <X className="h-3 w-3" />
                           </button>
                         </Badge>
                       ))}
                     </div>
                     <div className="flex gap-2">
-                      <Input
-                        placeholder="Type language name and press Enter"
-                        value={member.otherLanguageInput}
+                      <Input placeholder="Type language name and press Enter" value={member.otherLanguageInput}
                         onChange={e => update(member.id, "otherLanguageInput", e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addOtherLanguage(member.id); } }}
-                        className="flex-1"
-                      />
-                      <Button type="button" variant="outline" size="sm" onClick={() => addOtherLanguage(member.id)}>
-                        Add
-                      </Button>
+                        className="flex-1" />
+                      <Button type="button" variant="outline" size="sm" onClick={() => addOtherLanguage(member.id)}>Add</Button>
                     </div>
                     {errors[member.id]?.otherLanguages && <p className="text-xs text-destructive">{errors[member.id].otherLanguages}</p>}
                   </div>
                 )}
               </div>
-
             </AccordionContent>
           </AccordionItem>
         ))}
@@ -441,10 +378,8 @@ export default function Page() {
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset Profile?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will clear all your profile data. Your account remains but all filled information will be deleted. This cannot be undone.
-            </AlertDialogDescription>
+            <AlertDialogTitle>Reset Education & Profession?</AlertDialogTitle>
+            <AlertDialogDescription>This will clear only education and profession data. All other steps remain intact.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

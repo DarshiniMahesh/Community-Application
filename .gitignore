@@ -2,7 +2,7 @@
 
 # ── Root ──────────────────────────────────────────────────────────────────────
 /node_modules
-
+backend\.env
 # ── All apps (user, admin, sangha3) ──────────────────────────────────────────
 user/node_modules
 user/.next

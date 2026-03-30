@@ -39,6 +39,8 @@ interface FamilyMember {
   disability: string;
 }
 
+const blankRow = (): FamilyMember => ({ id: Date.now().toString(), relation: "", name: "", dob: "", gender: "", status: "active", disability: "no" });
+
 const calcAge = (dob: string) => {
   if (!dob) return null;
   const today = new Date();
@@ -85,8 +87,7 @@ export default function Page() {
   }, []);
 
   const relations = familyType === "nuclear" ? nuclearRelations : allRelations;
-
-  const addMember = () => setFamilyMembers(prev => [...prev, { id: Date.now().toString(), relation: "", name: "", dob: "", gender: "", status: "active", disability: "no" }]);
+  const addMember = () => setFamilyMembers(prev => [...prev, blankRow()]);
   const removeMember = (id: string) => { if (familyMembers.length > 1) setFamilyMembers(prev => prev.filter(m => m.id !== id)); };
   const update = (id: string, field: keyof FamilyMember, value: string) =>
     setFamilyMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: value } : m));
@@ -94,13 +95,9 @@ export default function Page() {
   const buildPayload = () => ({
     family_type: familyType,
     members: familyMembers.map(m => ({
-      relation:   m.relation,
-      name:       m.name,
-      age:        calcAge(m.dob),
-      dob:        m.dob || null,
-      gender:     m.gender || null,
-      status:     m.status,
-      disability: m.disability,
+      relation: m.relation, name: m.name,
+      age: calcAge(m.dob), dob: m.dob || null,
+      gender: m.gender || null, status: m.status, disability: m.disability,
     })),
   });
 
@@ -135,9 +132,10 @@ export default function Page() {
   const handleReset = async () => {
     setResetting(true);
     try {
-      await api.post("/users/profile/reset", {});
-      toast.success("Profile reset successfully.");
-      router.push("/dashboard");
+      await api.post("/users/profile/reset/step3", {});
+      toast.success("Family information cleared.");
+      setFamilyType("");
+      setFamilyMembers([{ id: "1", relation: "", name: "", dob: "", gender: "", status: "active", disability: "no" }]);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
     } finally {
@@ -159,7 +157,7 @@ export default function Page() {
         {canReset && (
           <Button variant="outline" size="sm" className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
             onClick={() => setShowResetDialog(true)}>
-            <RotateCcw className="h-4 w-4" /> Reset Profile
+            <RotateCcw className="h-4 w-4" /> Reset This Step
           </Button>
         )}
       </div>
@@ -172,33 +170,17 @@ export default function Page() {
           <div className="space-y-3">
             <Label>Type of Family <span className="text-destructive">*</span></Label>
             <RadioGroup value={familyType}
-              onValueChange={v => {
-                setFamilyType(v);
-                setErrors(e => ({...e, familyType: ""}));
-                setFamilyMembers([{ id: "1", relation: "", name: "", dob: "", gender: "", status: "active", disability: "no" }]);
-              }}
+              onValueChange={v => { setFamilyType(v); setErrors(e => ({...e, familyType: ""})); setFamilyMembers([{ id: "1", relation: "", name: "", dob: "", gender: "", status: "active", disability: "no" }]); }}
               className="flex gap-6">
-              <div
-                className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 cursor-pointer transition-all ${familyType === "nuclear" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
-                onClick={() => {
-                  setFamilyType("nuclear");
-                  setFamilyMembers([{ id: "1", relation: "", name: "", dob: "", gender: "", status: "active", disability: "no" }]);
-                }}>
+              <div className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 cursor-pointer transition-all ${familyType === "nuclear" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+                onClick={() => { setFamilyType("nuclear"); setFamilyMembers([{ id: "1", relation: "", name: "", dob: "", gender: "", status: "active", disability: "no" }]); }}>
                 <RadioGroupItem value="nuclear" id="nuclear" />
-                <Label htmlFor="nuclear" className="font-normal cursor-pointer">
-                  Nuclear Family <span className="text-xs text-muted-foreground ml-1">(Spouse &amp; Children)</span>
-                </Label>
+                <Label htmlFor="nuclear" className="font-normal cursor-pointer">Nuclear Family <span className="text-xs text-muted-foreground ml-1">(Spouse &amp; Children)</span></Label>
               </div>
-              <div
-                className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 cursor-pointer transition-all ${familyType === "joint" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
-                onClick={() => {
-                  setFamilyType("joint");
-                  setFamilyMembers([{ id: "1", relation: "", name: "", dob: "", gender: "", status: "active", disability: "no" }]);
-                }}>
+              <div className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 cursor-pointer transition-all ${familyType === "joint" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+                onClick={() => { setFamilyType("joint"); setFamilyMembers([{ id: "1", relation: "", name: "", dob: "", gender: "", status: "active", disability: "no" }]); }}>
                 <RadioGroupItem value="joint" id="joint" />
-                <Label htmlFor="joint" className="font-normal cursor-pointer">
-                  Joint Family <span className="text-xs text-muted-foreground ml-1">(All members)</span>
-                </Label>
+                <Label htmlFor="joint" className="font-normal cursor-pointer">Joint Family <span className="text-xs text-muted-foreground ml-1">(All members)</span></Label>
               </div>
             </RadioGroup>
             {errors.familyType && <p className="text-xs text-destructive">{errors.familyType}</p>}
@@ -211,9 +193,7 @@ export default function Page() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Family Members</CardTitle>
-              <Button onClick={addMember} size="sm" className="gap-2">
-                <Plus className="h-4 w-4" /> Add Member
-              </Button>
+              <Button onClick={addMember} size="sm" className="gap-2"><Plus className="h-4 w-4" /> Add Member</Button>
             </div>
           </CardHeader>
           <CardContent>
@@ -236,12 +216,8 @@ export default function Page() {
                       <TableRow key={member.id}>
                         <TableCell>
                           <Select value={member.relation} onValueChange={v => update(member.id, "relation", v)}>
-                            <SelectTrigger className={errors[`relation_${index}`] ? "border-destructive h-9" : "h-9"}>
-                              <SelectValue placeholder="Select" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {relations.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                            </SelectContent>
+                            <SelectTrigger className={errors[`relation_${index}`] ? "border-destructive h-9" : "h-9"}><SelectValue placeholder="Select" /></SelectTrigger>
+                            <SelectContent>{relations.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
                           </Select>
                         </TableCell>
                         <TableCell>
@@ -250,15 +226,11 @@ export default function Page() {
                             className={errors[`name_${index}`] ? "border-destructive h-9" : "h-9"} />
                         </TableCell>
                         <TableCell>
-                          <Input type="date" value={member.dob}
-                            onChange={e => update(member.id, "dob", e.target.value)}
-                            className="h-9" />
+                          <Input type="date" value={member.dob} onChange={e => update(member.id, "dob", e.target.value)} className="h-9" />
                         </TableCell>
                         <TableCell>
                           <Select value={member.gender} onValueChange={v => update(member.id, "gender", v)}>
-                            <SelectTrigger className={errors[`gender_${index}`] ? "border-destructive h-9" : "h-9"}>
-                              <SelectValue placeholder="Select" />
-                            </SelectTrigger>
+                            <SelectTrigger className={errors[`gender_${index}`] ? "border-destructive h-9" : "h-9"}><SelectValue placeholder="Select" /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="male">Male</SelectItem>
                               <SelectItem value="female">Female</SelectItem>
@@ -286,10 +258,7 @@ export default function Page() {
                           </Select>
                         </TableCell>
                         <TableCell>
-                          <Button
-                            aria-label="Remove member"
-                            variant="ghost"
-                            size="sm"
+                          <Button aria-label="Remove member" variant="ghost" size="sm"
                             onClick={() => removeMember(member.id)}
                             disabled={familyMembers.length === 1}
                             className="h-9 w-9 p-0">
@@ -302,9 +271,7 @@ export default function Page() {
                 </Table>
               </div>
             </div>
-            <p className="text-sm text-muted-foreground mt-3">
-              Click &quot;Add Member&quot; to include more family members.
-            </p>
+            <p className="text-sm text-muted-foreground mt-3">Click &quot;Add Member&quot; to include more family members.</p>
           </CardContent>
         </Card>
       )}
@@ -321,10 +288,8 @@ export default function Page() {
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset Profile?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will clear all your profile data. Your account remains but all filled information will be deleted. This cannot be undone.
-            </AlertDialogDescription>
+            <AlertDialogTitle>Reset Family Information?</AlertDialogTitle>
+            <AlertDialogDescription>This will clear only your family information. All other steps remain intact.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

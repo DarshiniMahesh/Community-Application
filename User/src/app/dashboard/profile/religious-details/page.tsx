@@ -134,9 +134,11 @@ export default function Page() {
   const handleReset = async () => {
     setResetting(true);
     try {
-      await api.post("/users/profile/reset", {});
-      toast.success("Profile reset successfully.");
-      router.push("/dashboard");
+      await api.post("/users/profile/reset/step2", {});
+      toast.success("Religious details cleared.");
+      setFormData({ gotra: "", pravara: "", upanama: "", kuladevata: "", kuladevataOther: "", surnameInUse: "", surnameAsPerGotra: "", priestName: "", priestLocation: "" });
+      setPravaraOptions([]);
+      setUpanamaOptions([]);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
     } finally {
@@ -158,7 +160,7 @@ export default function Page() {
         {canReset && (
           <Button variant="outline" size="sm" className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
             onClick={() => setShowResetDialog(true)}>
-            <RotateCcw className="h-4 w-4" /> Reset Profile
+            <RotateCcw className="h-4 w-4" /> Reset This Step
           </Button>
         )}
       </div>
@@ -280,8 +282,8 @@ export default function Page() {
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset Profile?</AlertDialogTitle>
-            <AlertDialogDescription>This will clear all your profile data. Your account remains but all filled information will be deleted. This cannot be undone.</AlertDialogDescription>
+            <AlertDialogTitle>Reset Religious Details?</AlertDialogTitle>
+            <AlertDialogDescription>This will clear only your religious details. All other steps remain intact.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

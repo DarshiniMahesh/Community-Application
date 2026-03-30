@@ -14,21 +14,20 @@ const getOrCreateProfile = async (userId) => {
 
 // ─── HELPER: update step completion pct ──────────────────────
 const updateProfilePct = async (profileId, stepKey, pct, completed) => {
+  const stepNumber = stepKey.match(/step(\d+)/)[1];
   await pool.query(
     `UPDATE profiles SET
-       ${stepKey}_pct       = $1,
-       ${stepKey}_completed = $2
+       ${stepKey}_pct  = $1,
+       step${stepNumber}_completed = $2
      WHERE id=$3`,
     [pct, completed, profileId]
   );
-  // overall_completion_pct is handled by DB trigger
 };
 
 // ─── GET /users/profile ──────────────────────────────────────
 const getProfile = async (req, res) => {
   try {
     const { id: userId } = req.user;
-
     const user = await pool.query(
       'SELECT id, email, phone, role FROM users WHERE id=$1',
       [userId]
@@ -40,9 +39,7 @@ const getProfile = async (req, res) => {
       'SELECT * FROM profiles WHERE user_id=$1',
       [userId]
     );
-
     const profileData = profile.rows[0] || {};
-
     res.json({
       ...profileData,
       email: user.rows[0].email,
@@ -74,7 +71,6 @@ const getFullProfile = async (req, res) => {
       pool.query('SELECT * FROM member_documents   WHERE profile_id=$1 ORDER BY sort_order', [pid]),
     ]);
 
-    // Attach certifications and languages to each education row
     const step5 = await Promise.all(
       s5raw.rows.map(async (edu) => {
         const [certs, langs] = await Promise.all([
@@ -195,7 +191,6 @@ const saveStep1 = async (req, res) => {
 
     const pct = calcStep1Pct(req.body);
     await updateProfilePct(pid, 'step1_personal', pct, pct >= 80);
-
     res.json({ message: 'Step 1 saved', completion: pct });
   } catch (err) {
     console.error(err);
@@ -258,7 +253,6 @@ const saveStep2 = async (req, res) => {
 
     const pct = calcStep2Pct(req.body);
     await updateProfilePct(pid, 'step2_religious', pct, pct >= 50);
-
     res.json({ message: 'Step 2 saved', completion: pct });
   } catch (err) {
     console.error(err);
@@ -275,7 +269,6 @@ const saveStep3 = async (req, res) => {
 
     const { family_type, members = [] } = req.body;
 
-    // Upsert family_info
     const fi = await pool.query('SELECT id FROM family_info WHERE profile_id=$1', [pid]);
     let familyInfoId;
     if (fi.rows.length === 0) {
@@ -292,7 +285,6 @@ const saveStep3 = async (req, res) => {
       familyInfoId = fi.rows[0].id;
     }
 
-    // Replace all family members
     await pool.query('DELETE FROM family_members WHERE profile_id=$1', [pid]);
 
     for (let i = 0; i < members.length; i++) {
@@ -302,23 +294,17 @@ const saveStep3 = async (req, res) => {
            (profile_id, family_info_id, relation, name, age, dob, gender, status, disability, sort_order)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [
-          pid,
-          familyInfoId,
-          m.relation   || null,
-          m.name       || null,
-          m.age        || null,
-          m.dob        || null,
-          m.gender     || null,
-          m.status     || 'active',
-          m.disability || 'no',
-          i,
+          pid, familyInfoId,
+          m.relation || null, m.name || null,
+          m.age || null, m.dob || null,
+          m.gender || null, m.status || 'active',
+          m.disability || 'no', i,
         ]
       );
     }
 
     const pct = (family_type && members.length > 0) ? 100 : 30;
     await updateProfilePct(pid, 'step3_family', pct, pct === 100);
-
     res.json({ message: 'Step 3 saved', completion: pct });
   } catch (err) {
     console.error(err);
@@ -335,7 +321,6 @@ const saveStep4 = async (req, res) => {
 
     const { addresses = [] } = req.body;
 
-    // Use upsert since addresses table has UNIQUE(profile_id, address_type)
     for (const addr of addresses) {
       await pool.query(
         `INSERT INTO addresses
@@ -348,10 +333,10 @@ const saveStep4 = async (req, res) => {
            latitude=$10, longitude=$11, updated_at=NOW()`,
         [
           pid, addr.address_type,
-          addr.flat_no   || null, addr.building || null,
-          addr.street    || null, addr.area     || null,
-          addr.city      || null, addr.state    || null,
-          addr.pincode   || null,
+          addr.flat_no || null, addr.building || null,
+          addr.street || null, addr.area || null,
+          addr.city || null, addr.state || null,
+          addr.pincode || null,
           addr.latitude  != null ? Number(addr.latitude)  : null,
           addr.longitude != null ? Number(addr.longitude) : null,
         ]
@@ -361,7 +346,6 @@ const saveStep4 = async (req, res) => {
     const current = addresses.find(a => a.address_type === 'current');
     const pct = (current?.city && current?.state) ? 100 : 50;
     await updateProfilePct(pid, 'step4_location', pct, pct === 100);
-
     res.json({ message: 'Step 4 saved', completion: pct });
   } catch (err) {
     console.error(err);
@@ -378,7 +362,6 @@ const saveStep5 = async (req, res) => {
 
     const { members = [] } = req.body;
 
-    // Delete existing education rows (cascades to certifications + languages)
     const existing = await pool.query(
       'SELECT id FROM member_education WHERE profile_id=$1', [pid]
     );
@@ -388,10 +371,8 @@ const saveStep5 = async (req, res) => {
     }
     await pool.query('DELETE FROM member_education WHERE profile_id=$1', [pid]);
 
-    // Re-insert
     for (let i = 0; i < members.length; i++) {
       const m = members[i];
-
       const eduRes = await pool.query(
         `INSERT INTO member_education
            (profile_id, member_name, member_relation, sort_order,
@@ -402,22 +383,16 @@ const saveStep5 = async (req, res) => {
          RETURNING id`,
         [
           pid,
-          m.member_name       || null,
-          m.member_relation   || null,
-          i,
-          m.highest_education || null,
-          m.brief_profile     || null,
-          m.profession_type   || null,
-          m.profession_other  || null,
-          m.self_employed_type  || null,
-          m.self_employed_other || null,
-          m.industry            || null,
+          m.member_name || null, m.member_relation || null, i,
+          m.highest_education || null, m.brief_profile || null,
+          m.profession_type || null, m.profession_other || null,
+          m.self_employed_type || null, m.self_employed_other || null,
+          m.industry || null,
         ]
       );
 
       const eduId = eduRes.rows[0].id;
 
-      // Certifications
       if (Array.isArray(m.certifications)) {
         for (let j = 0; j < m.certifications.length; j++) {
           const cert = m.certifications[j];
@@ -430,7 +405,6 @@ const saveStep5 = async (req, res) => {
         }
       }
 
-      // Languages
       if (Array.isArray(m.languages)) {
         for (const lang of m.languages) {
           if (lang.language) {
@@ -447,7 +421,6 @@ const saveStep5 = async (req, res) => {
 
     const pct = members.length > 0 && members[0]?.highest_education ? 100 : 0;
     await updateProfilePct(pid, 'step5_education', pct, pct === 100);
-
     res.json({ message: 'Step 5 saved', completion: pct });
   } catch (err) {
     console.error(err);
@@ -464,7 +437,6 @@ const saveStep6 = async (req, res) => {
 
     const { economic = {}, insurance = [], documents = [] } = req.body;
 
-    // Economic details — upsert
     const ecoExists = await pool.query(
       'SELECT id FROM economic_details WHERE profile_id=$1', [pid]
     );
@@ -480,17 +452,12 @@ const saveStep6 = async (req, res) => {
            updated_at=NOW()
          WHERE profile_id=$12`,
         [
-          economic.self_income   || null,
-          economic.family_income || null,
-          economic.fac_rented_house      || false,
-          economic.fac_own_house         || false,
-          economic.fac_agricultural_land || false,
-          economic.fac_two_wheeler       || false,
-          economic.fac_car               || false,
-          economic.inv_fixed_deposits    || false,
-          economic.inv_mutual_funds_sip  || false,
-          economic.inv_shares_demat      || false,
-          economic.inv_others            || false,
+          economic.self_income || null, economic.family_income || null,
+          economic.fac_rented_house || false, economic.fac_own_house || false,
+          economic.fac_agricultural_land || false, economic.fac_two_wheeler || false,
+          economic.fac_car || false,
+          economic.inv_fixed_deposits || false, economic.inv_mutual_funds_sip || false,
+          economic.inv_shares_demat || false, economic.inv_others || false,
           pid,
         ]
       );
@@ -505,22 +472,16 @@ const saveStep6 = async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [
           pid,
-          economic.self_income   || null,
-          economic.family_income || null,
-          economic.fac_rented_house      || false,
-          economic.fac_own_house         || false,
-          economic.fac_agricultural_land || false,
-          economic.fac_two_wheeler       || false,
-          economic.fac_car               || false,
-          economic.inv_fixed_deposits    || false,
-          economic.inv_mutual_funds_sip  || false,
-          economic.inv_shares_demat      || false,
-          economic.inv_others            || false,
+          economic.self_income || null, economic.family_income || null,
+          economic.fac_rented_house || false, economic.fac_own_house || false,
+          economic.fac_agricultural_land || false, economic.fac_two_wheeler || false,
+          economic.fac_car || false,
+          economic.inv_fixed_deposits || false, economic.inv_mutual_funds_sip || false,
+          economic.inv_shares_demat || false, economic.inv_others || false,
         ]
       );
     }
 
-    // Insurance — replace all
     await pool.query('DELETE FROM member_insurance WHERE profile_id=$1', [pid]);
     for (let i = 0; i < insurance.length; i++) {
       const ins = insurance[i];
@@ -531,17 +492,12 @@ const saveStep6 = async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [
           pid,
-          ins.member_name     || null,
-          ins.member_relation || null,
-          i,
-          ins.health_coverage || [],
-          ins.life_coverage   || [],
-          ins.term_coverage   || [],
+          ins.member_name || null, ins.member_relation || null, i,
+          ins.health_coverage || [], ins.life_coverage || [], ins.term_coverage || [],
         ]
       );
     }
 
-    // Documents — replace all
     await pool.query('DELETE FROM member_documents WHERE profile_id=$1', [pid]);
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i];
@@ -554,22 +510,16 @@ const saveStep6 = async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [
           pid,
-          doc.member_name     || null,
-          doc.member_relation || null,
-          i,
-          doc.aadhaar_coverage     || [],
-          doc.pan_coverage         || [],
-          doc.voter_id_coverage    || [],
-          doc.land_doc_coverage    || [],
-          doc.dl_coverage          || [],
-          doc.all_records_coverage || [],
+          doc.member_name || null, doc.member_relation || null, i,
+          doc.aadhaar_coverage || [], doc.pan_coverage || [],
+          doc.voter_id_coverage || [], doc.land_doc_coverage || [],
+          doc.dl_coverage || [], doc.all_records_coverage || [],
         ]
       );
     }
 
     const pct = (economic.self_income && economic.family_income) ? 100 : 50;
     await updateProfilePct(pid, 'step6_economic', pct, pct === 100);
-
     res.json({ message: 'Step 6 saved', completion: pct });
   } catch (err) {
     console.error(err);
@@ -581,7 +531,6 @@ const saveStep6 = async (req, res) => {
 const submitApplication = async (req, res) => {
   try {
     const { id: userId } = req.user;
-
     const profile = await pool.query(
       'SELECT id, status, step1_completed FROM profiles WHERE user_id=$1',
       [userId]
@@ -601,7 +550,6 @@ const submitApplication = async (req, res) => {
       "UPDATE profiles SET status='submitted', submitted_at=NOW() WHERE id=$1",
       [pid]
     );
-
     res.json({ message: 'Application submitted successfully' });
   } catch (err) {
     console.error(err);
@@ -609,14 +557,12 @@ const submitApplication = async (req, res) => {
   }
 };
 
-// ─── POST /users/profile/reset ───────────────────────────────
+// ─── POST /users/profile/reset (FULL — dashboard) ────────────
 const resetProfile = async (req, res) => {
   try {
     const { id: userId } = req.user;
-
     const profile = await pool.query(
-      'SELECT id, status FROM profiles WHERE user_id=$1',
-      [userId]
+      'SELECT id, status FROM profiles WHERE user_id=$1', [userId]
     );
     if (profile.rows.length === 0)
       return res.status(404).json({ message: 'Profile not found' });
@@ -626,51 +572,165 @@ const resetProfile = async (req, res) => {
     if (status === 'submitted' || status === 'under_review')
       return res.status(400).json({ message: 'Cannot reset while profile is under review' });
 
-    // Delete all step data (order matters for FK constraints)
     await pool.query('DELETE FROM personal_details  WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM religious_details WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM family_members    WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM family_info       WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM addresses         WHERE profile_id=$1', [pid]);
 
-    // Education: delete child tables first
     const edus = await pool.query('SELECT id FROM member_education WHERE profile_id=$1', [pid]);
     for (const row of edus.rows) {
       await pool.query('DELETE FROM member_certifications WHERE member_education_id=$1', [row.id]);
       await pool.query('DELETE FROM member_languages      WHERE member_education_id=$1', [row.id]);
     }
     await pool.query('DELETE FROM member_education  WHERE profile_id=$1', [pid]);
-
     await pool.query('DELETE FROM economic_details  WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM member_insurance  WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM member_documents  WHERE profile_id=$1', [pid]);
 
-    // Reset profile meta
     await pool.query(
       `UPDATE profiles SET
-         status                 = 'draft',
-         submitted_at           = NULL,
-         reviewed_at            = NULL,
-         reviewed_by            = NULL,
-         review_comment         = NULL,
-         step1_personal_pct     = 0,
-         step2_religious_pct    = 0,
-         step3_family_pct       = 0,
-         step4_location_pct     = 0,
-         step5_education_pct    = 0,
-         step6_economic_pct     = 0,
-         step1_completed        = FALSE,
-         step2_completed        = FALSE,
-         step3_completed        = FALSE,
-         step4_completed        = FALSE,
-         step5_completed        = FALSE,
-         step6_completed        = FALSE
+         status='draft', submitted_at=NULL, reviewed_at=NULL,
+         reviewed_by=NULL, review_comment=NULL,
+         step1_personal_pct=0, step2_religious_pct=0,
+         step3_family_pct=0,  step4_location_pct=0,
+         step5_education_pct=0, step6_economic_pct=0,
+         step1_completed=FALSE, step2_completed=FALSE,
+         step3_completed=FALSE, step4_completed=FALSE,
+         step5_completed=FALSE, step6_completed=FALSE
        WHERE id=$1`,
       [pid]
     );
-    // overall_completion_pct will be recalculated by DB trigger on next UPDATE
 
     res.json({ message: 'Profile reset successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /users/profile/reset/step1 ─────────────────────────
+const resetStep1 = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const profile = await getOrCreateProfile(userId);
+    const pid = profile.id;
+    await pool.query('DELETE FROM personal_details WHERE profile_id=$1', [pid]);
+    await pool.query(
+      `UPDATE profiles SET
+         step1_personal_pct=0, step1_completed=FALSE
+       WHERE id=$1`,
+      [pid]
+    );
+    res.json({ message: 'Step 1 reset successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /users/profile/reset/step2 ─────────────────────────
+const resetStep2 = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const profile = await getOrCreateProfile(userId);
+    const pid = profile.id;
+    await pool.query('DELETE FROM religious_details WHERE profile_id=$1', [pid]);
+    await pool.query(
+      `UPDATE profiles SET
+         step2_religious_pct=0, step2_completed=FALSE
+       WHERE id=$1`,
+      [pid]
+    );
+    res.json({ message: 'Step 2 reset successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /users/profile/reset/step3 ─────────────────────────
+const resetStep3 = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const profile = await getOrCreateProfile(userId);
+    const pid = profile.id;
+    await pool.query('DELETE FROM family_members WHERE profile_id=$1', [pid]);
+    await pool.query('DELETE FROM family_info    WHERE profile_id=$1', [pid]);
+    await pool.query(
+      `UPDATE profiles SET
+         step3_family_pct=0, step3_completed=FALSE
+       WHERE id=$1`,
+      [pid]
+    );
+    res.json({ message: 'Step 3 reset successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /users/profile/reset/step4 ─────────────────────────
+const resetStep4 = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const profile = await getOrCreateProfile(userId);
+    const pid = profile.id;
+    await pool.query('DELETE FROM addresses WHERE profile_id=$1', [pid]);
+    await pool.query(
+      `UPDATE profiles SET
+         step4_location_pct=0, step4_completed=FALSE
+       WHERE id=$1`,
+      [pid]
+    );
+    res.json({ message: 'Step 4 reset successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /users/profile/reset/step5 ─────────────────────────
+const resetStep5 = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const profile = await getOrCreateProfile(userId);
+    const pid = profile.id;
+    const edus = await pool.query('SELECT id FROM member_education WHERE profile_id=$1', [pid]);
+    for (const row of edus.rows) {
+      await pool.query('DELETE FROM member_certifications WHERE member_education_id=$1', [row.id]);
+      await pool.query('DELETE FROM member_languages      WHERE member_education_id=$1', [row.id]);
+    }
+    await pool.query('DELETE FROM member_education WHERE profile_id=$1', [pid]);
+    await pool.query(
+      `UPDATE profiles SET
+         step5_education_pct=0, step5_completed=FALSE
+       WHERE id=$1`,
+      [pid]
+    );
+    res.json({ message: 'Step 5 reset successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /users/profile/reset/step6 ─────────────────────────
+const resetStep6 = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const profile = await getOrCreateProfile(userId);
+    const pid = profile.id;
+    await pool.query('DELETE FROM economic_details WHERE profile_id=$1', [pid]);
+    await pool.query('DELETE FROM member_insurance  WHERE profile_id=$1', [pid]);
+    await pool.query('DELETE FROM member_documents  WHERE profile_id=$1', [pid]);
+    await pool.query(
+      `UPDATE profiles SET
+         step6_economic_pct=0, step6_completed=FALSE
+       WHERE id=$1`,
+      [pid]
+    );
+    res.json({ message: 'Step 6 reset successfully' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -681,7 +741,6 @@ const resetProfile = async (req, res) => {
 const getPendingUsers = async (req, res) => {
   try {
     const { id: callerId, role } = req.user;
-
     let result;
     if (role === 'admin') {
       result = await pool.query(
@@ -695,7 +754,6 @@ const getPendingUsers = async (req, res) => {
          ORDER BY p.submitted_at DESC`
       );
     } else {
-      // sangha sees only profiles assigned to them
       result = await pool.query(
         `SELECT u.id, u.email, u.phone,
                 p.id AS profile_id, p.status, p.submitted_at, p.overall_completion_pct,
@@ -708,7 +766,6 @@ const getPendingUsers = async (req, res) => {
         [callerId]
       );
     }
-
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -720,10 +777,8 @@ const getPendingUsers = async (req, res) => {
 const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
-
     const user = await pool.query(
-      'SELECT id, email, phone, role FROM users WHERE id=$1 AND is_deleted=FALSE',
-      [id]
+      'SELECT id, email, phone, role FROM users WHERE id=$1 AND is_deleted=FALSE', [id]
     );
     if (user.rows.length === 0)
       return res.status(404).json({ message: 'User not found' });
@@ -731,7 +786,6 @@ const getUserById = async (req, res) => {
     const profile = await pool.query(
       'SELECT * FROM profiles WHERE user_id=$1', [id]
     );
-
     res.json({ user: user.rows[0], profile: profile.rows[0] || null });
   } catch (err) {
     console.error(err);
@@ -739,7 +793,7 @@ const getUserById = async (req, res) => {
   }
 };
 
-// ─── HELPERS ──────────────────────────────────────────────────
+// ─── HELPERS ─────────────────────────────────────────────────
 function calcStep1Pct(data) {
   const required = ['first_name', 'last_name', 'gender'];
   const optional = ['date_of_birth', 'fathers_name', 'mothers_name', 'surname_in_use'];
@@ -754,16 +808,10 @@ function calcStep2Pct(data) {
 }
 
 module.exports = {
-  getProfile,
-  getFullProfile,
-  saveStep1,
-  saveStep2,
-  saveStep3,
-  saveStep4,
-  saveStep5,
-  saveStep6,
+  getProfile, getFullProfile,
+  saveStep1, saveStep2, saveStep3, saveStep4, saveStep5, saveStep6,
   submitApplication,
   resetProfile,
-  getPendingUsers,
-  getUserById,
+  resetStep1, resetStep2, resetStep3, resetStep4, resetStep5, resetStep6,
+  getPendingUsers, getUserById,
 };

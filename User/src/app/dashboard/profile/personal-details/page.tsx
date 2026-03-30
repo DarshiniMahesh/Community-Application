@@ -60,7 +60,6 @@ export default function Page() {
       const status = meta.status as string;
       setCanReset(status === "draft" || status === "changes_requested" || status === "approved");
 
-      // Get user contact from auth
       api.get("/users/profile").then(p => {
         setUserContact({
           email: (p as Record<string,string>).email || "",
@@ -110,11 +109,11 @@ export default function Page() {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!formData.firstName.trim())  e.firstName     = "First name is required";
-    if (!formData.lastName.trim())   e.lastName      = "Last name is required";
-    if (!formData.gender)            e.gender        = "Please select a gender";
-    if (!formData.dateOfBirth)       e.dateOfBirth   = "Date of birth is required";
-    if (!formData.maritalStatus)     e.maritalStatus = "Please select marital status";
+    if (!formData.firstName.trim())  e.firstName      = "First name is required";
+    if (!formData.lastName.trim())   e.lastName       = "Last name is required";
+    if (!formData.gender)            e.gender         = "Please select a gender";
+    if (!formData.dateOfBirth)       e.dateOfBirth    = "Date of birth is required";
+    if (!formData.maritalStatus)     e.maritalStatus  = "Please select marital status";
     if (!formData.hasDisability)     e.hasDisability  = "Please select disability status";
     if (!formData.isPartOfSangha)    e.isPartOfSangha = "Please answer Sangha membership";
     if (formData.isPartOfSangha === "yes" && !formData.sanghaName.trim()) e.sanghaName = "Sangha name is required";
@@ -140,9 +139,16 @@ export default function Page() {
   const handleReset = async () => {
     setResetting(true);
     try {
-      await api.post("/users/profile/reset", {});
-      toast.success("Profile reset successfully.");
-      router.push("/dashboard");
+      await api.post("/users/profile/reset/step1", {});
+      toast.success("Personal details cleared.");
+      setFormData({
+        firstName: "", middleName: "", lastName: "",
+        gender: "", dateOfBirth: "",
+        surnameInUse: "", surnameAsPerGotra: "",
+        fathersName: "", mothersName: "",
+        maritalStatus: "", hasDisability: "",
+        isPartOfSangha: "", sanghaName: "", sanghaRole: "",
+      });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
     } finally {
@@ -169,14 +175,13 @@ export default function Page() {
         {canReset && (
           <Button variant="outline" size="sm" className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
             onClick={() => setShowResetDialog(true)}>
-            <RotateCcw className="h-4 w-4" /> Reset Profile
+            <RotateCcw className="h-4 w-4" /> Reset This Step
           </Button>
         )}
       </div>
 
       <Stepper steps={steps} currentStep={0} />
 
-      {/* Basic Info */}
       <Card className="shadow-sm border-l-4 border-l-primary">
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -185,8 +190,6 @@ export default function Page() {
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-
-          {/* Registered contact — read only */}
           {(userContact.email || userContact.phone) && (
             <div className="p-3 bg-muted/50 rounded-lg grid md:grid-cols-2 gap-4">
               {userContact.email && (
@@ -261,11 +264,9 @@ export default function Page() {
                 onChange={e => set("mothersName", e.target.value)} />
             </div>
           </div>
-
         </CardContent>
       </Card>
 
-      {/* Marital Status */}
       <Card className="shadow-sm border-l-4 border-l-orange-400">
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -293,7 +294,6 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      {/* Disability */}
       <Card className="shadow-sm border-l-4 border-l-blue-400">
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -319,7 +319,6 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      {/* Sangha Membership */}
       <Card className="shadow-sm border-l-4 border-l-green-400">
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -383,9 +382,9 @@ export default function Page() {
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset Profile?</AlertDialogTitle>
+            <AlertDialogTitle>Reset Personal Details?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will clear all your profile data. Your account remains but all filled information will be deleted. This cannot be undone.
+              This will clear only your personal details. All other steps remain intact.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
