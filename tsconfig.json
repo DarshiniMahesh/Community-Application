@@ -1,22 +1,7 @@
 {
   "compilerOptions": {
-<<<<<<< HEAD
-    "target": "ES2020", "lib": ["dom","dom.iterable","esnext"], "allowJs": true,
-    "skipLibCheck": true, "strict": true, "noEmit": true, "esModuleInterop": true,
-    "module": "esnext", "moduleResolution": "bundler", "resolveJsonModule": true,
-    "isolatedModules": true, "jsx": "preserve", "incremental": true,
-    "plugins": [{"name":"next"}], "paths": {"@/*": ["./src/*"]}
-  },
-  "include": ["next-env.d.ts","**/*.ts","**/*.tsx",".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
-}
-=======
     "target": "ES2020",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
+    "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -28,27 +13,17 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+    "plugins": [{ "name": "next" }],
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
-    }
+      "@/*": ["User/src/*"]
+    },
+    "forceConsistentCasingInFileNames": true
   },
   "include": [
     "next-env.d.ts",
-    "src/**/*",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    "User/src/**/*",
+    ".next/types/**/*.ts"
   ],
-  "exclude": [
-    "node_modules"
-  ],
-  "ignoreDeprecations": "6.0"
+  "exclude": ["node_modules"]
 }
->>>>>>> 896f12acca765089e49da40a3264eeeedd8ad22c
