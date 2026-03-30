@@ -27,7 +27,7 @@ const steps = [
 ];
 
 const incomeSlabs = ["Less than ₹1 Lakh","₹1 – 2 Lakh","₹2 – 3 Lakh","₹3 – 5 Lakh","₹5 – 10 Lakh","₹10 – 25 Lakh","₹25 Lakh+"];
-const familyFacilities = ["Stay in Rented House","Own a House","Own Agricultural Land","Own a Two Wheeler","Own a Car"];
+const familyFacilities = ["Staying in Rented House","Own a House","Own Agricultural Land","Own a Two Wheeler","Own a Car"];
 const investmentOptions = ["Fixed Deposits","Mutual Funds / SIP","Trading in Shares / Demat Account","Investment - Others"];
 
 interface MemberCoverage {
