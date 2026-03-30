@@ -2,8 +2,8 @@
 
 # ── Root ──────────────────────────────────────────────────────────────────────
 /node_modules
-backend\.env
-# ── All apps (user, admin, sangha3) ──────────────────────────────────────────
+
+# ── All apps (user, admin, sangha) ───────────────────────────────────────────
 user/node_modules
 user/.next
 user/out
@@ -31,8 +31,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# ── Env files ─────────────────────────────────────────────────────────────────
+# ── Env files — never push these ─────────────────────────────────────────────
+.env
 .env*
+.env.local
+.env.production
+.env.development
 
 # ── Vercel ────────────────────────────────────────────────────────────────────
 .vercel
