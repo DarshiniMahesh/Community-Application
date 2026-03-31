@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ArrowLeft, Send, Edit, CheckCircle2, Loader2, Lock, Calendar } from "lucide-react";
 import { toast } from "sonner";
@@ -25,9 +26,6 @@ const steps = [
   { id: "7", name: "Review",    href: "/dashboard/profile/review-submit" },
 ];
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Format any ISO/DB date string to a clean "DD MMM YYYY" — no time shown */
 function formatDate(raw?: string | null): string | null {
   if (!raw) return null;
   const d = new Date(raw);
@@ -35,16 +33,11 @@ function formatDate(raw?: string | null): string | null {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-/** Convert a raw DB income key (e.g. "5_10l") to a human-readable label */
 function formatIncome(raw?: string | null): string | null {
   if (!raw) return null;
-  // Try the INCOME_SLAB_REVERSE lookup first
   if (INCOME_SLAB_REVERSE[raw]) return INCOME_SLAB_REVERSE[raw];
-  // Fallback: prettify the raw key just in case
   return raw.replace(/_/g, " – ").replace(/l$/, " Lakh");
 }
-
-// ── Sub-components ────────────────────────────────────────────────────────────
 
 function Field({ label, value }: { label: string; value?: string | null | boolean }) {
   if (value === undefined || value === null || value === "") return null;
@@ -106,25 +99,35 @@ function SectionHeader({
   );
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+interface Sangha {
+  id: string;
+  sangha_name: string;
+  location: string;
+}
 
 export default function Page() {
   const router = useRouter();
-  const [confirmed, setConfirmed]           = useState(false);
+  const [confirmed, setConfirmed]               = useState(false);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
-  const [loading, setLoading]               = useState(true);
-  const [submitting, setSubmitting]         = useState(false);
-  const [profileData, setProfileData]       = useState<Record<string, unknown> | null>(null);
-  const [profileMeta, setProfileMeta]       = useState<Record<string, unknown> | null>(null);
-  const [errors, setErrors]                 = useState<Record<string, string>>({});
+  const [loading, setLoading]                   = useState(true);
+  const [submitting, setSubmitting]             = useState(false);
+  const [profileData, setProfileData]           = useState<Record<string, unknown> | null>(null);
+  const [profileMeta, setProfileMeta]           = useState<Record<string, unknown> | null>(null);
+  const [sanghas, setSanghas]                   = useState<Sangha[]>([]);
+  const [selectedSangha, setSelectedSangha]     = useState("");
+  const [errors, setErrors]                     = useState<Record<string, string>>({});
 
   useEffect(() => {
     Promise.all([
       api.get("/users/profile/full"),
       api.get("/users/profile"),
-    ]).then(([full, meta]) => {
+      api.get("/sangha/approved-list"),
+    ]).then(([full, meta, sanghaList]) => {
       setProfileData(full);
       setProfileMeta(meta);
+      setSanghas(sanghaList);
+      // Pre-select if already assigned
+      if (meta?.sangha_id) setSelectedSangha(meta.sangha_id);
     }).catch(() => toast.error("Failed to load profile"))
       .finally(() => setLoading(false));
   }, []);
@@ -134,14 +137,17 @@ export default function Page() {
   const submittedAt = profileMeta?.submitted_at as string | null;
 
   const handleSubmit = () => {
-    if (!confirmed) { setErrors({ confirmation: "Please confirm that all details are accurate" }); return; }
+    const newErrors: Record<string, string> = {};
+    if (!selectedSangha) newErrors.sangha = "Please select a Sangha";
+    if (!confirmed) newErrors.confirmation = "Please confirm that all details are accurate";
+    if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
     setShowSubmitDialog(true);
   };
 
   const handleConfirmSubmit = async () => {
     setSubmitting(true);
     try {
-      await api.post("/users/profile/submit", {});
+      await api.post("/users/profile/submit", { sangha_id: selectedSangha });
       toast.success("Profile submitted successfully!");
       setShowSubmitDialog(false);
       router.push("/dashboard/status");
@@ -175,7 +181,6 @@ export default function Page() {
   const userDoc = s6doc[0];
   const familyMembers = s3?.members || [];
 
-  // ── helpers for coverage checks ──────────────────────────────────────────
   const hasCoverage = (obj: Record<string, unknown> | undefined, key: string) =>
     ((obj?.[key] as string[]) || []).length > 0;
 
@@ -192,7 +197,7 @@ export default function Page() {
 
         <Stepper steps={steps} currentStep={6} />
 
-        {/* ── Locked banner ── */}
+        {/* Locked banner */}
         {isLocked && (
           <Card className="border-l-4 border-l-blue-500 bg-blue-50 shadow-sm">
             <CardContent className="pt-4 pb-4">
@@ -216,9 +221,7 @@ export default function Page() {
           </Card>
         )}
 
-        {/* ══════════════════════════════════════════════════════════════════
-            YOUR INFORMATION
-        ══════════════════════════════════════════════════════════════════ */}
+        {/* YOUR INFORMATION */}
         <Card className="shadow-sm border-l-4 border-l-primary">
           <CardHeader>
             <CardTitle className="text-lg">Your Information</CardTitle>
@@ -232,7 +235,6 @@ export default function Page() {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <Field label="Full Name"      value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
                   <Field label="Gender"         value={s1.gender} />
-                  {/* ✅ FIX: Date formatted cleanly — no time */}
                   <Field label="Date of Birth"  value={formatDate(s1.date_of_birth)} />
                   <Field label="Marital Status" value={s1.is_married ? "Married" : "Single"} />
                   {s1.is_married && <Field label="Spouse Name" value={s1.wife_name || s1.husbands_name} />}
@@ -302,7 +304,6 @@ export default function Page() {
               {userEdu ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <Field label="Highest Education" value={userEdu.highest_education as string} />
-                  {/* If currently studying, show that instead of profession */}
                   {userEdu.is_currently_studying
                     ? <Field label="Status" value="Currently Studying / Pursuing" />
                     : <Field label="Profession" value={userEdu.profession_type as string} />
@@ -342,7 +343,6 @@ export default function Page() {
               <SectionHeader title="Economic Details" href="/dashboard/profile/economic-details" isLocked={isLocked} />
               {s6eco ? (
                 <div className="space-y-5">
-                  {/* ✅ FIX: Income slabs display as "₹5 – 10 Lakh" not "5_10l" */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-3 rounded-xl bg-muted/40 border border-border space-y-1">
                       <Label className="text-xs text-muted-foreground">Self Income</Label>
@@ -358,7 +358,6 @@ export default function Page() {
                     </div>
                   </div>
 
-                  {/* ✅ FIX: Insurance — Konkani Card added here */}
                   {userIns && (
                     <div>
                       <Label className="text-xs text-muted-foreground mb-2 block">Insurance</Label>
@@ -366,13 +365,11 @@ export default function Page() {
                         <CoverageRow label="Health Insurance" value={hasCoverage(userIns, "health_coverage")} />
                         <CoverageRow label="Life Insurance"   value={hasCoverage(userIns, "life_coverage")} />
                         <CoverageRow label="Term Insurance"   value={hasCoverage(userIns, "term_coverage")} />
-                        {/* ✅ Konkani Card moved here from Documents */}
                         <CoverageRow label="Konkani Card"     value={hasCoverage(userIns, "konkani_card_coverage")} />
                       </div>
                     </div>
                   )}
 
-                  {/* Documents — Konkani Card removed */}
                   {userDoc && (
                     <div>
                       <Label className="text-xs text-muted-foreground mb-2 block">Documents</Label>
@@ -392,9 +389,7 @@ export default function Page() {
           </CardContent>
         </Card>
 
-        {/* ══════════════════════════════════════════════════════════════════
-            FAMILY MEMBERS
-        ══════════════════════════════════════════════════════════════════ */}
+        {/* FAMILY MEMBERS */}
         {familyMembers.length > 0 && (
           <Card className="shadow-sm">
             <CardHeader>
@@ -409,8 +404,6 @@ export default function Page() {
                 return (
                   <div key={idx} className="space-y-4">
                     {idx > 0 && <Separator />}
-
-                    {/* Member header */}
                     <div className="flex items-center gap-3">
                       <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                         <span className="text-sm font-bold text-primary">{idx + 1}</span>
@@ -421,13 +414,11 @@ export default function Page() {
                       </div>
                     </div>
 
-                    {/* Member Details */}
                     <div>
                       <SectionHeader title="Member Details" href="/dashboard/profile/family-information" isLocked={isLocked} />
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                         <Field label="Name"       value={member.name} />
                         <Field label="Relation"   value={member.relation} />
-                        {/* ✅ FIX: DOB shown cleanly without time */}
                         <Field label="Date of Birth" value={
                           member.dob
                             ? formatDate(member.dob)
@@ -443,7 +434,6 @@ export default function Page() {
                       </div>
                     </div>
 
-                    {/* Member Education */}
                     <div>
                       <SectionHeader title="Education &amp; Profession" href="/dashboard/profile/education-profession" isLocked={isLocked} memberIndex={idx + 1} />
                       {memberEdu ? (
@@ -470,7 +460,6 @@ export default function Page() {
                       ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
                     </div>
 
-                    {/* Member Insurance & Documents */}
                     <div>
                       <SectionHeader title="Insurance &amp; Documents" href="/dashboard/profile/economic-details" isLocked={isLocked} memberIndex={idx + 1} />
                       <div className="space-y-4">
@@ -481,7 +470,6 @@ export default function Page() {
                               <CoverageRow label="Health Insurance" value={hasCoverage(memberIns, "health_coverage")} />
                               <CoverageRow label="Life Insurance"   value={hasCoverage(memberIns, "life_coverage")} />
                               <CoverageRow label="Term Insurance"   value={hasCoverage(memberIns, "term_coverage")} />
-                              {/* ✅ Konkani Card in insurance section */}
                               <CoverageRow label="Konkani Card"     value={hasCoverage(memberIns, "konkani_card_coverage")} />
                             </div>
                           </div>
@@ -500,7 +488,6 @@ export default function Page() {
                         )}
                       </div>
                     </div>
-
                   </div>
                 );
               })}
@@ -511,6 +498,34 @@ export default function Page() {
         {/* Submit section */}
         {!isLocked && (
           <>
+            {/* ── Sangha Selection ── */}
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg">Select Sangha</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Label htmlFor="sangha">Submit application to</Label>
+                <Select value={selectedSangha} onValueChange={(v) => { setSelectedSangha(v); setErrors(e => ({ ...e, sangha: "" })); }}>
+                  <SelectTrigger className={errors.sangha ? "border-destructive" : ""}>
+                    <SelectValue placeholder="Select a Sangha" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sanghas.length === 0 ? (
+                      <SelectItem value="none" disabled>No approved Sanghas available</SelectItem>
+                    ) : (
+                      sanghas.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.sangha_name} — {s.location}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {errors.sangha && <p className="text-xs text-destructive">{errors.sangha}</p>}
+              </CardContent>
+            </Card>
+
+            {/* ── Declaration ── */}
             <Card className="shadow-sm bg-secondary/30">
               <CardContent className="pt-6">
                 <div className="flex items-start space-x-3">
@@ -555,7 +570,7 @@ export default function Page() {
               <CheckCircle2 className="h-5 w-5 text-primary" /> Submit Profile for Approval?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Once submitted, your profile will be sent to the Sangha for verification.
+              Once submitted, your profile will be sent to the selected Sangha for verification.
               You will not be able to make changes until the review is complete.
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -374,7 +374,6 @@ const saveStep5 = async (req, res) => {
     for (let i = 0; i < members.length; i++) {
       const m = members[i];
 
-      // ── NEW: is_currently_studying added ──
       const eduRes = await pool.query(
         `INSERT INTO member_education
            (profile_id, member_name, member_relation, sort_order,
@@ -388,7 +387,6 @@ const saveStep5 = async (req, res) => {
           pid,
           m.member_name || null, m.member_relation || null, i,
           m.highest_education || null, m.brief_profile || null,
-          // if currently studying, null out all profession fields
           m.is_currently_studying ? null : (m.profession_type || null),
           m.is_currently_studying ? null : (m.profession_other || null),
           m.is_currently_studying ? null : (m.self_employed_type || null),
@@ -489,7 +487,6 @@ const saveStep6 = async (req, res) => {
       );
     }
 
-    // ── Insurance — now includes konkani_card_coverage ──
     await pool.query('DELETE FROM member_insurance WHERE profile_id=$1', [pid]);
     for (let i = 0; i < insurance.length; i++) {
       const ins = insurance[i];
@@ -510,7 +507,6 @@ const saveStep6 = async (req, res) => {
       );
     }
 
-    // ── Documents — no longer includes konkani card ──
     await pool.query('DELETE FROM member_documents WHERE profile_id=$1', [pid]);
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i];
@@ -547,6 +543,11 @@ const saveStep6 = async (req, res) => {
 const submitApplication = async (req, res) => {
   try {
     const { id: userId } = req.user;
+    const { sangha_id } = req.body;
+
+    if (!sangha_id)
+      return res.status(400).json({ message: 'Please select a Sangha before submitting' });
+
     const profile = await pool.query(
       'SELECT id, status, step1_completed FROM profiles WHERE user_id=$1',
       [userId]
@@ -562,10 +563,21 @@ const submitApplication = async (req, res) => {
     if (!step1_completed)
       return res.status(400).json({ message: 'Complete at least Step 1 before submitting' });
 
-    await pool.query(
-      "UPDATE profiles SET status='submitted', submitted_at=NOW() WHERE id=$1",
-      [pid]
+    // Verify sangha exists and is approved
+    const sanghaCheck = await pool.query(
+      `SELECT u.id FROM users u
+       JOIN sangha_profiles sp ON sp.user_id = u.id
+       WHERE u.id = $1 AND sp.status = 'approved'`,
+      [sangha_id]
     );
+    if (sanghaCheck.rows.length === 0)
+      return res.status(400).json({ message: 'Selected Sangha is not valid' });
+
+    await pool.query(
+      "UPDATE profiles SET status='submitted', submitted_at=NOW(), sangha_id=$1 WHERE id=$2",
+      [sangha_id, pid]
+    );
+
     res.json({ message: 'Application submitted successfully' });
   } catch (err) {
     console.error(err);
@@ -573,7 +585,7 @@ const submitApplication = async (req, res) => {
   }
 };
 
-// ─── POST /users/profile/reset (FULL — dashboard) ────────────
+// ─── POST /users/profile/reset (FULL) ────────────────────────
 const resetProfile = async (req, res) => {
   try {
     const { id: userId } = req.user;
@@ -607,7 +619,7 @@ const resetProfile = async (req, res) => {
     await pool.query(
       `UPDATE profiles SET
          status='draft', submitted_at=NULL, reviewed_at=NULL,
-         reviewed_by=NULL, review_comment=NULL,
+         reviewed_by=NULL, review_comment=NULL, sangha_id=NULL,
          step1_personal_pct=0, step2_religious_pct=0,
          step3_family_pct=0,  step4_location_pct=0,
          step5_education_pct=0, step6_economic_pct=0,
@@ -633,8 +645,7 @@ const resetStep1 = async (req, res) => {
     const pid = profile.id;
     await pool.query('DELETE FROM personal_details WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET step1_personal_pct=0, step1_completed=FALSE WHERE id=$1`,
-      [pid]
+      `UPDATE profiles SET step1_personal_pct=0, step1_completed=FALSE WHERE id=$1`, [pid]
     );
     res.json({ message: 'Step 1 reset successfully' });
   } catch (err) {
@@ -651,8 +662,7 @@ const resetStep2 = async (req, res) => {
     const pid = profile.id;
     await pool.query('DELETE FROM religious_details WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET step2_religious_pct=0, step2_completed=FALSE WHERE id=$1`,
-      [pid]
+      `UPDATE profiles SET step2_religious_pct=0, step2_completed=FALSE WHERE id=$1`, [pid]
     );
     res.json({ message: 'Step 2 reset successfully' });
   } catch (err) {
@@ -670,8 +680,7 @@ const resetStep3 = async (req, res) => {
     await pool.query('DELETE FROM family_members WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM family_info    WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET step3_family_pct=0, step3_completed=FALSE WHERE id=$1`,
-      [pid]
+      `UPDATE profiles SET step3_family_pct=0, step3_completed=FALSE WHERE id=$1`, [pid]
     );
     res.json({ message: 'Step 3 reset successfully' });
   } catch (err) {
@@ -688,8 +697,7 @@ const resetStep4 = async (req, res) => {
     const pid = profile.id;
     await pool.query('DELETE FROM addresses WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET step4_location_pct=0, step4_completed=FALSE WHERE id=$1`,
-      [pid]
+      `UPDATE profiles SET step4_location_pct=0, step4_completed=FALSE WHERE id=$1`, [pid]
     );
     res.json({ message: 'Step 4 reset successfully' });
   } catch (err) {
@@ -711,8 +719,7 @@ const resetStep5 = async (req, res) => {
     }
     await pool.query('DELETE FROM member_education WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET step5_education_pct=0, step5_completed=FALSE WHERE id=$1`,
-      [pid]
+      `UPDATE profiles SET step5_education_pct=0, step5_completed=FALSE WHERE id=$1`, [pid]
     );
     res.json({ message: 'Step 5 reset successfully' });
   } catch (err) {
@@ -731,8 +738,7 @@ const resetStep6 = async (req, res) => {
     await pool.query('DELETE FROM member_insurance  WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM member_documents  WHERE profile_id=$1', [pid]);
     await pool.query(
-      `UPDATE profiles SET step6_economic_pct=0, step6_completed=FALSE WHERE id=$1`,
-      [pid]
+      `UPDATE profiles SET step6_economic_pct=0, step6_completed=FALSE WHERE id=$1`, [pid]
     );
     res.json({ message: 'Step 6 reset successfully' });
   } catch (err) {

@@ -152,8 +152,10 @@ const getDashboard = async (req, res) => {
 };
 
 // ─── GET /sangha/members ─────────────────────────────────────
+// CHANGED: now filters by sangha_id
 const getMembers = async (req, res) => {
   try {
+    const { id: sanghaId } = req.user;
     const result = await pool.query(
       `SELECT u.id, u.email, u.phone,
               p.id AS profile_id, p.status, p.overall_completion_pct, p.submitted_at,
@@ -161,7 +163,9 @@ const getMembers = async (req, res) => {
        FROM profiles p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
-       ORDER BY p.updated_at DESC`
+       WHERE p.sangha_id = $1
+       ORDER BY p.updated_at DESC`,
+      [sanghaId]
     );
     res.json(result.rows);
   } catch (err) {
@@ -171,8 +175,10 @@ const getMembers = async (req, res) => {
 };
 
 // ─── GET /sangha/pending-users ───────────────────────────────
+// CHANGED: now filters by sangha_id
 const getPendingUsers = async (req, res) => {
   try {
+    const { id: sanghaId } = req.user;
     const result = await pool.query(
       `SELECT u.id, u.email, u.phone,
               p.id AS profile_id, p.status, p.submitted_at,
@@ -181,8 +187,9 @@ const getPendingUsers = async (req, res) => {
        FROM profiles p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
-       WHERE p.status IN ('submitted', 'under_review')
-       ORDER BY p.submitted_at DESC`
+       WHERE p.status IN ('submitted', 'under_review') AND p.sangha_id = $1
+       ORDER BY p.submitted_at DESC`,
+      [sanghaId]
     );
     res.json(result.rows);
   } catch (err) {
@@ -482,6 +489,24 @@ const deleteTeamMember = async (req, res) => {
   }
 };
 
+// ─── GET /sangha/approved-list (public for user dropdown) ────
+// NEW FUNCTION
+const getApprovedSanghas = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT u.id, sp.sangha_name, sp.location
+       FROM sangha_profiles sp
+       JOIN users u ON u.id = sp.user_id
+       WHERE sp.status = 'approved'
+       ORDER BY sp.sangha_name ASC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = {
   registerSangha, loginSangha,
   getSanghaProfile, updateSanghaProfile,
@@ -491,4 +516,5 @@ module.exports = {
   getReports, getActivityLogs,
   getAllSanghas, getSanghaById,
   getTeamMembers, addTeamMember, deleteTeamMember,
+  getApprovedSanghas,
 };

@@ -4,8 +4,9 @@ const { authenticate, requireRole } = require('../middlewares/auth');
 const sc = require('../controllers/sanghaController');
 
 // ── Public ───────────────────────────────────────────────────
-router.post('/register', sc.registerSangha);
-router.post('/login',    sc.loginSangha);
+router.post('/register',       sc.registerSangha);
+router.post('/login',          sc.loginSangha);
+router.get('/approved-list',   sc.getApprovedSanghas);   // ← NEW: for user dropdown
 
 // ── Authenticated ────────────────────────────────────────────
 router.use(authenticate);
