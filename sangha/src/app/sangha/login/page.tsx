@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Users, Mail, Lock, Eye, EyeOff } from "lucide-react";
@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 
 export default function SanghaLoginPage() {
   const router = useRouter();
@@ -16,17 +17,6 @@ export default function SanghaLoginPage() {
   const [formData, setFormData] = useState({ identifier: "", password: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-
-  // ✅ FIX: Do NOT auto-login. Clear any stale session on mount.
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      // Remove any previously stored session so user must login again
-      window.localStorage.removeItem("role");
-      window.localStorage.removeItem("currentUser");
-      window.localStorage.removeItem("otp_identifier");
-      window.localStorage.removeItem("otp_password");
-    }
-  }, []);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -36,29 +26,40 @@ export default function SanghaLoginPage() {
     } else {
       const isEmail = value.includes("@");
       const isPhone = /^\d{10}$/.test(value);
-      if (!isEmail && !isPhone) {
+      if (!isEmail && !isPhone)
         newErrors.identifier = "Enter a valid email or 10-digit phone number";
-      }
     }
-    if (!formData.password.trim()) {
+    if (!formData.password.trim())
       newErrors.password = "Password is required";
-    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleGetOTP = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!validate()) return;
     setLoading(true);
-    // Store credentials temporarily for the OTP page to use
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("otp_identifier", formData.identifier.trim());
-      window.localStorage.setItem("otp_password", formData.password);
-      window.localStorage.setItem("otp_flow", "login");
+    try {
+      const data = await api.post("/sangha/login", {
+        identifier: formData.identifier.trim(),
+        password: formData.password,
+      });
+
+      // Store pending auth — OTP page will finalize after verification
+      localStorage.setItem("pending_token",         data.token);
+      localStorage.setItem("pending_role",          data.role ?? "sangha");
+      localStorage.setItem("pending_sanghaStatus",  data.sanghaStatus ?? "pending_approval");
+      localStorage.setItem("pending_sanghaName",    data.sanghaName ?? "");
+      localStorage.setItem("otp_identifier",        formData.identifier.trim());
+      localStorage.setItem("otp_flow",              "login");
+
+      toast.success("Credentials verified! Enter OTP to continue.");
+      router.push("/sangha/verify-otp");
+    } catch (err: any) {
+      toast.error(err.message || "Login failed");
+    } finally {
+      setLoading(false);
     }
-    toast.success("OTP sent successfully! (Use 1234)");
-    setLoading(false);
-    router.push("/sangha/verify-otp");
   };
 
   return (
@@ -69,14 +70,10 @@ export default function SanghaLoginPage() {
             <Users className="h-8 w-8 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl">Sangha Login</CardTitle>
-          <CardDescription>Sign in with email or phone</CardDescription>
+          <CardDescription>Sign in with your registered email or phone</CardDescription>
         </CardHeader>
         <CardContent>
-          <form
-            onSubmit={(e) => { e.preventDefault(); handleGetOTP(); }}
-            className="space-y-4"
-          >
-            {/* Identifier */}
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="identifier">Email or Phone Number</Label>
               <div className="relative">
@@ -85,7 +82,6 @@ export default function SanghaLoginPage() {
                 </div>
                 <Input
                   id="identifier"
-                  type="text"
                   placeholder="Enter email or 10-digit phone"
                   value={formData.identifier}
                   onChange={(e) => {
@@ -95,12 +91,9 @@ export default function SanghaLoginPage() {
                   className={`pl-10 ${errors.identifier ? "border-destructive" : ""}`}
                 />
               </div>
-              {errors.identifier && (
-                <p className="text-xs text-destructive">{errors.identifier}</p>
-              )}
+              {errors.identifier && <p className="text-xs text-destructive">{errors.identifier}</p>}
             </div>
 
-            {/* Password */}
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <div className="relative">
@@ -126,13 +119,11 @@ export default function SanghaLoginPage() {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              {errors.password && (
-                <p className="text-xs text-destructive">{errors.password}</p>
-              )}
+              {errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
             </div>
 
             <Button type="submit" className="w-full" size="lg" disabled={loading}>
-              {loading ? "Sending OTP..." : "Get OTP"}
+              {loading ? "Verifying..." : "Sign In"}
             </Button>
 
             <div className="text-center text-sm text-muted-foreground">

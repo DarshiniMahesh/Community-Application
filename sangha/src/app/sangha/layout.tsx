@@ -3,58 +3,64 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Menu,
-  X,
-  LogOut,
-  Users,
-  UserCog,
-  FileText,
-  Activity,
-  UserCircle2,
+  Menu, X, LogOut, Users, UserCog,
+  FileText, Activity, UserCircle2, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { clearAuth } from "@/lib/api";
 
 const navigation = [
+  { name: "Dashboard",       href: "/sangha/dashboard",       icon: Users },
   { name: "User Management", href: "/sangha/user-management", icon: UserCog },
-  { name: "Sangha Members", href: "/sangha/members", icon: Users },
-  { name: "Reports", href: "/sangha/reports", icon: FileText },
-  { name: "Activity Logs", href: "/sangha/activity-logs", icon: Activity },
-  { name: "Profile", href: "/sangha/profile", icon: UserCircle2 },
+  { name: "Pending Users",   href: "/sangha/pending-users",   icon: Clock },
+  { name: "Sangha Members",  href: "/sangha/members",         icon: Users },
+  { name: "Reports",         href: "/sangha/reports",         icon: FileText },
+  { name: "Activity Logs",   href: "/sangha/activity-logs",   icon: Activity },
+  { name: "Profile",         href: "/sangha/profile",         icon: UserCircle2 },
+];
+
+// Auth routes — no sidebar, no guard
+const AUTH_ROUTES = [
+  "/sangha/login",
+  "/sangha/register",
+  "/sangha/verify-otp",
 ];
 
 export default function SanghaLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
+  const router   = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sanghaName, setSanghaName]   = useState("");
 
-  const isAuthRoute =
-    pathname === "/sangha/login" ||
-    pathname === "/sangha/register" ||
-    pathname === "/sangha/verify-otp";
+  const isAuthRoute = AUTH_ROUTES.includes(pathname);
 
   useEffect(() => {
     if (isAuthRoute) return;
     if (typeof window === "undefined") return;
-    const role = window.localStorage.getItem("role");
-    if (role !== "SANGHA" && role !== "ADMIN") {
+
+    const token = localStorage.getItem("token");
+    const role  = localStorage.getItem("role"); // stored as "sangha" (lowercase)
+
+    // ✅ compare lowercase — backend returns "sangha" not "SANGHA"
+    if (!token || (role !== "sangha" && role !== "admin")) {
       router.replace("/sangha/login");
+      return;
     }
-  }, [isAuthRoute, router]);
+
+    setSanghaName(localStorage.getItem("sanghaName") ?? "");
+  }, [isAuthRoute, pathname, router]);
 
   const handleLogout = () => {
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem("role");
-      window.localStorage.removeItem("sanghaId");
-    }
+    clearAuth();
     router.push("/sangha/login");
   };
 
-  if (isAuthRoute) {
-    return children;
-  }
+  // Render auth pages without layout
+  if (isAuthRoute) return <>{children}</>;
 
   return (
     <div className="min-h-screen bg-background">
+      {/* ── Header ── */}
       <header className="sticky top-0 z-50 bg-white border-b border-border shadow-sm">
         <div className="flex items-center justify-between h-16 px-4 lg:px-6">
           <div className="flex items-center gap-4">
@@ -69,7 +75,9 @@ export default function SanghaLayout({ children }: { children: React.ReactNode }
                 <Users className="h-5 w-5 text-primary-foreground" />
               </div>
               <div>
-                <h1 className="text-lg font-semibold text-foreground">Sangha Panel</h1>
+                <h1 className="text-lg font-semibold text-foreground">
+                  {sanghaName || "Sangha Panel"}
+                </h1>
                 <p className="text-xs text-muted-foreground">Sangha Administration</p>
               </div>
             </div>
@@ -84,14 +92,13 @@ export default function SanghaLayout({ children }: { children: React.ReactNode }
       </header>
 
       <div className="flex">
-        <aside
-          className={`
-            fixed lg:sticky top-16 left-0 z-40 h-[calc(100vh-4rem)] w-64 
-            bg-white border-r border-border transition-transform duration-300
-            ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
-          `}
-        >
-          <nav className="p-4 space-y-2">
+        {/* ── Sidebar ── */}
+        <aside className={`
+          fixed lg:sticky top-16 left-0 z-40 h-[calc(100vh-4rem)] w-64
+          bg-white border-r border-border transition-transform duration-300
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
+        `}>
+          <nav className="p-4 space-y-1">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
               return (
@@ -102,12 +109,10 @@ export default function SanghaLayout({ children }: { children: React.ReactNode }
                     setSidebarOpen(false);
                   }}
                   className={`
-                    w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors
-                    ${
-                      isActive
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : "text-foreground hover:bg-accent hover:text-accent-foreground"
-                    }
+                    w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-left
+                    ${isActive
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-foreground hover:bg-accent hover:text-accent-foreground"}
                   `}
                 >
                   <item.icon className="h-5 w-5 flex-shrink-0" />
@@ -124,6 +129,7 @@ export default function SanghaLayout({ children }: { children: React.ReactNode }
           </div>
         </aside>
 
+        {/* ── Mobile overlay ── */}
         {sidebarOpen && (
           <div
             className="fixed inset-0 z-30 bg-black/50 lg:hidden"
@@ -131,6 +137,7 @@ export default function SanghaLayout({ children }: { children: React.ReactNode }
           />
         )}
 
+        {/* ── Main content ── */}
         <main className="flex-1 p-4 lg:p-6 min-h-[calc(100vh-4rem)]">
           {children}
         </main>

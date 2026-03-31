@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 
 interface MemberForm {
   fullName: string;
@@ -75,21 +76,24 @@ export default function AddMemberPage() {
     setErrors((prev) => ({ ...prev, [field]: "" }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
-
-    const currentUser = localStorage.getItem("currentUser");
-    const membersKey = currentUser ? `sanghaMembers_${currentUser}` : "sanghaMembers";
-    const existingMembers = JSON.parse(localStorage.getItem(membersKey) || "[]");
-    existingMembers.push({
-      ...formData,
-      id: crypto.randomUUID(),
-    });
-    localStorage.setItem(membersKey, JSON.stringify(existingMembers));
-
-    toast.success("Member added successfully");
-    router.push("/sangha/members");
+    try {
+      await api.post("/sangha/team-members", {
+        fullName:   formData.fullName,
+        gender:     formData.gender,
+        phone:      formData.phone,
+        email:      formData.email,
+        dob:        formData.dob,
+        role:       formData.role,
+        memberType: formData.memberType,
+      });
+      toast.success("Member added successfully");
+      router.push("/sangha/members");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to add member");
+    }
   };
 
   return (

@@ -5,78 +5,73 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { User, Users, Briefcase, GraduationCap, FileText, CheckCircle2, XCircle, ArrowLeft } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { User, Users, Briefcase, GraduationCap, MapPin, CheckCircle2, XCircle, MessageSquare, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
-
-interface UserDetails {
-  id: string | number; name: string; village?: string; phone?: string; email?: string;
-  personal?: Record<string, any>; family?: Record<string, any>;
-  occupation?: Record<string, any>; education?: Record<string, any>;
-  documents?: { name: string; url: string }[];
-  [key: string]: any;
-}
+import { api } from "@/lib/api";
 
 function ReviewContent() {
   const params = useSearchParams();
   const router = useRouter();
-  const id = params.get("id");
-  const [user, setUser] = useState<UserDetails | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState<"approve" | "reject" | null>(null);
+  const userId = params.get("id");
+
+  const [data, setData]           = useState<any>(null);
+  const [loading, setLoading]     = useState(true);
+  const [comment, setComment]     = useState("");
+  const [submitting, setSubmitting] = useState<"approve" | "reject" | "changes" | null>(null);
 
   useEffect(() => {
-    if (!id) return;
+    if (!userId) return;
     const fetchUser = async () => {
       try {
-        const res = await fetch(`/api/users/${id}`);
-        if (!res.ok) { setLoading(false); return; }
-        const data = await res.json();
-        setUser(data);
-      } catch { setUser(null); } finally { setLoading(false); }
+        const result = await api.get(`/sangha/review-user/${userId}`);
+        setData(result);
+      } catch (err: any) {
+        toast.error(err.message || "Failed to load user");
+      } finally {
+        setLoading(false);
+      }
     };
     fetchUser();
-  }, [id]);
+  }, [userId]);
 
-  const handleDecision = async (action: "approve" | "reject") => {
-    if (!id) return;
+  const handleDecision = async (action: "approve" | "reject" | "changes") => {
+    if (action !== "approve" && !comment.trim()) {
+      toast.error("Please add a comment before rejecting or requesting changes");
+      return;
+    }
+    setSubmitting(action);
     try {
-      setSubmitting(action);
-      const res = await fetch(`/api/sangha/${action}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: id }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        const message = (data && (data.message || data.error)) || `Failed to ${action} application`;
-        toast.error(message); return;
-      }
-      if (typeof window !== "undefined") {
-        const currentUser = window.localStorage.getItem("currentUser");
-        const logsKey = currentUser ? `activityLogs_${currentUser}` : "activityLogs";
-        const existingLogs = JSON.parse(window.localStorage.getItem(logsKey) || "[]");
-        existingLogs.push({
-          action: action === "approve" ? "Approved" : "Rejected",
-          by: "Sangha",
-          userId: id,
-          date: new Date().toISOString(),
-        });
-        window.localStorage.setItem(logsKey, JSON.stringify(existingLogs));
-      }
-      toast.success(`Application ${action === "approve" ? "approved" : "rejected"} successfully`);
+      const endpoint = action === "approve" ? "/sangha/approve"
+                     : action === "reject"  ? "/sangha/reject"
+                     : "/sangha/request-changes";
+      await api.post(endpoint, { userId, comment: comment.trim() || undefined });
+      toast.success(
+        action === "approve" ? "User approved!"
+        : action === "reject" ? "User rejected"
+        : "Changes requested"
+      );
       router.push("/sangha/pending-users");
-    } catch { toast.error("Something went wrong while updating application"); } finally { setSubmitting(null); }
+    } catch (err: any) {
+      toast.error(err.message || "Action failed");
+    } finally {
+      setSubmitting(null);
+    }
   };
 
-  if (!id) return <div className="max-w-4xl mx-auto py-8"><p className="text-muted-foreground">No application selected.</p></div>;
-  if (loading) return <div className="max-w-4xl mx-auto py-8"><p className="text-muted-foreground">Loading application details...</p></div>;
-  if (!user) return <div className="max-w-4xl mx-auto py-8"><p className="text-muted-foreground">Unable to load application details.</p></div>;
+  if (!userId)  return <p className="text-muted-foreground p-8">No user selected.</p>;
+  if (loading)  return <p className="text-muted-foreground p-8">Loading application...</p>;
+  if (!data)    return <p className="text-muted-foreground p-8">Could not load application.</p>;
 
-  const personal   = user.personal   || {};
-  const family     = user.family     || {};
-  const occupation = user.occupation || {};
-  const education  = user.education  || {};
-  const documents  = user.documents  || [];
+  const { user, profile, step1, step2, step3, step4, step5, step6 } = data;
+
+  const Row = ({ label, value }: { label: string; value?: string | null }) => (
+    <div>
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className="font-medium">{value || "—"}</dd>
+    </div>
+  );
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -86,113 +81,152 @@ function ReviewContent() {
             <ArrowLeft className="h-4 w-4" />Back
           </Button>
           <div>
-            <h1 className="text-3xl font-semibold text-foreground">Review Application</h1>
-            <p className="text-muted-foreground mt-1">Verify the details before approving or rejecting this application</p>
+            <h1 className="text-3xl font-semibold">Review Application</h1>
+            <p className="text-muted-foreground mt-1">Verify details before making a decision</p>
           </div>
         </div>
-        <Badge variant="secondary">Pending Review</Badge>
+        <Badge variant="secondary" className="capitalize">{profile?.status}</Badge>
       </div>
 
+      {/* Personal */}
       <Card className="shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><User className="h-5 w-5 text-primary" />Personal Details</CardTitle>
-          <CardDescription>Basic information of the applicant</CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><User className="h-5 w-5 text-primary" />Personal Details</CardTitle></CardHeader>
         <CardContent>
           <dl className="grid md:grid-cols-2 gap-4">
-            <div><dt className="text-sm text-muted-foreground">Full Name</dt><dd className="font-medium">{user.name}</dd></div>
-            <div><dt className="text-sm text-muted-foreground">Village</dt><dd className="font-medium">{user.village || "-"}</dd></div>
-            <div><dt className="text-sm text-muted-foreground">Phone</dt><dd className="font-medium">{user.phone || personal.phone || "-"}</dd></div>
-            <div><dt className="text-sm text-muted-foreground">Email</dt><dd className="font-medium">{user.email || personal.email || "-"}</dd></div>
+            <Row label="Full Name" value={step1 ? `${step1.first_name ?? ""} ${step1.middle_name ?? ""} ${step1.last_name ?? ""}`.trim() : null} />
+            <Row label="Gender"    value={step1?.gender} />
+            <Row label="DOB"       value={step1?.date_of_birth} />
+            <Row label="Phone"     value={user?.phone} />
+            <Row label="Email"     value={user?.email} />
+            <Row label="Married"   value={step1?.is_married ? "Yes" : "No"} />
+            <Row label="Father"    value={step1?.fathers_name} />
+            <Row label="Mother"    value={step1?.mothers_name} />
+            {step1?.is_married && <Row label="Spouse" value={step1?.wife_name || step1?.husbands_name} />}
           </dl>
         </CardContent>
       </Card>
 
-      <Card className="shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5 text-primary" />Family Details</CardTitle>
-          <CardDescription>Overview of family information</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {Object.keys(family).length === 0 ? (
-            <p className="text-sm text-muted-foreground">No family details available.</p>
-          ) : (
+      {/* Religious */}
+      {step2 && (
+        <Card className="shadow-sm">
+          <CardHeader><CardTitle className="flex items-center gap-2"><span className="text-primary">🕉</span>Religious Details</CardTitle></CardHeader>
+          <CardContent>
             <dl className="grid md:grid-cols-2 gap-4">
-              {Object.entries(family).map(([key, value]) => (
-                <div key={key}>
-                  <dt className="text-sm text-muted-foreground capitalize">{key.replace(/([A-Z])/g, " $1")}</dt>
-                  <dd className="font-medium">{String(value)}</dd>
+              <Row label="Gotra"       value={step2.gotra} />
+              <Row label="Kuladevata"  value={step2.kuladevata} />
+              <Row label="Priest"      value={step2.priest_name} />
+              <Row label="Priest Location" value={step2.priest_location} />
+            </dl>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Family */}
+      {step3?.members?.length > 0 && (
+        <Card className="shadow-sm">
+          <CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-5 w-5 text-primary" />Family Members</CardTitle></CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {step3.members.map((m: any, i: number) => (
+                <div key={i} className="flex gap-4 text-sm border rounded-md p-3">
+                  <span className="font-medium w-32">{m.relation}</span>
+                  <span>{m.name || "—"}</span>
+                  <span className="text-muted-foreground">{m.age ? `Age ${m.age}` : ""}</span>
                 </div>
               ))}
-            </dl>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="grid md:grid-cols-2 gap-4">
-        <Card className="shadow-sm">
-          <CardHeader><CardTitle className="flex items-center gap-2"><Briefcase className="h-5 w-5 text-primary" />Occupation</CardTitle></CardHeader>
-          <CardContent>
-            {Object.keys(occupation).length === 0 ? <p className="text-sm text-muted-foreground">No occupation details available.</p> : (
-              <dl className="space-y-2">
-                {Object.entries(occupation).map(([key, value]) => (
-                  <div key={key}><dt className="text-sm text-muted-foreground capitalize">{key.replace(/([A-Z])/g, " $1")}</dt><dd className="font-medium">{String(value)}</dd></div>
-                ))}
-              </dl>
-            )}
+            </div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm">
-          <CardHeader><CardTitle className="flex items-center gap-2"><GraduationCap className="h-5 w-5 text-primary" />Education</CardTitle></CardHeader>
-          <CardContent>
-            {Object.keys(education).length === 0 ? <p className="text-sm text-muted-foreground">No education details available.</p> : (
-              <dl className="space-y-2">
-                {Object.entries(education).map(([key, value]) => (
-                  <div key={key}><dt className="text-sm text-muted-foreground capitalize">{key.replace(/([A-Z])/g, " $1")}</dt><dd className="font-medium">{String(value)}</dd></div>
-                ))}
-              </dl>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      )}
 
-      <Card className="shadow-sm">
-        <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" />Uploaded Documents</CardTitle></CardHeader>
-        <CardContent>
-          {documents.length === 0 ? <p className="text-sm text-muted-foreground">No documents uploaded.</p> : (
-            <ul className="space-y-2">
-              {documents.map((doc) => (
-                <li key={doc.url} className="flex items-center justify-between gap-3">
-                  <span className="text-sm">{doc.name}</span>
-                  <Button asChild variant="outline" size="sm"><a href={doc.url} target="_blank" rel="noopener noreferrer">View</a></Button>
-                </li>
+      {/* Addresses */}
+      {step4?.length > 0 && (
+        <Card className="shadow-sm">
+          <CardHeader><CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" />Addresses</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-4">
+              {step4.map((addr: any, i: number) => (
+                <div key={i} className="border rounded-md p-3 text-sm space-y-1">
+                  <p className="font-medium capitalize">{addr.address_type} Address</p>
+                  <p>{[addr.flat_no, addr.building, addr.street, addr.area, addr.city, addr.state, addr.pincode].filter(Boolean).join(", ")}</p>
+                </div>
               ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
+      {/* Education */}
+      {step5?.length > 0 && (
+        <Card className="shadow-sm">
+          <CardHeader><CardTitle className="flex items-center gap-2"><GraduationCap className="h-5 w-5 text-primary" />Education & Profession</CardTitle></CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {step5.map((m: any, i: number) => (
+                <div key={i} className="border rounded-md p-3 text-sm space-y-1">
+                  <p className="font-medium">{m.member_name} <span className="text-muted-foreground font-normal">({m.member_relation})</span></p>
+                  <p>Education: {m.highest_education || "—"}</p>
+                  <p>Profession: {m.profession_type || "—"}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Economic */}
+      {step6?.economic && (
+        <Card className="shadow-sm">
+          <CardHeader><CardTitle className="flex items-center gap-2"><Briefcase className="h-5 w-5 text-primary" />Economic Details</CardTitle></CardHeader>
+          <CardContent>
+            <dl className="grid md:grid-cols-2 gap-4">
+              <Row label="Self Income"   value={step6.economic.self_income} />
+              <Row label="Family Income" value={step6.economic.family_income} />
+            </dl>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Decision */}
       <Card className="shadow-sm bg-secondary/30">
         <CardHeader>
           <CardTitle>Decision</CardTitle>
-          <CardDescription>Approve if the details are correct and complete, otherwise reject with corrections.</CardDescription>
+          <CardDescription>Add a comment (required for reject / request changes)</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-3">
-          <Button className="gap-2" onClick={() => handleDecision("approve")} disabled={submitting !== null}>
-            <CheckCircle2 className="h-4 w-4" />{submitting === "approve" ? "Approving..." : "Approve"}
-          </Button>
-          <Button variant="destructive" className="gap-2" onClick={() => handleDecision("reject")} disabled={submitting !== null}>
-            <XCircle className="h-4 w-4" />{submitting === "reject" ? "Rejecting..." : "Reject"}
-          </Button>
+        <CardContent className="space-y-4">
+          <div className="space-y-1">
+            <Label htmlFor="comment">Comment</Label>
+            <Textarea
+              id="comment"
+              placeholder="Add notes or reason for your decision..."
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button className="gap-2" onClick={() => handleDecision("approve")} disabled={submitting !== null}>
+              <CheckCircle2 className="h-4 w-4" />
+              {submitting === "approve" ? "Approving..." : "Approve"}
+            </Button>
+            <Button variant="outline" className="gap-2" onClick={() => handleDecision("changes")} disabled={submitting !== null}>
+              <MessageSquare className="h-4 w-4" />
+              {submitting === "changes" ? "Requesting..." : "Request Changes"}
+            </Button>
+            <Button variant="destructive" className="gap-2" onClick={() => handleDecision("reject")} disabled={submitting !== null}>
+              <XCircle className="h-4 w-4" />
+              {submitting === "reject" ? "Rejecting..." : "Reject"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
   );
 }
 
-export default function ReviewUser() {
+export default function ReviewUserPage() {
   return (
-    <Suspense fallback={<div className="max-w-4xl mx-auto py-8"><p className="text-muted-foreground">Loading...</p></div>}>
+    <Suspense fallback={<p className="p-8 text-muted-foreground">Loading...</p>}>
       <ReviewContent />
     </Suspense>
   );

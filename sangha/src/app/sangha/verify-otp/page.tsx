@@ -8,12 +8,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { saveAuth } from "@/lib/api";
 
 const OTP_EXPIRY_SECONDS = 60;
+const HARDCODED_OTP = "123456";
 
 function VerifyOTPContent() {
   const router = useRouter();
-  const [otp, setOtp] = useState(["", "", "", ""]);
+  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState("");
   const [timer, setTimer] = useState(OTP_EXPIRY_SECONDS);
   const [canResend, setCanResend] = useState(false);
@@ -26,18 +28,14 @@ function VerifyOTPContent() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       const id = window.localStorage.getItem("otp_identifier") || "";
-      const f = window.localStorage.getItem("otp_flow") as "login" | "register" || "login";
+      const f = (window.localStorage.getItem("otp_flow") as "login" | "register") || "login";
       setIdentifier(id);
       setFlow(f);
     }
   }, []);
 
-  // Countdown timer
   useEffect(() => {
-    if (timer <= 0) {
-      setCanResend(true);
-      return;
-    }
+    if (timer <= 0) { setCanResend(true); return; }
     const interval = setInterval(() => setTimer((t) => t - 1), 1000);
     return () => clearInterval(interval);
   }, [timer]);
@@ -52,7 +50,7 @@ function VerifyOTPContent() {
     newOtp[index] = value;
     setOtp(newOtp);
     setError("");
-    if (value && index < 3) {
+    if (value && index < 5) {
       inputsRef.current[index + 1]?.focus();
     }
   };
@@ -65,31 +63,29 @@ function VerifyOTPContent() {
 
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 4);
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
     const newOtp = [...otp];
-    for (let i = 0; i < 4; i++) {
-      newOtp[i] = pasted[i] || "";
-    }
+    for (let i = 0; i < 6; i++) newOtp[i] = pasted[i] || "";
     setOtp(newOtp);
-    inputsRef.current[Math.min(pasted.length, 3)]?.focus();
+    inputsRef.current[Math.min(pasted.length, 5)]?.focus();
   };
 
   const handleResend = () => {
-    setOtp(["", "", "", ""]);
+    setOtp(["", "", "", "", "", ""]);
     setError("");
     setTimer(OTP_EXPIRY_SECONDS);
     setCanResend(false);
-    toast.success("OTP resent successfully! (Use 1234)");
+    toast.success(`OTP resent! Use ${HARDCODED_OTP}`);
     inputsRef.current[0]?.focus();
   };
 
   const handleVerify = async () => {
     const otpValue = otp.join("");
-    if (otpValue.length < 4) {
-      setError("Please enter the complete 4-digit OTP");
+    if (otpValue.length < 6) {
+      setError("Please enter the complete 6-digit OTP");
       return;
     }
-    if (otpValue !== "1234") {
+    if (otpValue !== HARDCODED_OTP) {
       setError("Invalid OTP. Please try again.");
       return;
     }
@@ -97,22 +93,34 @@ function VerifyOTPContent() {
     setLoading(true);
 
     if (flow === "login") {
-      // Complete login
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("role", "SANGHA");
-        window.localStorage.setItem("currentUser", identifier);
-        window.localStorage.removeItem("otp_identifier");
-        window.localStorage.removeItem("otp_password");
-        window.localStorage.removeItem("otp_flow");
-      }
+      // Read the pending login data stored by login page
+      const pendingToken       = localStorage.getItem("pending_token") ?? "";
+      const pendingRole        = localStorage.getItem("pending_role") ?? "sangha";
+      const pendingSanghaStatus = localStorage.getItem("pending_sanghaStatus") ?? "pending_approval";
+      const pendingSanghaName  = localStorage.getItem("pending_sanghaName") ?? "";
+
+      // Save real auth
+      saveAuth(pendingToken, pendingRole, pendingSanghaStatus, pendingSanghaName);
+
+      // Clean up pending keys
+      localStorage.removeItem("pending_token");
+      localStorage.removeItem("pending_role");
+      localStorage.removeItem("pending_sanghaStatus");
+      localStorage.removeItem("pending_sanghaName");
+      localStorage.removeItem("otp_identifier");
+      localStorage.removeItem("otp_flow");
+
       toast.success("Login successful!");
-      router.push("/sangha/profile");
-    } else {
-      // Registration flow — mark OTP verified, go back to register to set password
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("otp_verified", "true");
+
+      if (pendingSanghaStatus === "approved") {
+        router.push("/sangha/dashboard");
+      } else {
+        router.push("/sangha/profile");
       }
-      toast.success("OTP verified! Please set your password.");
+    } else {
+      // Registration flow
+      localStorage.setItem("otp_verified", "true");
+      toast.success("OTP verified!");
       router.push("/sangha/register?step=password");
     }
 
@@ -128,15 +136,15 @@ function VerifyOTPContent() {
           </div>
           <CardTitle className="text-2xl">Verify OTP</CardTitle>
           <CardDescription>
-            We sent a 4-digit OTP to{" "}
+            Enter the 6-digit OTP sent to{" "}
             <span className="font-medium text-foreground">{maskedIdentifier}</span>
           </CardDescription>
+          <p className="text-xs text-muted-foreground">(Demo: use <strong>{HARDCODED_OTP}</strong>)</p>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* OTP Boxes */}
           <div className="space-y-2">
             <Label>Enter OTP</Label>
-            <div className="flex gap-3 justify-center" onPaste={handlePaste}>
+            <div className="flex gap-2 justify-center" onPaste={handlePaste}>
               {otp.map((digit, i) => (
                 <Input
                   key={i}
@@ -147,31 +155,23 @@ function VerifyOTPContent() {
                   value={digit}
                   onChange={(e) => handleChange(i, e.target.value)}
                   onKeyDown={(e) => handleKeyDown(i, e)}
-                  className={`w-14 h-14 text-center text-xl font-bold tracking-widest ${
-                    error ? "border-destructive" : ""
-                  }`}
+                  className={`w-12 h-12 text-center text-xl font-bold ${error ? "border-destructive" : ""}`}
                 />
               ))}
             </div>
             {error && <p className="text-xs text-destructive text-center">{error}</p>}
           </div>
 
-          {/* Timer / Resend */}
           <div className="text-center text-sm text-muted-foreground">
             {canResend ? (
-              <button
-                type="button"
-                onClick={handleResend}
-                className="text-primary font-medium hover:underline"
-              >
+              <button type="button" onClick={handleResend} className="text-primary font-medium hover:underline">
                 Resend OTP
               </button>
             ) : (
               <span>
-                Resend OTP in{" "}
+                Resend in{" "}
                 <span className="font-semibold text-foreground">
-                  {String(Math.floor(timer / 60)).padStart(2, "0")}:
-                  {String(timer % 60).padStart(2, "0")}
+                  {String(Math.floor(timer / 60)).padStart(2, "0")}:{String(timer % 60).padStart(2, "0")}
                 </span>
               </span>
             )}
@@ -181,17 +181,14 @@ function VerifyOTPContent() {
             className="w-full"
             size="lg"
             onClick={handleVerify}
-            disabled={loading || otp.join("").length < 4}
+            disabled={loading || otp.join("").length < 6}
           >
             {loading ? "Verifying..." : "Verify & Continue"}
           </Button>
 
           <div className="text-center">
-            <button
-              type="button"
-              onClick={() => router.back()}
-              className="text-sm text-muted-foreground hover:text-foreground underline"
-            >
+            <button type="button" onClick={() => router.back()}
+              className="text-sm text-muted-foreground hover:text-foreground underline">
               Go back
             </button>
           </div>
@@ -203,13 +200,11 @@ function VerifyOTPContent() {
 
 export default function VerifyOTPPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-screen items-center justify-center bg-background">
-          <div className="text-muted-foreground text-sm">Loading...</div>
-        </div>
-      }
-    >
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="text-muted-foreground text-sm">Loading...</div>
+      </div>
+    }>
       <VerifyOTPContent />
     </Suspense>
   );
