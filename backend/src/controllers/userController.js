@@ -1,5 +1,19 @@
 const pool = require('../config/db');
 
+// ─── HELPER: parse PostgreSQL enum array strings ──────────────
+// node-postgres returns custom enum arrays as "{val1,val2}" strings,
+// not as JS arrays. This normalizes them before sending to the client.
+function parsePgArray(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    const inner = val.replace(/^\{|\}$/g, '').trim();
+    if (!inner) return [];
+    return inner.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+  }
+  return [];
+}
+
 // ─── HELPER: get or create profile ───────────────────────────
 const getOrCreateProfile = async (userId) => {
   let res = await pool.query('SELECT * FROM profiles WHERE user_id=$1', [userId]);
@@ -91,6 +105,28 @@ const getFullProfile = async (req, res) => {
       })
     );
 
+    // ✅ FIX: Normalize all doc_coverage[] enum arrays.
+    // node-postgres returns custom enum arrays as raw strings e.g. "{self}"
+    // instead of JS arrays. parsePgArray converts them to proper JS arrays
+    // so Array.isArray() checks and .length checks work correctly on the client.
+    const normalizedInsurance = s6ins.rows.map(row => ({
+      ...row,
+      health_coverage:       parsePgArray(row.health_coverage),
+      life_coverage:         parsePgArray(row.life_coverage),
+      term_coverage:         parsePgArray(row.term_coverage),
+      konkani_card_coverage: parsePgArray(row.konkani_card_coverage),
+    }));
+
+    const normalizedDocuments = s6doc.rows.map(row => ({
+      ...row,
+      aadhaar_coverage:     parsePgArray(row.aadhaar_coverage),
+      pan_coverage:         parsePgArray(row.pan_coverage),
+      voter_id_coverage:    parsePgArray(row.voter_id_coverage),
+      land_doc_coverage:    parsePgArray(row.land_doc_coverage),
+      dl_coverage:          parsePgArray(row.dl_coverage),
+      all_records_coverage: parsePgArray(row.all_records_coverage),
+    }));
+
     res.json({
       profile: profile,
       step1:   s1.rows[0]  || null,
@@ -102,9 +138,9 @@ const getFullProfile = async (req, res) => {
       step4: s4.rows   || [],
       step5: step5     || [],
       step6: {
-        economic:  s6eco.rows[0] || null,
-        insurance: s6ins.rows    || [],
-        documents: s6doc.rows    || [],
+        economic:  s6eco.rows[0]     || null,
+        insurance: normalizedInsurance,
+        documents: normalizedDocuments,
       },
     });
   } catch (err) {
@@ -563,7 +599,6 @@ const submitApplication = async (req, res) => {
     if (!step1_completed)
       return res.status(400).json({ message: 'Complete at least Step 1 before submitting' });
 
-    // Verify sangha exists and is approved
     const sanghaCheck = await pool.query(
       `SELECT u.id FROM users u
        JOIN sangha_profiles sp ON sp.user_id = u.id

@@ -3,13 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { User, Calendar, FileText, Users, MapPin, GraduationCap, Wallet, Edit, CheckCircle2 } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { User, Calendar, FileText, Users, MapPin, Wallet, Edit, CheckCircle2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { INCOME_SLAB_REVERSE } from "@/lib/constants";
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-/** Format any ISO/DB date string to "DD MMM YYYY" — no time */
 function formatDate(raw?: string | null): string | null {
   if (!raw) return null;
   const d = new Date(raw);
@@ -17,14 +15,15 @@ function formatDate(raw?: string | null): string | null {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-/** Convert a raw DB income key (e.g. "5_10l") to a human-readable label */
 function formatIncome(raw?: string | null): string | null {
   if (!raw) return null;
   if (INCOME_SLAB_REVERSE[raw]) return INCOME_SLAB_REVERSE[raw];
   return raw.replace(/_/g, " – ").replace(/l$/, " Lakh");
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
+function hasCov(arr: unknown): boolean {
+  return Array.isArray(arr) && arr.length > 0;
+}
 
 function InfoField({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
   return (
@@ -36,6 +35,19 @@ function InfoField({ icon: Icon, label, value }: { icon: React.ElementType; labe
         {value || <span className="text-muted-foreground font-normal italic">Not provided</span>}
       </p>
     </div>
+  );
+}
+
+function YesNoBadge({ value }: { value: boolean }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${
+      value
+        ? "bg-green-50 text-green-700 border-green-200"
+        : "bg-muted text-muted-foreground border-border"
+    }`}>
+      {value ? <CheckCircle2 className="h-3 w-3" /> : null}
+      {value ? "Yes" : "No"}
+    </span>
   );
 }
 
@@ -58,8 +70,6 @@ function Section({ title, href, filled, isLocked, children }: {
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-
 export default function Page() {
   const router = useRouter();
   const [data, setData]       = useState<Record<string, unknown> | null>(null);
@@ -79,12 +89,14 @@ export default function Page() {
 
   if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
 
-  const s1    = data?.step1 as Record<string, string> | null;
-  const s2    = data?.step2 as Record<string, string> | null;
-  const s3    = data?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
-  const s4    = data?.step4 as Record<string, string>[] | null;
-  const s5    = data?.step5 as Record<string, string>[] | null;
+  const s1  = data?.step1 as Record<string, string> | null;
+  const s2  = data?.step2 as Record<string, string> | null;
+  const s3  = data?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
+  const s4  = data?.step4 as Record<string, string>[] | null;
+  const s5  = data?.step5 as Record<string, unknown>[] | null;
   const s6eco = (data?.step6 as { economic?: Record<string, unknown> } | null)?.economic;
+  const s6ins = ((data?.step6 as { insurance?: Record<string, unknown>[] } | null)?.insurance || []);
+  const s6doc = ((data?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || []);
 
   const status        = profile?.status as string;
   const isLocked      = ["submitted", "under_review", "approved"].includes(status);
@@ -93,6 +105,13 @@ export default function Page() {
   const fullName    = s1 ? [s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ") : "Your Name";
   const initials    = s1 ? `${s1.first_name?.[0] || ""}${s1.last_name?.[0] || ""}`.toUpperCase() : "?";
   const currentAddr = s4?.find(a => a.address_type === "current");
+
+  const userEduRow  = s5?.[0] ?? null;
+  const familyMembers = s3?.members || [];
+
+  // Match insurance/doc row by relation for self, by name+relation for family
+  const userIns = s6ins.find(r => (r.member_relation as string) === "Self");
+  const userDoc = s6doc.find(r => (r.member_relation as string) === "Self");
 
   return (
     <div className="max-w-3xl mx-auto space-y-5 pb-10">
@@ -127,7 +146,6 @@ export default function Page() {
         {s1 ? (
           <div className="grid grid-cols-2 gap-x-8 gap-y-5">
             <InfoField icon={User}     label="Full Name"      value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
-            {/* ✅ FIX: Date formatted cleanly — no time */}
             <InfoField icon={Calendar} label="Date of Birth"  value={formatDate(s1.date_of_birth)} />
             <InfoField icon={User}     label="Gender"         value={s1.gender} />
             <InfoField icon={Users}    label="Marital Status" value={s1.is_married ? "Married" : "Single"} />
@@ -156,19 +174,14 @@ export default function Page() {
         {s3?.family_info ? (
           <div className="space-y-3">
             <InfoField icon={Users} label="Family Type" value={s3.family_info.family_type} />
-            {s3.members && s3.members.length > 0 && (
+            {familyMembers.length > 0 && (
               <div className="space-y-2 mt-2">
-                {s3.members.map((m, i) => (
+                {familyMembers.map((m, i) => (
                   <div key={i} className="flex items-center justify-between p-2 bg-muted rounded-lg text-sm">
                     <span className="font-medium">{m.name}</span>
                     <span className="text-muted-foreground">
                       {m.relation}
-                      {/* ✅ FIX: DOB shown cleanly without time */}
-                      {m.dob
-                        ? `, DOB: ${formatDate(m.dob)}`
-                        : m.age
-                          ? `, Age ${m.age}`
-                          : ""}
+                      {m.dob ? `, DOB: ${formatDate(m.dob)}` : m.age ? `, Age ${m.age}` : ""}
                     </span>
                   </div>
                 ))}
@@ -187,20 +200,32 @@ export default function Page() {
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
 
-      {/* Education & Profession */}
-      <Section title="Education &amp; Profession" href="/dashboard/profile/education-profession" filled={!!s5?.length} isLocked={isLocked}>
-        {s5 && s5.length > 0 ? (
+      {/* Education & Profession — user row + all family member rows */}
+      <Section title="Education & Profession" href="/dashboard/profile/education-profession" filled={!!userEduRow} isLocked={isLocked}>
+        {userEduRow ? (
           <div className="space-y-2">
-            {s5.map((m, i) => (
+            {/* User's own row */}
+            <div className="flex items-center justify-between p-2 bg-muted rounded-lg text-sm">
+              <span className="font-medium">{userEduRow.member_name as string || fullName}</span>
+              <span className="text-muted-foreground">
+                {userEduRow.highest_education as string}
+                {userEduRow.is_currently_studying
+                  ? " · Currently Studying"
+                  : userEduRow.profession_type
+                    ? ` · ${userEduRow.profession_type as string}`
+                    : ""}
+              </span>
+            </div>
+            {/* Family member rows — s5[1], s5[2], ... */}
+            {(s5 ?? []).slice(1).map((edu, i) => (
               <div key={i} className="flex items-center justify-between p-2 bg-muted rounded-lg text-sm">
-                <span className="font-medium">{m.member_name || `Member ${i + 1}`}</span>
+                <span className="font-medium">{edu.member_name as string || `Member ${i + 1}`}</span>
                 <span className="text-muted-foreground">
-                  {m.highest_education}
-                  {/* ✅ Show "Currently Studying" if applicable, else show profession */}
-                  {(m as unknown as Record<string, unknown>).is_currently_studying
+                  {edu.highest_education as string}
+                  {edu.is_currently_studying
                     ? " · Currently Studying"
-                    : m.profession_type
-                      ? ` · ${m.profession_type}`
+                    : edu.profession_type
+                      ? ` · ${edu.profession_type as string}`
                       : ""}
                 </span>
               </div>
@@ -209,13 +234,74 @@ export default function Page() {
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
 
-      {/* Economic Details */}
+      {/* Economic Details — income + insurance + documents */}
       <Section title="Economic Details" href="/dashboard/profile/economic-details" filled={!!s6eco} isLocked={isLocked}>
         {s6eco ? (
-          <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-            {/* ✅ FIX: Income slabs display as "₹5 – 10 Lakh" not "5_10l" */}
-            <InfoField icon={Wallet} label="Self Income"   value={formatIncome(s6eco.self_income as string)} />
-            <InfoField icon={Wallet} label="Family Income" value={formatIncome(s6eco.family_income as string)} />
+          <div className="space-y-5">
+            {/* Income */}
+            <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+              <InfoField icon={Wallet} label="Self Income"   value={formatIncome(s6eco.self_income as string)} />
+              <InfoField icon={Wallet} label="Family Income" value={formatIncome(s6eco.family_income as string)} />
+            </div>
+
+            {/* Insurance per member */}
+            {s6ins.length > 0 && (
+              <div>
+                <Label className="text-xs text-muted-foreground mb-2 block">Insurance Coverage</Label>
+                <div className="space-y-3">
+                  {s6ins.map((ins, i) => (
+                    <div key={i} className="rounded-xl border border-border overflow-hidden">
+                      <div className="px-3 py-2 bg-muted/50 border-b border-border text-xs font-semibold text-foreground">
+                        {ins.member_name as string} — {ins.member_relation as string}
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-border">
+                        {[
+                          { label: "Health", key: "health_coverage" },
+                          { label: "Life",   key: "life_coverage" },
+                          { label: "Term",   key: "term_coverage" },
+                          { label: "Konkani Card", key: "konkani_card_coverage" },
+                        ].map(({ label, key }) => (
+                          <div key={key} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                            <span className="text-muted-foreground">{label}</span>
+                            <YesNoBadge value={hasCov(ins[key])} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Documents per member */}
+            {s6doc.length > 0 && (
+              <div>
+                <Label className="text-xs text-muted-foreground mb-2 block">Documents</Label>
+                <div className="space-y-3">
+                  {s6doc.map((doc, i) => (
+                    <div key={i} className="rounded-xl border border-border overflow-hidden">
+                      <div className="px-3 py-2 bg-muted/50 border-b border-border text-xs font-semibold text-foreground">
+                        {doc.member_name as string} — {doc.member_relation as string}
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-border">
+                        {[
+                          { label: "Aadhaar",    key: "aadhaar_coverage" },
+                          { label: "PAN",        key: "pan_coverage" },
+                          { label: "Voter ID",   key: "voter_id_coverage" },
+                          { label: "Land Docs",  key: "land_doc_coverage" },
+                          { label: "DL",         key: "dl_coverage" },
+                        ].map(({ label, key }) => (
+                          <div key={key} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                            <span className="text-muted-foreground">{label}</span>
+                            <YesNoBadge value={hasCov(doc[key])} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>

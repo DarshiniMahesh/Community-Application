@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Stepper } from "../Stepper";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -13,7 +13,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ArrowLeft, ArrowRight, RotateCcw, Check } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { useAutoSave } from "@/lib/useAutoSave";
 import { INCOME_SLAB_MAP, INCOME_SLAB_REVERSE } from "@/lib/constants";
 
 const steps = [
@@ -27,43 +26,34 @@ const steps = [
 ];
 
 const incomeSlabs = [
-  "Less than ₹1 Lakh",
-  "₹1 – 2 Lakh",
-  "₹2 – 3 Lakh",
-  "₹3 – 5 Lakh",
-  "₹5 – 10 Lakh",
-  "₹10 – 25 Lakh",
-  "₹25 Lakh+",
+  "Less than ₹1 Lakh", "₹1 – 2 Lakh", "₹2 – 3 Lakh", "₹3 – 5 Lakh",
+  "₹5 – 10 Lakh", "₹10 – 25 Lakh", "₹25 Lakh+",
 ];
-const familyFacilities  = ["Staying in Rented House","Own a House","Own Agricultural Land","Own a Two Wheeler","Own a Car"];
-const investmentOptions = ["Fixed Deposits","Mutual Funds / SIP","Trading in Shares / Demat Account","Investment - Others"];
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+const familyFacilities  = ["Staying in Rented House", "Own a House", "Own Agricultural Land", "Own a Two Wheeler", "Own a Car"];
+const investmentOptions = ["Fixed Deposits", "Mutual Funds / SIP", "Trading in Shares / Demat Account", "Investment - Others"];
 
 interface MemberCoverage {
   id: string; name: string; relation: string;
-  // Insurance (including Konkani Card — moved here from Documents)
-  healthInsurance: boolean;
-  lifeInsurance:   boolean;
-  termInsurance:   boolean;
-  konkaniCard:     boolean;   // ✅ Now lives in Insurance table
-  // Documents (Konkani Card removed)
-  aadhaar:         boolean;
-  pan:             boolean;
-  voterId:         boolean;
-  landDocuments:   boolean;
-  drivingLicense:  boolean;
+  healthInsurance: boolean; lifeInsurance: boolean;
+  termInsurance: boolean; konkaniCard: boolean;
+  aadhaar: boolean; pan: boolean; voterId: boolean;
+  landDocuments: boolean; drivingLicense: boolean;
 }
 
 function blankMember(id: string, name = "", relation = ""): MemberCoverage {
   return {
     id, name, relation,
-    healthInsurance: false, lifeInsurance: false, termInsurance: false, konkaniCard: false,
-    aadhaar: false, pan: false, voterId: false, landDocuments: false, drivingLicense: false,
+    healthInsurance: false, lifeInsurance: false,
+    termInsurance: false, konkaniCard: false,
+    aadhaar: false, pan: false, voterId: false,
+    landDocuments: false, drivingLicense: false,
   };
 }
 
-// ── Toggle cell ───────────────────────────────────────────────────────────────
+// ✅ Strict check — array must exist AND have at least one value
+function hasCov(arr: unknown): boolean {
+  return Array.isArray(arr) && arr.length > 0;
+}
 
 function ToggleCell({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
@@ -83,8 +73,6 @@ function ToggleCell({ checked, onChange }: { checked: boolean; onChange: () => v
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-
 export default function Page() {
   const router = useRouter();
   const [loading, setLoading]                         = useState(false);
@@ -99,6 +87,9 @@ export default function Page() {
   const [resetting, setResetting]                     = useState(false);
   const [canReset, setCanReset]                       = useState(false);
 
+  const dataLoaded     = useRef(false);
+  const userInteracted = useRef(false);
+
   useEffect(() => {
     api.get("/users/profile").then(meta => {
       const s = (meta as Record<string, string>).status;
@@ -112,7 +103,11 @@ export default function Page() {
 
       const bases = [
         { id: "self", name: userName, relation: "Self" },
-        ...familyMems.map((fm, i) => ({ id: String(i), name: fm.name || `Member ${i + 1}`, relation: fm.relation || "" })),
+        ...familyMems.map((fm, i) => ({
+          id: String(i),
+          name: fm.name || `Member ${i + 1}`,
+          relation: fm.relation || "",
+        })),
       ];
       setAllBases(bases);
 
@@ -121,7 +116,7 @@ export default function Page() {
         if (eco.self_income)   setSelfIncome(INCOME_SLAB_REVERSE[eco.self_income] || "");
         if (eco.family_income) setFamilyIncome(INCOME_SLAB_REVERSE[eco.family_income] || "");
         const fac: string[] = [];
-        if (eco.fac_rented_house)      fac.push("Stay in Rented House");
+        if (eco.fac_rented_house)      fac.push("Staying in Rented House");
         if (eco.fac_own_house)         fac.push("Own a House");
         if (eco.fac_agricultural_land) fac.push("Own Agricultural Land");
         if (eco.fac_two_wheeler)       fac.push("Own a Two Wheeler");
@@ -136,38 +131,66 @@ export default function Page() {
       }
 
       const insurance = (data.step6?.insurance || []) as Record<string, unknown>[];
-      const documents = (data.step6?.documents  || []) as Record<string, unknown>[];
+      const documents  = (data.step6?.documents  || []) as Record<string, unknown>[];
 
-      setMembers(bases.map(base => {
-        const ins = insurance.find(i => i.member_name === base.name) || {};
-        const doc = documents.find(d => d.member_name === base.name) || {};
+      setMembers(bases.map((base) => {
+        // ✅ FIX: For "Self", match by relation only (name can drift between
+        // what was saved and what we reconstruct from s1 first+last name).
+        // For family members, match by both name and relation together.
+        const ins = base.relation === "Self"
+          ? (insurance.find(i => (i.member_relation as string) === "Self") ?? {})
+          : (insurance.find(i =>
+              (i.member_name     as string) === base.name &&
+              (i.member_relation as string) === base.relation
+            ) ?? {});
+
+        const doc = base.relation === "Self"
+          ? (documents.find(d => (d.member_relation as string) === "Self") ?? {})
+          : (documents.find(d =>
+              (d.member_name     as string) === base.name &&
+              (d.member_relation as string) === base.relation
+            ) ?? {});
+
         return {
           ...blankMember(base.id, base.name, base.relation),
-          healthInsurance: ((ins.health_coverage      as string[]) || []).length > 0,
-          lifeInsurance:   ((ins.life_coverage        as string[]) || []).length > 0,
-          termInsurance:   ((ins.term_coverage        as string[]) || []).length > 0,
-          // ✅ Konkani Card loaded from insurance record
-          konkaniCard:     ((ins.konkani_card_coverage as string[]) || []).length > 0,
-          aadhaar:         ((doc.aadhaar_coverage     as string[]) || []).length > 0,
-          pan:             ((doc.pan_coverage         as string[]) || []).length > 0,
-          voterId:         ((doc.voter_id_coverage    as string[]) || []).length > 0,
-          landDocuments:   ((doc.land_doc_coverage    as string[]) || []).length > 0,
-          drivingLicense:  ((doc.dl_coverage          as string[]) || []).length > 0,
+          healthInsurance: hasCov(ins.health_coverage),
+          lifeInsurance:   hasCov(ins.life_coverage),
+          termInsurance:   hasCov(ins.term_coverage),
+          konkaniCard:     hasCov(ins.konkani_card_coverage),
+          aadhaar:         hasCov(doc.aadhaar_coverage),
+          pan:             hasCov(doc.pan_coverage),
+          voterId:         hasCov(doc.voter_id_coverage),
+          landDocuments:   hasCov(doc.land_doc_coverage),
+          drivingLicense:  hasCov(doc.dl_coverage),
         };
       }));
-    }).catch(() => {});
+
+      dataLoaded.current = true;
+    }).catch(() => {
+      dataLoaded.current = true;
+    });
   }, []);
 
-  const toggleFacility   = (f: string) => setSelectedFacilities(p  => p.includes(f) ? p.filter(x => x !== f) : [...p, f]);
-  const toggleInvestment = (i: string) => setSelectedInvestments(p => p.includes(i) ? p.filter(x => x !== i) : [...p, i]);
-  const toggleMember     = (id: string, field: keyof MemberCoverage) =>
+  const toggleFacility = (f: string) => {
+    userInteracted.current = true;
+    setSelectedFacilities(p => p.includes(f) ? p.filter(x => x !== f) : [...p, f]);
+  };
+
+  const toggleInvestment = (i: string) => {
+    userInteracted.current = true;
+    setSelectedInvestments(p => p.includes(i) ? p.filter(x => x !== i) : [...p, i]);
+  };
+
+  const toggleMember = (id: string, field: keyof MemberCoverage) => {
+    userInteracted.current = true;
     setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: !m[field] } : m));
+  };
 
   const buildPayload = () => ({
     economic: {
       self_income:           INCOME_SLAB_MAP[selfIncome]   || null,
       family_income:         INCOME_SLAB_MAP[familyIncome] || null,
-      fac_rented_house:      selectedFacilities.includes("Stay in Rented House"),
+      fac_rented_house:      selectedFacilities.includes("Staying in Rented House"),
       fac_own_house:         selectedFacilities.includes("Own a House"),
       fac_agricultural_land: selectedFacilities.includes("Own Agricultural Land"),
       fac_two_wheeler:       selectedFacilities.includes("Own a Two Wheeler"),
@@ -177,26 +200,51 @@ export default function Page() {
       inv_shares_demat:      selectedInvestments.includes("Trading in Shares / Demat Account"),
       inv_others:            selectedInvestments.includes("Investment - Others"),
     },
-    // ✅ Insurance now includes konkani_card_coverage
     insurance: members.map((m, i) => ({
-      member_name: m.name || null, member_relation: m.relation || null, sort_order: i,
+      member_name:           m.name     || null,
+      member_relation:       m.relation || null,
+      sort_order:            i,
       health_coverage:       m.healthInsurance ? ["self"] : [],
       life_coverage:         m.lifeInsurance   ? ["self"] : [],
       term_coverage:         m.termInsurance   ? ["self"] : [],
       konkani_card_coverage: m.konkaniCard     ? ["self"] : [],
     })),
-    // ✅ Documents no longer has Konkani Card
     documents: members.map((m, i) => ({
-      member_name: m.name || null, member_relation: m.relation || null, sort_order: i,
-      aadhaar_coverage:   m.aadhaar        ? ["self"] : [],
-      pan_coverage:       m.pan            ? ["self"] : [],
-      voter_id_coverage:  m.voterId        ? ["self"] : [],
-      land_doc_coverage:  m.landDocuments  ? ["self"] : [],
-      dl_coverage:        m.drivingLicense ? ["self"] : [],
+      member_name:       m.name     || null,
+      member_relation:   m.relation || null,
+      sort_order:        i,
+      aadhaar_coverage:  m.aadhaar        ? ["self"] : [],
+      pan_coverage:      m.pan            ? ["self"] : [],
+      voter_id_coverage: m.voterId        ? ["self"] : [],
+      land_doc_coverage: m.landDocuments  ? ["self"] : [],
+      dl_coverage:       m.drivingLicense ? ["self"] : [],
     })),
   });
 
-  useAutoSave("/users/profile/step6", buildPayload, [selfIncome, familyIncome, selectedFacilities, selectedInvestments, members]);
+  // ✅ Debounced auto-save — only fires after user has actually interacted.
+  // dataLoaded guard stops it running during the initial hydration render.
+  // userInteracted guard stops it running on back-navigation before any change.
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!dataLoaded.current || !userInteracted.current) return;
+
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+
+    autoSaveTimer.current = setTimeout(async () => {
+      try {
+        await api.post("/users/profile/step6", buildPayload());
+        toast.success("Auto-saved", { duration: 1500, id: "autosave" });
+      } catch {
+        // silent fail
+      }
+    }, 2000);
+
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selfIncome, familyIncome, selectedFacilities, selectedInvestments, members]);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -228,6 +276,7 @@ export default function Page() {
       setSelfIncome(""); setFamilyIncome("");
       setSelectedFacilities([]); setSelectedInvestments([]);
       setMembers(allBases.map(b => blankMember(b.id, b.name, b.relation)));
+      userInteracted.current = false;
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
     } finally {
@@ -259,7 +308,7 @@ export default function Page() {
 
       <Stepper steps={steps} currentStep={5} />
 
-      {/* ── Annual Income ── */}
+      {/* Annual Income */}
       <Card className="shadow-sm border-l-4 border-l-primary">
         <CardHeader>
           <CardTitle>Annual Income</CardTitle>
@@ -268,7 +317,11 @@ export default function Page() {
         <CardContent className="grid md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <Label>Self Income <span className="text-destructive">*</span></Label>
-            <Select value={selfIncome} onValueChange={v => { setSelfIncome(v); setErrors(e => ({ ...e, selfIncome: "" })); }}>
+            <Select value={selfIncome} onValueChange={v => {
+              userInteracted.current = true;
+              setSelfIncome(v);
+              setErrors(e => ({ ...e, selfIncome: "" }));
+            }}>
               <SelectTrigger className={errors.selfIncome ? "border-destructive" : ""}>
                 <SelectValue placeholder="Select income range" />
               </SelectTrigger>
@@ -280,7 +333,11 @@ export default function Page() {
           </div>
           <div className="space-y-2">
             <Label>Family Income <span className="text-destructive">*</span></Label>
-            <Select value={familyIncome} onValueChange={v => { setFamilyIncome(v); setErrors(e => ({ ...e, familyIncome: "" })); }}>
+            <Select value={familyIncome} onValueChange={v => {
+              userInteracted.current = true;
+              setFamilyIncome(v);
+              setErrors(e => ({ ...e, familyIncome: "" }));
+            }}>
               <SelectTrigger className={errors.familyIncome ? "border-destructive" : ""}>
                 <SelectValue placeholder="Select income range" />
               </SelectTrigger>
@@ -293,7 +350,7 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      {/* ── Family Facilities ── */}
+      {/* Family Facilities */}
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Family Facilities</CardTitle>
@@ -319,7 +376,7 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      {/* ── Investments ── */}
+      {/* Investments */}
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Investments</CardTitle>
@@ -345,13 +402,11 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      {/* ── Insurance Coverage — Konkani Card added here ── */}
+      {/* Insurance Coverage */}
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Insurance Coverage</CardTitle>
-          <CardDescription>
-            Members are auto-loaded from Family Information. Click a cell to toggle Yes / —
-          </CardDescription>
+          <CardDescription>Members are auto-loaded from Family Information. Click a cell to toggle Yes / —</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="border rounded-xl overflow-hidden">
@@ -364,7 +419,6 @@ export default function Page() {
                     <TableHead className="text-center min-w-[120px]">Health Insurance</TableHead>
                     <TableHead className="text-center min-w-[120px]">Life Insurance</TableHead>
                     <TableHead className="text-center min-w-[120px]">Term Insurance</TableHead>
-                    {/* ✅ Konkani Card column added here */}
                     <TableHead className="text-center min-w-[120px]">Konkani Card</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -376,7 +430,6 @@ export default function Page() {
                       <TableCell><ToggleCell checked={m.healthInsurance} onChange={() => toggleMember(m.id, "healthInsurance")} /></TableCell>
                       <TableCell><ToggleCell checked={m.lifeInsurance}   onChange={() => toggleMember(m.id, "lifeInsurance")} /></TableCell>
                       <TableCell><ToggleCell checked={m.termInsurance}   onChange={() => toggleMember(m.id, "termInsurance")} /></TableCell>
-                      {/* ✅ Konkani Card toggle */}
                       <TableCell><ToggleCell checked={m.konkaniCard}     onChange={() => toggleMember(m.id, "konkaniCard")} /></TableCell>
                     </TableRow>
                   ))}
@@ -387,13 +440,11 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      {/* ── Document Information — Konkani Card removed ── */}
+      {/* Document Information */}
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Document Information</CardTitle>
-          <CardDescription>
-            Select which documents each member has. Click a cell to toggle Yes / —
-          </CardDescription>
+          <CardDescription>Select which documents each member has. Click a cell to toggle Yes / —</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="border rounded-xl overflow-hidden">
@@ -408,7 +459,6 @@ export default function Page() {
                     <TableHead className="text-center min-w-[90px]">Voter ID</TableHead>
                     <TableHead className="text-center min-w-[100px]">Land Docs</TableHead>
                     <TableHead className="text-center min-w-[70px]">DL</TableHead>
-                    {/* ✅ Konkani Card column removed from here */}
                   </TableRow>
                 </TableHeader>
                 <TableBody>

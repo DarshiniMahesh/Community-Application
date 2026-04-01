@@ -99,6 +99,28 @@ function SectionHeader({
   );
 }
 
+// ✅ FIX: Strict coverage check — array must exist AND have at least one value.
+// Old logic used .length > 0 which treated any non-empty array as true,
+// causing every field to show "Yes" even for wrong/mismatched data.
+function hasCoverage(obj: Record<string, unknown> | undefined, key: string): boolean {
+  return Array.isArray(obj?.[key]) && (obj![key] as string[]).length > 0;
+}
+
+// ✅ FIX: Always match insurance/document rows by member_name + member_relation.
+// Old code used array index (s6ins[idx+1]) which breaks if the API returns
+// rows in a different order or a member was added/removed.
+function findMemberRow(
+  rows: Record<string, unknown>[],
+  name: string,
+  relation: string
+): Record<string, unknown> | undefined {
+  return rows.find(
+    r =>
+      (r.member_name as string) === name &&
+      (r.member_relation as string) === relation
+  );
+}
+
 interface Sangha {
   id: string;
   sangha_name: string;
@@ -126,7 +148,6 @@ export default function Page() {
       setProfileData(full);
       setProfileMeta(meta);
       setSanghas(sanghaList);
-      // Pre-select if already assigned
       if (meta?.sangha_id) setSelectedSangha(meta.sangha_id);
     }).catch(() => toast.error("Failed to load profile"))
       .finally(() => setLoading(false));
@@ -170,19 +191,22 @@ export default function Page() {
   const s4    = profileData?.step4 as Record<string, string>[] | null;
   const s5    = profileData?.step5 as Record<string, unknown>[] | null;
   const s6eco = (profileData?.step6 as { economic?: Record<string, unknown> } | null)?.economic;
-  const s6ins = (profileData?.step6 as { insurance?: Record<string, unknown>[] } | null)?.insurance || [];
-  const s6doc = (profileData?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || [];
+  const s6ins = ((profileData?.step6 as { insurance?: Record<string, unknown>[] } | null)?.insurance || []);
+  const s6doc = ((profileData?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || []);
 
   const currentAddr  = s4?.find(a => a.address_type === "current");
   const hometownAddr = s4?.find(a => a.address_type === "hometown");
 
   const userEdu = s5?.[0];
-  const userIns = s6ins[0];
-  const userDoc = s6doc[0];
-  const familyMembers = s3?.members || [];
 
-  const hasCoverage = (obj: Record<string, unknown> | undefined, key: string) =>
-    ((obj?.[key] as string[]) || []).length > 0;
+  // ✅ FIX: Match user's own insurance/doc row by relation "Self", not assumed index 0.
+  // If the API ever returns rows in a different order, index 0 would be wrong.
+  const userIns = findMemberRow(s6ins, s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "", "Self")
+    ?? s6ins.find(r => (r.member_relation as string) === "Self");
+  const userDoc = findMemberRow(s6doc, s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "", "Self")
+    ?? s6doc.find(r => (r.member_relation as string) === "Self");
+
+  const familyMembers = s3?.members || [];
 
   return (
     <>
@@ -398,8 +422,12 @@ export default function Page() {
             <CardContent className="space-y-8">
               {familyMembers.map((member, idx) => {
                 const memberEdu = s5?.[idx + 1];
-                const memberIns = s6ins[idx + 1];
-                const memberDoc = s6doc[idx + 1];
+
+                // ✅ FIX: Match by member_name + member_relation, never by index.
+                // s6ins[idx+1] would silently pick the wrong row if any member
+                // was added, removed, or returned in a different order from the API.
+                const memberIns = findMemberRow(s6ins, member.name, member.relation);
+                const memberDoc = findMemberRow(s6doc, member.name, member.relation);
 
                 return (
                   <div key={idx} className="space-y-4">
@@ -498,7 +526,6 @@ export default function Page() {
         {/* Submit section */}
         {!isLocked && (
           <>
-            {/* ── Sangha Selection ── */}
             <Card className="shadow-sm">
               <CardHeader>
                 <CardTitle className="text-lg">Select Sangha</CardTitle>
@@ -525,7 +552,6 @@ export default function Page() {
               </CardContent>
             </Card>
 
-            {/* ── Declaration ── */}
             <Card className="shadow-sm bg-secondary/30">
               <CardContent className="pt-6">
                 <div className="flex items-start space-x-3">
