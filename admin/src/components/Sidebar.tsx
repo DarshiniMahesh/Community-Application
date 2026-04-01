@@ -11,7 +11,7 @@ const NAV = [
   ]},
   { section: 'Workflow', items: [
     { href: '/dashboard/approvals', label: 'Approvals',         icon: 'check',  badge: true },
-    { href: '/dashboard/history',   label: 'Approval History',  icon: 'clock'   },
+    { href: '/dashboard/history',   label: 'Activity Log',  icon: 'clock'   },
     { href: '/dashboard/reports',   label: 'Reports',           icon: 'chart'   },
   ]},
 ];

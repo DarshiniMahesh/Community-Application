@@ -6,11 +6,18 @@ import { IC } from "@/components/Icons";
 export default function LoginPage() {
   const router = useRouter();
   const [contact, setContact] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [err, setErr] = useState("");
 
-  const sendOtp = () => {
+  const handleLogin = () => {
     if (!contact.trim()) {
       setErr("Please enter your email or phone number");
+      setTimeout(() => setErr(""), 3000);
+      return;
+    }
+    if (!password.trim()) {
+      setErr("Please enter your password");
       setTimeout(() => setErr(""), 3000);
       return;
     }
@@ -32,14 +39,66 @@ export default function LoginPage() {
         {err && <div className="alert alert-error">{err}</div>}
         <div className="form-group">
           <label className="form-label">Email Address or Phone Number</label>
-          <input className="form-input" type="text" placeholder="Enter email or phone number"
-            value={contact} onChange={e => setContact(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && sendOtp()} />
+          <input
+            className="form-input"
+            type="text"
+            placeholder="Enter email or phone number"
+            value={contact}
+            onChange={e => setContact(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleLogin()}
+          />
         </div>
-        <button className="btn btn-primary btn-full"
+        <div className="form-group">
+          <label className="form-label">Password</label>
+          <div style={{ position: "relative" }}>
+            <input
+              className="form-input"
+              type={showPassword ? "text" : "password"}
+              placeholder="Enter your password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+              style={{ paddingRight: 44 }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(p => !p)}
+              style={{
+                position: "absolute",
+                right: 12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+                color: "#6b7280",
+              }}
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                // Eye-off icon
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-5 0-9-4-9-7a9.77 9.77 0 012.168-3.832M6.343 6.343A9.956 9.956 0 0112 5c5 0 9 4 9 7a9.956 9.956 0 01-1.343 2.657M6.343 6.343L3 3m3.343 3.343l11.314 11.314M9.88 9.88A3 3 0 0014.12 14.12M9.88 9.88L14.12 14.12" />
+                </svg>
+              ) : (
+                // Eye icon
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+        <button
+          className="btn btn-primary btn-full"
           style={{ marginBottom: 14, padding: "14px 20px", fontSize: 15, letterSpacing: "0.03em" }}
-          onClick={sendOtp}>
-          Send OTP
+          onClick={handleLogin}
+        >
+          Login
         </button>
       </div>
     </div>

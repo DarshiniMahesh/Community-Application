@@ -7,7 +7,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/dashboard/users':     'User Management',
   '/dashboard/sangha':    'Sangha Management',
   '/dashboard/approvals': 'Approvals',
-  '/dashboard/history':   'Approval History',
+  '/dashboard/history':   'Activity Log',
   '/dashboard/reports':   'Reports & Analytics',
 };
 

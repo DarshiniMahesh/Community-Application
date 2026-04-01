@@ -14,13 +14,6 @@ export default function SanghaPage() {
 
   return (
     <div className="page">
-      <div className="page-header"><h1>Sangha Management</h1></div>
-
-      <div className="total-chip">
-        <div className="total-chip-val" style={{ color: 'var(--purple)' }}>{SANGHA_LIST.length}</div>
-        <div className="total-chip-label">Total Approved Sangha</div>
-      </div>
-
       <div className="action-bar">
         <div className="search-box">
           <span style={{ width: 14, height: 14, display: 'inline-flex' }}>{IC.search}</span>
@@ -31,7 +24,7 @@ export default function SanghaPage() {
 
       <div className="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Joined</th><th>Actions</th></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Approved Date</th><th>Actions</th></tr></thead>
           <tbody>
             {list.map(s => (
               <tr key={s.id}>
@@ -45,8 +38,8 @@ export default function SanghaPage() {
                     <button className="icon-btn" title="See Info" onClick={() => setModal(s)}>
                       <span style={{ width: 15, height: 15, display: 'inline-flex' }}>{IC.eye}</span>
                     </button>
-                    <button className="icon-btn icon-btn-danger" title="Delete">
-                      <span style={{ width: 15, height: 15, display: 'inline-flex' }}>{IC.trash}</span>
+                    <button className="icon-btn" title="Download">
+                      <span style={{ width: 15, height: 15, display: 'inline-flex' }}>{IC.download}</span>
                     </button>
                   </div>
                 </td>
@@ -62,7 +55,7 @@ export default function SanghaPage() {
       {modal && (
         <Modal open title={`Sangha Info — ${modal.id}`} onClose={() => setModal(null)}
           footer={<button className="btn btn-secondary" onClick={() => setModal(null)}>Close</button>}>
-          {([['ID', modal.id], ['Name', modal.name], ['Email', modal.email], ['Phone', modal.phone], ['Joined', modal.joined]] as [string, string][]).map(([k, v]) => (
+          {([['ID', modal.id], ['Name', modal.name], ['Email', modal.email], ['Phone', modal.phone], ['Approved Date', modal.joined]] as [string, string][]).map(([k, v]) => (
             <div className="info-row" key={k}>
               <span className="info-key">{k}</span>
               <span className="info-val">{v}</span>
