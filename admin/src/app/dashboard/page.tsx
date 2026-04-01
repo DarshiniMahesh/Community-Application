@@ -12,14 +12,14 @@ export default function DashboardPage() {
 
   const userStats = [
     { label: 'Total Registered', value: USERS.length,  color: 'var(--blue)',   href: null },
-    { label: 'Approved',         value: approvedUsers, color: 'var(--green)',  href: '/dashboard/history?tab=users&status=approved'   },
+    { label: 'Approved',         value: approvedUsers, color: 'var(--green)',  href: '/dashboard/users?tab=users&status=approved'   },
     { label: 'Rejected',         value: rejectedUsers, color: 'var(--red)',    href: '/dashboard/history?tab=users&status=rejected'   },
     { label: 'Pending Approval', value: pendingUsers,  color: 'var(--yellow)', href: '/dashboard/approvals?tab=user'                  },
   ];
 
   const sanghaStats = [
     { label: 'Total Registered', value: SANGHA_LIST.length, color: 'var(--blue)',   href: null },
-    { label: 'Approved',         value: SANGHA_LIST.length, color: 'var(--green)',  href: '/dashboard/history?tab=sangha&status=approved'   },
+    { label: 'Approved',         value: SANGHA_LIST.length, color: 'var(--green)',  href: '/dashboard/sangha?tab=sangha&status=approved'   },
     { label: 'Rejected',         value: 0,                  color: 'var(--red)',    href: '/dashboard/history?tab=sangha&status=rejected'   },
     { label: 'Pending Approval', value: pendingSangha,      color: 'var(--yellow)', href: '/dashboard/approvals?tab=sangha'                 },
   ];
