@@ -494,6 +494,12 @@ CREATE TRIGGER trg_completion_pct
 -- SEED — Default admin account
 -- ============================================================
 
+-- First insert the user
 INSERT INTO users (email, phone, role, is_email_verified, is_active)
-VALUES ('admin@census.gov', '9999999999', 'admin', TRUE, TRUE)
+VALUES ('admin@gmail.com', '9999999999', 'admin', TRUE, TRUE)
 ON CONFLICT (email) DO NOTHING;
+
+-- Then set the bcrypt hash for password: admin123
+UPDATE users 
+SET password_hash = '$2b$10$wHh8lQFQmY7zv9qK1QzQ6uYJqz0J6QJp0qvR6z7Yt8Xw8Gq9J1m9W'
+WHERE email = 'admin@gmail.com';

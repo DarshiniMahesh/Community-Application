@@ -129,15 +129,34 @@ const updateSanghaProfile = async (req, res) => {
 };
 
 // ─── GET /sangha/dashboard ───────────────────────────────────
+// FIXED: now filters all counts by this sangha's sangha_id
 const getDashboard = async (req, res) => {
   try {
+    const { id: sanghaId } = req.user;
+
     const [pending, approved, rejected, changesRequested, total] = await Promise.all([
-      pool.query("SELECT COUNT(*) FROM profiles WHERE status='submitted'"),
-      pool.query("SELECT COUNT(*) FROM profiles WHERE status='approved'"),
-      pool.query("SELECT COUNT(*) FROM profiles WHERE status='rejected'"),
-      pool.query("SELECT COUNT(*) FROM profiles WHERE status='changes_requested'"),
-      pool.query("SELECT COUNT(*) FROM profiles"),
+      pool.query(
+        "SELECT COUNT(*) FROM profiles WHERE status='submitted' AND sangha_id=$1",
+        [sanghaId]
+      ),
+      pool.query(
+        "SELECT COUNT(*) FROM profiles WHERE status='approved' AND sangha_id=$1",
+        [sanghaId]
+      ),
+      pool.query(
+        "SELECT COUNT(*) FROM profiles WHERE status='rejected' AND sangha_id=$1",
+        [sanghaId]
+      ),
+      pool.query(
+        "SELECT COUNT(*) FROM profiles WHERE status='changes_requested' AND sangha_id=$1",
+        [sanghaId]
+      ),
+      pool.query(
+        "SELECT COUNT(*) FROM profiles WHERE sangha_id=$1",
+        [sanghaId]
+      ),
     ]);
+
     res.json({
       pendingApplications: parseInt(pending.rows[0].count),
       approvedUsers:       parseInt(approved.rows[0].count),
@@ -152,7 +171,6 @@ const getDashboard = async (req, res) => {
 };
 
 // ─── GET /sangha/members ─────────────────────────────────────
-// CHANGED: now filters by sangha_id
 const getMembers = async (req, res) => {
   try {
     const { id: sanghaId } = req.user;
@@ -175,7 +193,6 @@ const getMembers = async (req, res) => {
 };
 
 // ─── GET /sangha/pending-users ───────────────────────────────
-// CHANGED: now filters by sangha_id
 const getPendingUsers = async (req, res) => {
   try {
     const { id: sanghaId } = req.user;
@@ -262,11 +279,14 @@ const approveUser = async (req, res) => {
 
     const { id: profileId, status } = profileRes.rows[0];
 
+    // If admin already approved, sangha cannot override
     if (status === 'approved')
       return res.status(409).json({ message: 'Profile already approved' });
 
     await pool.query(
-      `UPDATE profiles SET status='approved', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2 WHERE id=$3`,
+      `UPDATE profiles
+       SET status='approved', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2
+       WHERE id=$3`,
       [reviewerId, comment || null, profileId]
     );
 
@@ -290,15 +310,20 @@ const rejectUser = async (req, res) => {
     const { id: reviewerId } = req.user;
 
     const profileRes = await pool.query(
-      'SELECT id FROM profiles WHERE user_id=$1', [userId]
+      'SELECT id, status FROM profiles WHERE user_id=$1', [userId]
     );
     if (profileRes.rows.length === 0)
       return res.status(404).json({ message: 'Profile not found' });
 
-    const profileId = profileRes.rows[0].id;
+    // If admin already approved, sangha cannot reject
+    const { id: profileId, status } = profileRes.rows[0];
+    if (status === 'approved')
+      return res.status(409).json({ message: 'Cannot reject an already approved profile' });
 
     await pool.query(
-      `UPDATE profiles SET status='rejected', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2 WHERE id=$3`,
+      `UPDATE profiles
+       SET status='rejected', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2
+       WHERE id=$3`,
       [reviewerId, comment || null, profileId]
     );
 
@@ -325,15 +350,20 @@ const requestChanges = async (req, res) => {
       return res.status(400).json({ message: 'Comment is required when requesting changes' });
 
     const profileRes = await pool.query(
-      'SELECT id FROM profiles WHERE user_id=$1', [userId]
+      'SELECT id, status FROM profiles WHERE user_id=$1', [userId]
     );
     if (profileRes.rows.length === 0)
       return res.status(404).json({ message: 'Profile not found' });
 
-    const profileId = profileRes.rows[0].id;
+    const { id: profileId, status } = profileRes.rows[0];
+
+    if (status === 'approved')
+      return res.status(409).json({ message: 'Cannot request changes on an already approved profile' });
 
     await pool.query(
-      `UPDATE profiles SET status='changes_requested', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2 WHERE id=$3`,
+      `UPDATE profiles
+       SET status='changes_requested', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2
+       WHERE id=$3`,
       [reviewerId, comment, profileId]
     );
 
@@ -353,6 +383,7 @@ const requestChanges = async (req, res) => {
 // ─── GET /sangha/reports ──────────────────────────────────────
 const getReports = async (req, res) => {
   try {
+    const { id: sanghaId } = req.user;
     const result = await pool.query(
       `SELECT
          COUNT(*) FILTER (WHERE status='approved')                       AS approved_users,
@@ -360,7 +391,9 @@ const getReports = async (req, res) => {
          COUNT(*) FILTER (WHERE status IN ('submitted','under_review'))  AS pending_users,
          COUNT(*) FILTER (WHERE status='changes_requested')              AS changes_requested,
          COUNT(*)                                                         AS total_users
-       FROM profiles`
+       FROM profiles
+       WHERE sangha_id = $1`,
+      [sanghaId]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -451,9 +484,8 @@ const addTeamMember = async (req, res) => {
     const { id: sanghaId } = req.user;
     const { fullName, gender, phone, email, dob, role, memberType } = req.body;
 
-    if (!fullName || !role) {
+    if (!fullName || !role)
       return res.status(400).json({ message: 'Full name and role are required' });
-    }
 
     const result = await pool.query(
       `INSERT INTO sangha_members
@@ -490,7 +522,6 @@ const deleteTeamMember = async (req, res) => {
 };
 
 // ─── GET /sangha/approved-list (public for user dropdown) ────
-// NEW FUNCTION
 const getApprovedSanghas = async (req, res) => {
   try {
     const result = await pool.query(

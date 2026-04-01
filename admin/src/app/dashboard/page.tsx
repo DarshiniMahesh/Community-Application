@@ -1,32 +1,62 @@
 'use client';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { USERS, SANGHA_LIST, PENDING_SANGHA } from '../../data/mockData';
+
+const BASE_URL = 'http://localhost:8000';
+
+interface DashboardStats {
+  totalUsers: number;
+  totalSangha: number;
+  approvedUsers: number;
+  rejectedUsers: number;
+  pendingUsers: number;
+  changesRequested: number;
+  pendingSangha: number;
+  approvedSangha: number;
+  rejectedSangha: number;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const approvedUsers  = USERS.filter(u => u.status === 'approved').length;
-  const rejectedUsers  = USERS.filter(u => u.status === 'rejected').length;
-  const pendingUsers   = USERS.filter(u => u.status === 'pending').length;
-  const pendingSangha  = PENDING_SANGHA.length;
+  useEffect(() => {
+    const token = sessionStorage.getItem('admin_token');
+    if (!token) { router.push('/signup/login'); return; }
+
+    fetch(`${BASE_URL}/api/admin/dashboard`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.message) throw new Error(data.message);
+        setStats(data);
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [router]);
+
+  const handleClick = (href: string | null) => { if (href) router.push(href); };
+
+  if (loading) return <div className="page" style={{ textAlign: 'center', padding: 60, color: 'var(--gray-400)' }}>Loading...</div>;
+  if (error)   return <div className="page"><div className="alert alert-error">{error}</div></div>;
+  if (!stats)  return null;
 
   const userStats = [
-    { label: 'Total Registered', value: USERS.length,  color: 'var(--blue)',   href: null },
-    { label: 'Approved',         value: approvedUsers, color: 'var(--green)',  href: '/dashboard/users?tab=users&status=approved'   },
-    { label: 'Rejected',         value: rejectedUsers, color: 'var(--red)',    href: '/dashboard/history?tab=users&status=rejected'   },
-    { label: 'Pending Approval', value: pendingUsers,  color: 'var(--yellow)', href: '/dashboard/approvals?tab=user'                  },
+    { label: 'Total Registered', value: stats.totalUsers,    color: 'var(--blue)',   href: null },
+    { label: 'Approved',         value: stats.approvedUsers, color: 'var(--green)',  href: '/dashboard/users?status=approved' },
+    { label: 'Rejected',         value: stats.rejectedUsers, color: 'var(--red)',    href: '/dashboard/history?tab=users&status=rejected' },
+    { label: 'Pending Approval', value: stats.pendingUsers,  color: 'var(--yellow)', href: '/dashboard/approvals?tab=user' },
   ];
 
   const sanghaStats = [
-    { label: 'Total Registered', value: SANGHA_LIST.length, color: 'var(--blue)',   href: null },
-    { label: 'Approved',         value: SANGHA_LIST.length, color: 'var(--green)',  href: '/dashboard/sangha?tab=sangha&status=approved'   },
-    { label: 'Rejected',         value: 0,                  color: 'var(--red)',    href: '/dashboard/history?tab=sangha&status=rejected'   },
-    { label: 'Pending Approval', value: pendingSangha,      color: 'var(--yellow)', href: '/dashboard/approvals?tab=sangha'                 },
+    { label: 'Total Registered', value: stats.totalSangha,    color: 'var(--blue)',   href: null },
+    { label: 'Approved',         value: stats.approvedSangha, color: 'var(--green)',  href: '/dashboard/sangha' },
+    { label: 'Rejected',         value: stats.rejectedSangha, color: 'var(--red)',    href: '/dashboard/history?tab=sangha&status=rejected' },
+    { label: 'Pending Approval', value: stats.pendingSangha,  color: 'var(--yellow)', href: '/dashboard/approvals?tab=sangha' },
   ];
-
-  const handleClick = (href: string | null) => {
-    if (href) router.push(href);
-  };
 
   return (
     <div className="page">
@@ -39,7 +69,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Users Section */}
       <div style={{ marginBottom: 32 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <div style={{ width: 3, height: 20, background: 'var(--blue)', borderRadius: 99 }} />
@@ -50,8 +79,8 @@ export default function DashboardPage() {
         <div className="dash-grid">
           {userStats.map((s, i) => (
             <div
-              className="dash-card"
               key={i}
+              className="dash-card"
               onClick={() => handleClick(s.href)}
               style={{ cursor: s.href ? 'pointer' : 'default', transition: 'all 0.15s' }}
               onMouseEnter={e => { if (s.href) (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; }}
@@ -59,17 +88,12 @@ export default function DashboardPage() {
             >
               <div className="dash-val" style={{ color: s.color }}>{s.value}</div>
               <div className="dash-label">{s.label}</div>
-              {s.href && (
-                <div style={{ fontSize: 10, color: 'var(--gray-400)', marginTop: 4, letterSpacing: '0.03em' }}>
-                  VIEW →
-                </div>
-              )}
+              {s.href && <div style={{ fontSize: 10, color: 'var(--gray-400)', marginTop: 4, letterSpacing: '0.03em' }}>VIEW →</div>}
             </div>
           ))}
         </div>
       </div>
 
-      {/* Sangha Section */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <div style={{ width: 3, height: 20, background: 'var(--purple)', borderRadius: 99 }} />
@@ -80,8 +104,8 @@ export default function DashboardPage() {
         <div className="dash-grid">
           {sanghaStats.map((s, i) => (
             <div
-              className="dash-card"
               key={i}
+              className="dash-card"
               onClick={() => handleClick(s.href)}
               style={{ cursor: s.href ? 'pointer' : 'default', transition: 'all 0.15s' }}
               onMouseEnter={e => { if (s.href) (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; }}
@@ -89,11 +113,7 @@ export default function DashboardPage() {
             >
               <div className="dash-val" style={{ color: s.color }}>{s.value}</div>
               <div className="dash-label">{s.label}</div>
-              {s.href && (
-                <div style={{ fontSize: 10, color: 'var(--gray-400)', marginTop: 4, letterSpacing: '0.03em' }}>
-                  VIEW →
-                </div>
-              )}
+              {s.href && <div style={{ fontSize: 10, color: 'var(--gray-400)', marginTop: 4, letterSpacing: '0.03em' }}>VIEW →</div>}
             </div>
           ))}
         </div>

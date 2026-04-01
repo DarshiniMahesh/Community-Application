@@ -17,10 +17,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ─── ROUTES ───────────────────────────────────────────────────
+const adminRoutes = require('./src/routes/admin');
 const authRoutes   = require("./src/routes/auth");
 const userRoutes   = require("./src/routes/users");
 const sanghaRoutes = require("./src/routes/sangha");
 
+app.use('/api/admin', adminRoutes);
 app.use("/api/auth",   authRoutes);
 app.use("/api/users",  userRoutes);
 app.use("/api/sangha", sanghaRoutes);
