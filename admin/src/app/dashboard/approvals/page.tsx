@@ -30,6 +30,7 @@ interface UserItem {
   first_name: string;
   last_name: string;
   sangha_name: string;
+  sangha_id: string;
 }
 
 export default function ApprovalsPage() {
@@ -152,13 +153,13 @@ export default function ApprovalsPage() {
   ];
 
   const getUserViewFields = (u: UserItem): [string, string][] => [
-    ['ID',        u.id],
-    ['Name',      `${u.first_name || ''} ${u.last_name || ''}`.trim() || '—'],
-    ['Email',     u.email],
-    ['Phone',     u.phone],
-    ['Sangha',    u.sangha_name || '—'],
-    ['Status',    u.status],
-    ['Submitted', u.submitted_at ? new Date(u.submitted_at).toLocaleDateString() : '—'],
+    ['ID',             u.id],
+    ['Name',           `${u.first_name || ''} ${u.last_name || ''}`.trim() || '—'],
+    ['Email',          u.email],
+    ['Phone',          u.phone],
+    ['Requested Sangha', u.sangha_name || '—'],
+    ['Status',         u.status],
+    ['Submitted',      u.submitted_at ? new Date(u.submitted_at).toLocaleDateString() : '—'],
   ];
 
   if (loading) return (
@@ -183,9 +184,14 @@ export default function ApprovalsPage() {
         ))}
       </div>
 
+      {/* ── Sangha Requests ── */}
       {tab === 'sangha' && (
         pendingSanghas.length === 0
-          ? <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--gray-400)' }}>All Sangha requests processed</div>
+          ? (
+            <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--gray-400)' }}>
+              All Sangha requests processed
+            </div>
+          )
           : pendingSanghas.map(s => (
             <div className="approval-card ac-purple" key={s.id}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -224,9 +230,14 @@ export default function ApprovalsPage() {
           ))
       )}
 
+      {/* ── User Requests ── */}
       {tab === 'user' && (
         pendingUsers.length === 0
-          ? <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--gray-400)' }}>All user requests processed</div>
+          ? (
+            <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--gray-400)' }}>
+              All user requests processed
+            </div>
+          )
           : pendingUsers.map(u => {
             const displayName = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email;
             return (
@@ -255,6 +266,22 @@ export default function ApprovalsPage() {
                           {u.phone}
                         </span>
                       </div>
+                      {/* ── Sangha badge ── */}
+                      {u.sangha_name && (
+                        <div style={{ marginTop: 6 }}>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                            background: 'var(--purple-pale)', color: 'var(--purple)',
+                            borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600,
+                          }}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                              <polyline points="9 22 9 12 15 12 15 22" />
+                            </svg>
+                            {u.sangha_name}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -268,6 +295,7 @@ export default function ApprovalsPage() {
           })
       )}
 
+      {/* ── View Modal ── */}
       {viewModal && (
         <Modal
           open
@@ -287,6 +315,7 @@ export default function ApprovalsPage() {
         </Modal>
       )}
 
+      {/* ── Reject Modal ── */}
       {rejectModal && (
         <Modal
           open
