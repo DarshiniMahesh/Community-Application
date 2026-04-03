@@ -1,5 +1,5 @@
 -- ============================================================
--- RSB COMMUNITY PORTAL — Complete PostgreSQL Schema
+-- RSB COMMUNITY PORTAL — Complete PostgreSQL Schema (Safe Re-Run)
 -- Covers: User + Sangha + Admin (Unified users table)
 -- ============================================================
 
@@ -7,54 +7,80 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================================
--- ENUMS
+-- ENUMS (safe to re-run — skips if already exists)
 -- ============================================================
 
-CREATE TYPE user_role AS ENUM ('user', 'sangha', 'admin');
+DO $$ BEGIN
+  CREATE TYPE user_role AS ENUM ('user', 'sangha', 'admin');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE profile_status AS ENUM (
-  'draft',
-  'submitted',
-  'under_review',
-  'approved',
-  'rejected',
-  'changes_requested'
-);
+DO $$ BEGIN
+  CREATE TYPE profile_status AS ENUM (
+    'draft',
+    'submitted',
+    'under_review',
+    'approved',
+    'rejected',
+    'changes_requested'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE sangha_status AS ENUM (
-  'pending_approval',
-  'approved',
-  'rejected',
-  'suspended'
-);
+DO $$ BEGIN
+  CREATE TYPE sangha_status AS ENUM (
+    'pending_approval',
+    'approved',
+    'rejected',
+    'suspended'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE gender_type AS ENUM ('male', 'female', 'other');
-CREATE TYPE family_type AS ENUM ('nuclear', 'joint');
-CREATE TYPE member_status AS ENUM ('active', 'passed_away', 'unknown');
+DO $$ BEGIN
+  CREATE TYPE gender_type AS ENUM ('male', 'female', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE profession_type AS ENUM (
-  'private', 'government', 'ias_ips_ifs',
-  'self_employed', 'farmer', 'training', 'other'
-);
+DO $$ BEGIN
+  CREATE TYPE family_type AS ENUM ('nuclear', 'joint');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE self_employed_type AS ENUM (
-  'self_small_firm', 'self_company', 'self_shop',
-  'freelancer', 'farmer', 'other', 'training'
-);
+DO $$ BEGIN
+  CREATE TYPE member_status AS ENUM ('active', 'passed_away', 'unknown');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE income_slab AS ENUM (
-  'below_1l', '1_2l', '2_3l', '3_5l',
-  '5_10l', '10_25l', '25l_plus'
-);
+DO $$ BEGIN
+  CREATE TYPE profession_type AS ENUM (
+    'private', 'government', 'ias_ips_ifs',
+    'self_employed', 'farmer', 'training', 'other'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE doc_coverage AS ENUM ('self', 'wife', 'kids', 'parents', 'all');
-CREATE TYPE review_action AS ENUM ('approved', 'rejected', 'changes_requested');
+DO $$ BEGIN
+  CREATE TYPE self_employed_type AS ENUM (
+    'self_small_firm', 'self_company', 'self_shop',
+    'freelancer', 'farmer', 'other', 'training'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE income_slab AS ENUM (
+    'below_1l', '1_2l', '2_3l', '3_5l',
+    '5_10l', '10_25l', '25l_plus'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE doc_coverage AS ENUM ('self', 'wife', 'kids', 'parents', 'all');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE review_action AS ENUM ('approved', 'rejected', 'changes_requested');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 
 -- ============================================================
 -- 1. USERS — Single table for all roles
 -- ============================================================
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   role                user_role NOT NULL DEFAULT 'user',
   email               VARCHAR(255) UNIQUE,
@@ -76,45 +102,66 @@ CREATE TABLE users (
 -- 2. SANGHA PROFILES — One per sangha user
 -- ============================================================
 
-CREATE TABLE sangha_profiles (
+CREATE TABLE IF NOT EXISTS sanghas (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  sangha_name      VARCHAR(255) NOT NULL,
-  location         VARCHAR(255) NOT NULL,
-  contact_person   VARCHAR(255) NOT NULL,
-  area_covered     VARCHAR(255),
+  sangha_auth_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  -- basic info
+  sangha_name      TEXT NOT NULL,
+  logo_url         TEXT,
+
+  -- address
+  address_line     TEXT,
+  pincode          CHAR(6),
+  village_town     TEXT,
+  taluk            TEXT,
+  district         TEXT,
+  state            TEXT,
+
+  -- root contact (login email/phone)
+  email            TEXT,
+  phone            TEXT,
+
+  -- description
+  description      TEXT,
+
+  -- sangha contact (custom)
+  sangha_contact_same BOOLEAN DEFAULT TRUE,
+  sangha_phone        TEXT,
+  sangha_email        TEXT,
+
   status           sangha_status NOT NULL DEFAULT 'pending_approval',
-  approved_at      TIMESTAMP,
-  approved_by      UUID REFERENCES users(id),
   rejection_reason TEXT,
+
   created_at       TIMESTAMP DEFAULT NOW(),
   updated_at       TIMESTAMP DEFAULT NOW(),
-  UNIQUE(user_id)
+
+  UNIQUE (sangha_auth_id)
 );
 
 -- ============================================================
 -- 3. SANGHA MEMBERS — Internal team members of a Sangha
 -- ============================================================
 
-CREATE TABLE sangha_members (
-  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  sangha_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  full_name      VARCHAR(150) NOT NULL,
-  gender         VARCHAR(10),
-  phone          VARCHAR(20),
-  email          VARCHAR(255),
-  dob            DATE,
-  role           VARCHAR(100),
-  member_type    VARCHAR(50),
-  created_at     TIMESTAMP DEFAULT NOW(),
-  updated_at     TIMESTAMP DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS sangha_members (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  sangha_id   UUID NOT NULL REFERENCES sanghas(id) ON DELETE CASCADE,
+  full_name   VARCHAR(150) NOT NULL,
+  gender      VARCHAR(10),
+  phone       VARCHAR(20),
+  email       VARCHAR(255),
+  dob         DATE,
+  role        VARCHAR(100),
+  member_type VARCHAR(50),
+  created_at  TIMESTAMP DEFAULT NOW(),
+  updated_at  TIMESTAMP DEFAULT NOW()
 );
 
 -- ============================================================
 -- 4. PROFILES — Census form, one per user
 -- ============================================================
 
-CREATE TABLE profiles (
+CREATE TABLE IF NOT EXISTS profiles (
   id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id                 UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   status                  profile_status NOT NULL DEFAULT 'draft',
@@ -122,7 +169,7 @@ CREATE TABLE profiles (
   reviewed_at             TIMESTAMP,
   reviewed_by             UUID REFERENCES users(id),
   review_comment          TEXT,
-  sangha_id               UUID REFERENCES users(id),
+  sangha_id               UUID REFERENCES sanghas(id),
   step1_personal_pct      SMALLINT DEFAULT 0,
   step2_religious_pct     SMALLINT DEFAULT 0,
   step3_family_pct        SMALLINT DEFAULT 0,
@@ -140,14 +187,14 @@ CREATE TABLE profiles (
   photo_uploaded_at       TIMESTAMP,
   created_at              TIMESTAMP DEFAULT NOW(),
   updated_at              TIMESTAMP DEFAULT NOW(),
-  UNIQUE(user_id)
+  UNIQUE (user_id)
 );
 
 -- ============================================================
 -- 5. PERSONAL DETAILS — Step 1
 -- ============================================================
 
-CREATE TABLE personal_details (
+CREATE TABLE IF NOT EXISTS personal_details (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   first_name            VARCHAR(100) NOT NULL,
@@ -167,17 +214,18 @@ CREATE TABLE personal_details (
   has_disability        VARCHAR(5),
   is_part_of_sangha     VARCHAR(5),
   sangha_name           VARCHAR(255),
+  sangha_tenure         VARCHAR(20),
   sangha_role           VARCHAR(100),
   created_at            TIMESTAMP DEFAULT NOW(),
   updated_at            TIMESTAMP DEFAULT NOW(),
-  UNIQUE(profile_id)
+  UNIQUE (profile_id)
 );
 
 -- ============================================================
 -- 6. RELIGIOUS DETAILS — Step 2
 -- ============================================================
 
-CREATE TABLE religious_details (
+CREATE TABLE IF NOT EXISTS religious_details (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   gotra                 VARCHAR(100),
@@ -191,23 +239,23 @@ CREATE TABLE religious_details (
   priest_location       VARCHAR(200),
   created_at            TIMESTAMP DEFAULT NOW(),
   updated_at            TIMESTAMP DEFAULT NOW(),
-  UNIQUE(profile_id)
+  UNIQUE (profile_id)
 );
 
 -- ============================================================
 -- 7. FAMILY INFORMATION — Step 3
 -- ============================================================
 
-CREATE TABLE family_info (
+CREATE TABLE IF NOT EXISTS family_info (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   family_type family_type,
   created_at  TIMESTAMP DEFAULT NOW(),
   updated_at  TIMESTAMP DEFAULT NOW(),
-  UNIQUE(profile_id)
+  UNIQUE (profile_id)
 );
 
-CREATE TABLE family_members (
+CREATE TABLE IF NOT EXISTS family_members (
   id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   family_info_id UUID NOT NULL REFERENCES family_info(id) ON DELETE CASCADE,
@@ -228,7 +276,7 @@ CREATE TABLE family_members (
 -- 8. ADDRESSES — Step 4
 -- ============================================================
 
-CREATE TABLE addresses (
+CREATE TABLE IF NOT EXISTS addresses (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   address_type VARCHAR(20) NOT NULL,
@@ -243,14 +291,14 @@ CREATE TABLE addresses (
   longitude    DECIMAL(11, 8),
   created_at   TIMESTAMP DEFAULT NOW(),
   updated_at   TIMESTAMP DEFAULT NOW(),
-  UNIQUE(profile_id, address_type)
+  UNIQUE (profile_id, address_type)
 );
 
 -- ============================================================
 -- 9. EDUCATION & PROFESSION — Step 5
 -- ============================================================
 
-CREATE TABLE member_education (
+CREATE TABLE IF NOT EXISTS member_education (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   member_name           VARCHAR(150),
@@ -268,26 +316,26 @@ CREATE TABLE member_education (
   updated_at            TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE member_certifications (
+CREATE TABLE IF NOT EXISTS member_certifications (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   member_education_id UUID NOT NULL REFERENCES member_education(id) ON DELETE CASCADE,
   certification       VARCHAR(300) NOT NULL,
   sort_order          SMALLINT DEFAULT 0
 );
 
-CREATE TABLE member_languages (
+CREATE TABLE IF NOT EXISTS member_languages (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   member_education_id UUID NOT NULL REFERENCES member_education(id) ON DELETE CASCADE,
   language            VARCHAR(50) NOT NULL,
   language_other      VARCHAR(100),
-  UNIQUE(member_education_id, language)
+  UNIQUE (member_education_id, language)
 );
 
 -- ============================================================
 -- 10. ECONOMIC DETAILS — Step 6
 -- ============================================================
 
-CREATE TABLE economic_details (
+CREATE TABLE IF NOT EXISTS economic_details (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   self_income           income_slab,
@@ -303,10 +351,10 @@ CREATE TABLE economic_details (
   fac_car               BOOLEAN DEFAULT FALSE,
   created_at            TIMESTAMP DEFAULT NOW(),
   updated_at            TIMESTAMP DEFAULT NOW(),
-  UNIQUE(profile_id)
+  UNIQUE (profile_id)
 );
 
-CREATE TABLE member_insurance (
+CREATE TABLE IF NOT EXISTS member_insurance (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   member_name           VARCHAR(150),
@@ -318,7 +366,7 @@ CREATE TABLE member_insurance (
   konkani_card_coverage doc_coverage[]
 );
 
-CREATE TABLE member_documents (
+CREATE TABLE IF NOT EXISTS member_documents (
   id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id           UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   member_name          VARCHAR(150),
@@ -336,7 +384,7 @@ CREATE TABLE member_documents (
 -- 11. FAMILY HISTORY — Ancestral info
 -- ============================================================
 
-CREATE TABLE family_history (
+CREATE TABLE IF NOT EXISTS family_history (
   id                        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id                UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   ancestral_challenge_notes TEXT,
@@ -345,14 +393,14 @@ CREATE TABLE family_history (
   common_relative_names     TEXT,
   created_at                TIMESTAMP DEFAULT NOW(),
   updated_at                TIMESTAMP DEFAULT NOW(),
-  UNIQUE(profile_id)
+  UNIQUE (profile_id)
 );
 
 -- ============================================================
 -- 12. PROFILE REVIEW HISTORY — Audit trail
 -- ============================================================
 
-CREATE TABLE profile_review_history (
+CREATE TABLE IF NOT EXISTS profile_review_history (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   action       review_action NOT NULL,
@@ -366,7 +414,7 @@ CREATE TABLE profile_review_history (
 -- 13. PROFILE EDIT REQUESTS
 -- ============================================================
 
-CREATE TABLE profile_edit_requests (
+CREATE TABLE IF NOT EXISTS profile_edit_requests (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   profile_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   requested_by UUID NOT NULL REFERENCES users(id),
@@ -378,32 +426,29 @@ CREATE TABLE profile_edit_requests (
 );
 
 -- ============================================================
--- INDEXES
+-- INDEXES (safe to re-run)
 -- ============================================================
 
--- Users
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_phone ON users(phone);
-CREATE INDEX idx_users_role  ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_email               ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_phone               ON users(phone);
+CREATE INDEX IF NOT EXISTS idx_users_role                ON users(role);
 
--- Sangha
-CREATE INDEX idx_sangha_profiles_user   ON sangha_profiles(user_id);
-CREATE INDEX idx_sangha_profiles_status ON sangha_profiles(status);
-CREATE INDEX idx_sangha_members_sangha  ON sangha_members(sangha_user_id);
+CREATE INDEX IF NOT EXISTS idx_sanghas_auth_id           ON sanghas(sangha_auth_id);
+CREATE INDEX IF NOT EXISTS idx_sanghas_status            ON sanghas(status);
 
--- Profiles
-CREATE INDEX idx_profiles_user   ON profiles(user_id);
-CREATE INDEX idx_profiles_status ON profiles(status);
-CREATE INDEX idx_profiles_sangha ON profiles(sangha_id);
+CREATE INDEX IF NOT EXISTS idx_sangha_members_sangha     ON sangha_members(sangha_id);
 
--- Profile detail tables
-CREATE INDEX idx_family_members_profile   ON family_members(profile_id);
-CREATE INDEX idx_addresses_profile        ON addresses(profile_id);
-CREATE INDEX idx_member_edu_profile       ON member_education(profile_id);
-CREATE INDEX idx_member_insurance_profile ON member_insurance(profile_id);
-CREATE INDEX idx_member_documents_profile ON member_documents(profile_id);
-CREATE INDEX idx_review_history_profile   ON profile_review_history(profile_id);
-CREATE INDEX idx_review_history_performer ON profile_review_history(performed_by);
+CREATE INDEX IF NOT EXISTS idx_profiles_user             ON profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_status           ON profiles(status);
+CREATE INDEX IF NOT EXISTS idx_profiles_sangha           ON profiles(sangha_id);
+
+CREATE INDEX IF NOT EXISTS idx_family_members_profile    ON family_members(profile_id);
+CREATE INDEX IF NOT EXISTS idx_addresses_profile         ON addresses(profile_id);
+CREATE INDEX IF NOT EXISTS idx_member_edu_profile        ON member_education(profile_id);
+CREATE INDEX IF NOT EXISTS idx_member_insurance_profile  ON member_insurance(profile_id);
+CREATE INDEX IF NOT EXISTS idx_member_documents_profile  ON member_documents(profile_id);
+CREATE INDEX IF NOT EXISTS idx_review_history_profile    ON profile_review_history(profile_id);
+CREATE INDEX IF NOT EXISTS idx_review_history_performer  ON profile_review_history(performed_by);
 
 -- ============================================================
 -- FUNCTION — auto updated_at
@@ -437,16 +482,28 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ============================================================
--- TRIGGERS
+-- TRIGGERS (drop first to allow safe re-run)
 -- ============================================================
 
--- updated_at triggers
+DROP TRIGGER IF EXISTS trg_users_updated         ON users;
+DROP TRIGGER IF EXISTS trg_sanghas_updated        ON sanghas;
+DROP TRIGGER IF EXISTS trg_sangha_members_updated ON sangha_members;
+DROP TRIGGER IF EXISTS trg_profiles_updated       ON profiles;
+DROP TRIGGER IF EXISTS trg_personal_updated       ON personal_details;
+DROP TRIGGER IF EXISTS trg_religious_updated      ON religious_details;
+DROP TRIGGER IF EXISTS trg_family_updated         ON family_info;
+DROP TRIGGER IF EXISTS trg_location_updated       ON addresses;
+DROP TRIGGER IF EXISTS trg_education_updated      ON member_education;
+DROP TRIGGER IF EXISTS trg_economic_updated       ON economic_details;
+DROP TRIGGER IF EXISTS trg_family_history_updated ON family_history;
+DROP TRIGGER IF EXISTS trg_completion_pct         ON profiles;
+
 CREATE TRIGGER trg_users_updated
   BEFORE UPDATE ON users
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE TRIGGER trg_sangha_profiles_updated
-  BEFORE UPDATE ON sangha_profiles
+CREATE TRIGGER trg_sanghas_updated
+  BEFORE UPDATE ON sanghas
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER trg_sangha_members_updated
@@ -485,7 +542,6 @@ CREATE TRIGGER trg_family_history_updated
   BEFORE UPDATE ON family_history
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- Completion pct trigger
 CREATE TRIGGER trg_completion_pct
   BEFORE INSERT OR UPDATE ON profiles
   FOR EACH ROW EXECUTE FUNCTION update_overall_completion();
@@ -494,12 +550,11 @@ CREATE TRIGGER trg_completion_pct
 -- SEED — Default admin account
 -- ============================================================
 
--- First insert the user
 INSERT INTO users (email, phone, role, is_email_verified, is_active)
 VALUES ('admin@gmail.com', '9999999999', 'admin', TRUE, TRUE)
 ON CONFLICT (email) DO NOTHING;
 
--- Then set the bcrypt hash for password: admin123
-UPDATE users 
+-- Set bcrypt hash for password: admin123
+UPDATE users
 SET password_hash = '$2b$10$wHh8lQFQmY7zv9qK1QzQ6uYJqz0J6QJp0qvR6z7Yt8Xw8Gq9J1m9W'
 WHERE email = 'admin@gmail.com';

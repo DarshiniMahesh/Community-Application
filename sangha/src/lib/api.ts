@@ -50,6 +50,21 @@ export const api = {
     if (!res.ok) throw new Error(data.message || 'Something went wrong');
     return data;
   },
+
+  // For multipart file uploads — browser sets Content-Type with boundary automatically
+  postForm: async (path: string, formData: FormData) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Something went wrong');
+    return data;
+  },
 };
 
 export const saveAuth = (

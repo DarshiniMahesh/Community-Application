@@ -14,6 +14,7 @@ import { ArrowLeft, ArrowRight, User, Heart, Shield, Users, RotateCcw } from "lu
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
+import { resolve } from "dns";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -38,6 +39,7 @@ export default function Page() {
   const [resetting, setResetting] = useState(false);
   const [canReset, setCanReset] = useState(false);
   const [userContact, setUserContact] = useState({ email: "", phone: "" });
+  const [sanghaList, setSanghaList] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     firstName: "", middleName: "", lastName: "",
     gender: "", dateOfBirth: "",
@@ -48,6 +50,7 @@ export default function Page() {
     isPartOfSangha: "",
     sanghaName: "",
     sanghaRole: "",
+    sanghaTenure: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -83,9 +86,22 @@ export default function Page() {
           isPartOfSangha:    s.is_part_of_sangha || "",
           sanghaName:        s.sangha_name || "",
           sanghaRole:        s.sangha_role || "",
+          sanghaTenure:      s.sangha_tenure || "",
         });
       }
     }).catch(() => {});
+  }, []);
+
+
+  useEffect(() => {
+    api.get("/sangha/approved-list")
+      .then((res) => {
+        console.log("SANGHA:", res);
+        setSanghaList(res);
+      })
+      .catch((err) => {
+        console.log(err);
+      });
   }, []);
 
   const buildPayload = () => ({
@@ -103,6 +119,7 @@ export default function Page() {
     is_part_of_sangha:    formData.isPartOfSangha || undefined,
     sangha_name:          formData.isPartOfSangha === "yes" ? formData.sanghaName || undefined : undefined,
     sangha_role:          formData.isPartOfSangha === "yes" ? formData.sanghaRole || undefined : undefined,
+    sangha_tenure:        formData.isPartOfSangha === "yes" ? formData.sanghaTenure || undefined : undefined,
   });
 
   useAutoSave("/users/profile/step1", buildPayload, [formData]);
@@ -147,7 +164,7 @@ export default function Page() {
         surnameInUse: "", surnameAsPerGotra: "",
         fathersName: "", mothersName: "",
         maritalStatus: "", hasDisability: "",
-        isPartOfSangha: "", sanghaName: "", sanghaRole: "",
+        isPartOfSangha: "", sanghaName: "", sanghaRole: "",sanghaTenure: "",
       });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
@@ -345,15 +362,34 @@ export default function Page() {
           </div>
 
           {formData.isPartOfSangha === "yes" && (
-            <div className="grid md:grid-cols-2 gap-4 pt-2">
-              <div className="space-y-2">
-                <Label htmlFor="sanghaName">Sangha Name <span className="text-destructive">*</span></Label>
-                <Input id="sanghaName" placeholder="Enter Sangha name" value={formData.sanghaName}
-                  onChange={e => set("sanghaName", e.target.value)}
-                  className={errors.sanghaName ? "border-destructive" : ""} />
-                {errors.sanghaName && <p className="text-xs text-destructive">{errors.sanghaName}</p>}
-              </div>
-              <div className="space-y-2">
+            <div className="grid grid-cols-3 gap-4 pt-2">
+              <div className="space-y-2 w-full">
+<Label>Sangha Name <span className="text-destructive">*</span></Label>
+  <Select
+    value={formData.sanghaName}
+    onValueChange={(v) => set("sanghaName", v)}
+  >
+    <SelectTrigger className={errors.sanghaName ? "border-destructive" : ""}>
+      <SelectValue placeholder="Select a Sangha" />
+    </SelectTrigger>
+    <SelectContent>
+      {sanghaList.length === 0 ? (
+        <SelectItem value="none" disabled>
+          No approved Sanghas available
+        </SelectItem>
+      ) : (
+      sanghaList.map((s) => (
+        <SelectItem key={s.id} value={s.sangha_name}>
+          {s.sangha_name} — {s.location}
+        </SelectItem>
+      )))}
+    </SelectContent>
+  </Select>
+  {errors.sanghaName && <p className="text-xs text-destructive">{errors.sanghaName}</p>}
+  </div>
+
+
+              <div className="space-y-2 w-full">
                 <Label>Your Role <span className="text-destructive">*</span></Label>
                 <Select value={formData.sanghaRole} onValueChange={v => set("sanghaRole", v)}>
                   <SelectTrigger className={errors.sanghaRole ? "border-destructive" : ""}>
@@ -365,6 +401,23 @@ export default function Page() {
                 </Select>
                 {errors.sanghaRole && <p className="text-xs text-destructive">{errors.sanghaRole}</p>}
               </div>
+              
+              <div className="space-y-2 w-full">
+  <Label>Tenure <span className="text-destructive">*</span></Label>
+  <Select
+    value={formData.sanghaTenure}
+    onValueChange={(v) => set("sanghaTenure", v)}
+  >
+    <SelectTrigger>
+      <SelectValue placeholder="Select tenure" />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="part_time">Part Time</SelectItem>
+      <SelectItem value="full_time">Full Time</SelectItem>
+    </SelectContent>
+  </Select>
+</div>
+
             </div>
           )}
         </CardContent>
