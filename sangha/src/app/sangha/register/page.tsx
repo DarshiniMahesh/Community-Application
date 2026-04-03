@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Eye, EyeOff, Lock, Mail, CheckCircle2 } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, Phone, User, CheckCircle2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,12 +11,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 
-function getPasswordStrength(pw: string): {
-  label: "Weak" | "Medium" | "Strong";
-  score: number;
-  color: string;
-  barColor: string;
-} {
+function getPasswordStrength(pw: string) {
   let score = 0;
   if (pw.length >= 8) score++;
   if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
@@ -26,32 +21,34 @@ function getPasswordStrength(pw: string): {
   return              { label: "Strong", score: 3, color: "text-green-500",  barColor: "bg-green-500" };
 }
 
-interface FormData {
-  identifier: string; // single field — email or phone
-  password:   string;
-  confirm:    string;
-}
+type Step = "details" | "otp";
 
-type Step = "register" | "otp";
+interface FormData {
+  sangha_name: string;
+  email:       string;
+  phone:       string;
+  password:    string;
+  confirm:     string;
+}
 
 export default function SanghaRegisterPage() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>("register");
+  const [step, setStep] = useState<Step>("details");
 
   const [formData, setFormData] = useState<FormData>({
-    identifier: "", password: "", confirm: "",
+    sangha_name: "", email: "", phone: "", password: "", confirm: "",
   });
-  const [errors, setErrors]         = useState<Partial<FormData>>({});
-  const [showPw, setShowPw]         = useState(false);
+  const [errors, setErrors]           = useState<Partial<FormData>>({});
+  const [showPw, setShowPw]           = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [loading, setLoading]       = useState(false);
+  const [loading, setLoading]         = useState(false);
 
-  // OTP step
-  const [otp, setOtp]           = useState("");
-  const [otpError, setOtpError] = useState("");
+  const [otp, setOtp]               = useState("");
+  const [otpError, setOtpError]     = useState("");
   const [otpLoading, setOtpLoading] = useState(false);
 
-  const strength = formData.password ? getPasswordStrength(formData.password) : null;
+  const strength   = formData.password ? getPasswordStrength(formData.password) : null;
+  const identifier = formData.email.trim() || formData.phone.trim();
 
   const set = (field: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,39 +58,41 @@ export default function SanghaRegisterPage() {
 
   const validate = () => {
     const e: Partial<FormData> = {};
-    const id = formData.identifier.trim();
-    if (!id) {
-      e.identifier = "Email or phone number is required";
+
+    if (!formData.sangha_name.trim()) e.sangha_name = "Sangha name is required";
+
+    const hasEmail = formData.email.trim().length > 0;
+    const hasPhone = formData.phone.trim().length > 0;
+    if (!hasEmail && !hasPhone) {
+      e.email = "At least one of email or phone is required";
     } else {
-      const isEmail = id.includes("@");
-      const isPhone = /^\d{10}$/.test(id);
-      if (!isEmail && !isPhone)
-        e.identifier = "Enter a valid email or 10-digit phone number";
+      if (hasEmail && !/\S+@\S+\.\S+/.test(formData.email.trim()))
+        e.email = "Enter a valid email address";
+      if (hasPhone && !/^\d{10}$/.test(formData.phone.trim()))
+        e.phone = "Enter a valid 10-digit phone number";
     }
+
     if (!formData.password)                e.password = "Password is required";
     else if (formData.password.length < 8) e.password = "Minimum 8 characters";
     if (formData.password !== formData.confirm) e.confirm = "Passwords do not match";
+
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
-  // Step 1: submit credentials → backend sends OTP
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Step 1 — send OTP
+  const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
     setLoading(true);
-    const id = formData.identifier.trim();
-    const isEmail = id.includes("@");
     try {
       await api.post("/sangha/register/send-otp", {
-        email:    isEmail ? id : undefined,
-        phone:    !isEmail ? id : undefined,
-        password: formData.password,
+        sangha_name: formData.sangha_name.trim(),
+        email:       formData.email.trim()  || undefined,
+        phone:       formData.phone.trim()  || undefined,
+        password:    formData.password,
       });
-      // Persist for verify-otp page
-      localStorage.setItem("otp_identifier", id);
-      localStorage.setItem("otp_flow", "register");
-      toast.success("OTP sent! Please verify to complete registration.");
+      toast.success("OTP sent! Check your email or phone.");
       setStep("otp");
     } catch (err: any) {
       toast.error(err.message || "Registration failed");
@@ -102,24 +101,22 @@ export default function SanghaRegisterPage() {
     }
   };
 
-  // Step 2: verify OTP inline (mirrors verify-otp page flow for register)
+  // Step 2 — verify OTP
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!otp.trim()) { setOtpError("OTP is required"); return; }
+    if (otp.trim().length !== 6) { setOtpError("Enter a valid 6-digit OTP"); return; }
     setOtpError("");
     setOtpLoading(true);
     try {
-      const id = formData.identifier.trim();
       const data = await api.post("/sangha/register/verify-otp", {
-        identifier: id,
+        identifier,
         otp: otp.trim(),
       });
-      localStorage.setItem("token",       data.token);
-      localStorage.setItem("role",        data.role        ?? "sangha");
+      localStorage.setItem("token",        data.token);
+      localStorage.setItem("role",         data.role         ?? "sangha");
       localStorage.setItem("sanghaStatus", data.sanghaStatus ?? "pending_approval");
-      localStorage.setItem("sanghaName",  data.sanghaName  ?? "");
-      localStorage.removeItem("otp_identifier");
-      localStorage.removeItem("otp_flow");
+      localStorage.setItem("sanghaName",   data.sanghaName   ?? "");
       toast.success("Account created! Please complete your Sangha profile.");
       router.push("/sangha/profile");
     } catch (err: any) {
@@ -130,13 +127,12 @@ export default function SanghaRegisterPage() {
   };
 
   const handleResendOtp = async () => {
-    const id = formData.identifier.trim();
-    const isEmail = id.includes("@");
     try {
       await api.post("/sangha/register/send-otp", {
-        email:    isEmail ? id : undefined,
-        phone:    !isEmail ? id : undefined,
-        password: formData.password,
+        sangha_name: formData.sangha_name.trim(),
+        email:       formData.email.trim()  || undefined,
+        phone:       formData.phone.trim()  || undefined,
+        password:    formData.password,
       });
       toast.success("OTP resent!");
     } catch (err: any) {
@@ -148,8 +144,8 @@ export default function SanghaRegisterPage() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
       <Card className="w-full max-w-md shadow-xl border-border">
 
-        {/* ── STEP 1: Register ── */}
-        {step === "register" && (
+        {/* ══ STEP 1: Details ══════════════════════════════════ */}
+        {step === "details" && (
           <>
             <CardHeader className="space-y-2 text-center">
               <div className="mx-auto h-16 w-16 rounded-full bg-primary flex items-center justify-center mb-2">
@@ -161,26 +157,63 @@ export default function SanghaRegisterPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSendOtp} className="space-y-4">
 
-                {/* Single identifier field */}
+                {/* Sangha Name */}
                 <div className="space-y-1">
-                  <Label htmlFor="identifier">Email or Phone Number</Label>
+                  <Label htmlFor="sangha_name">Sangha Name *</Label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      id="identifier"
-                      placeholder="Enter email or 10-digit phone"
-                      value={formData.identifier}
-                      onChange={set("identifier")}
-                      className={`pl-10 ${errors.identifier ? "border-destructive" : ""}`}
+                      id="sangha_name"
+                      placeholder="Enter your Sangha name"
+                      value={formData.sangha_name}
+                      onChange={set("sangha_name")}
+                      className={`pl-10 ${errors.sangha_name ? "border-destructive" : ""}`}
                     />
                   </div>
+                  {errors.sangha_name && <p className="text-xs text-destructive">{errors.sangha_name}</p>}
                 </div>
+
+                {/* Email + Phone */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="email">Email</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="you@example.com"
+                        value={formData.email}
+                        onChange={set("email")}
+                        className={`pl-10 ${errors.email ? "border-destructive" : ""}`}
+                      />
+                    </div>
+                    {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="phone">Phone</Label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="phone"
+                        placeholder="10-digit number"
+                        value={formData.phone}
+                        onChange={set("phone")}
+                        className={`pl-10 ${errors.phone ? "border-destructive" : ""}`}
+                      />
+                    </div>
+                    {errors.phone && <p className="text-xs text-destructive">{errors.phone}</p>}
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  At least one of email or phone is required
+                </p>
 
                 {/* Password */}
                 <div className="space-y-1">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">Password *</Label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -191,11 +224,8 @@ export default function SanghaRegisterPage() {
                       onChange={set("password")}
                       className={`pl-9 pr-10 ${errors.password ? "border-destructive" : ""}`}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPw(p => !p)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
+                    <button type="button" onClick={() => setShowPw(p => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                       {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
@@ -204,12 +234,8 @@ export default function SanghaRegisterPage() {
                     <div className="space-y-1 pt-1">
                       <div className="flex gap-1">
                         {[1, 2, 3].map(i => (
-                          <div
-                            key={i}
-                            className={`h-1.5 flex-1 rounded-full transition-colors ${
-                              i <= strength.score ? strength.barColor : "bg-muted"
-                            }`}
-                          />
+                          <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${
+                            i <= strength.score ? strength.barColor : "bg-muted"}`} />
                         ))}
                       </div>
                       <p className={`text-xs font-medium ${strength.color}`}>
@@ -223,7 +249,7 @@ export default function SanghaRegisterPage() {
 
                 {/* Confirm Password */}
                 <div className="space-y-1">
-                  <Label htmlFor="confirm">Confirm Password</Label>
+                  <Label htmlFor="confirm">Confirm Password *</Label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -234,11 +260,8 @@ export default function SanghaRegisterPage() {
                       onChange={set("confirm")}
                       className={`pl-9 pr-10 ${errors.confirm ? "border-destructive" : ""}`}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirm(p => !p)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
+                    <button type="button" onClick={() => setShowConfirm(p => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                       {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
@@ -251,7 +274,7 @@ export default function SanghaRegisterPage() {
                 </div>
 
                 <Button type="submit" className="w-full" size="lg" disabled={loading}>
-                  {loading ? "Sending OTP..." : "Register Sangha"}
+                  {loading ? "Sending OTP..." : "Continue"}
                 </Button>
 
                 <div className="text-center text-sm text-muted-foreground">
@@ -265,17 +288,17 @@ export default function SanghaRegisterPage() {
           </>
         )}
 
-        {/* ── STEP 2: OTP Verification ── */}
+        {/* ══ STEP 2: OTP ══════════════════════════════════════ */}
         {step === "otp" && (
           <>
             <CardHeader className="space-y-2 text-center">
               <div className="mx-auto h-16 w-16 rounded-full bg-primary flex items-center justify-center mb-2">
-                <span className="text-2xl font-bold text-primary-foreground">S</span>
+                <ShieldCheck className="h-8 w-8 text-primary-foreground" />
               </div>
               <CardTitle className="text-2xl">Verify OTP</CardTitle>
               <CardDescription>
                 Enter the OTP sent to{" "}
-                <span className="font-medium text-foreground">{formData.identifier}</span>
+                <span className="font-medium text-foreground">{identifier}</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -286,10 +309,13 @@ export default function SanghaRegisterPage() {
                     placeholder="Enter 6-digit OTP"
                     value={otp}
                     onChange={(e) => { setOtp(e.target.value); setOtpError(""); }}
-                    className={otpError ? "border-destructive" : ""}
+                    className={`text-center text-lg tracking-widest ${otpError ? "border-destructive" : ""}`}
                     maxLength={6}
                   />
                   {otpError && <p className="text-xs text-destructive">{otpError}</p>}
+                  <p className="text-xs text-muted-foreground text-center">
+                    For demo, OTP is: <span className="font-mono font-bold">123456</span>
+                  </p>
                 </div>
 
                 <Button type="submit" className="w-full" size="lg" disabled={otpLoading}>
@@ -297,18 +323,12 @@ export default function SanghaRegisterPage() {
                 </Button>
 
                 <div className="flex items-center justify-between text-sm">
-                  <button
-                    type="button"
-                    onClick={() => setStep("register")}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
+                  <button type="button" onClick={() => setStep("details")}
+                    className="text-muted-foreground hover:text-foreground">
                     ← Back
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleResendOtp}
-                    className="text-primary hover:underline font-medium"
-                  >
+                  <button type="button" onClick={handleResendOtp}
+                    className="text-primary hover:underline font-medium">
                     Resend OTP
                   </button>
                 </div>

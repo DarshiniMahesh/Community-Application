@@ -144,7 +144,7 @@ export default function SanghaProfilePage() {
   const validate = () => {
     const e: Partial<Record<keyof SanghaProfile, string>> = {};
     if (!formData.sangha_name.trim())   e.sangha_name  = "Sangha name is required";
-    if (!formData.address_line.trim())  e.address_line = "Address is required";
+    if (!(formData.address_line ?? "").trim())  e.address_line = "Address is required";
     if (!formData.pincode || formData.pincode.length !== 6)
       e.pincode = "Valid 6-digit pincode required";
     if (!formData.district.trim()) e.district = "District is required";

@@ -4,9 +4,7 @@ const { signToken } = require('../utils/jwt');
 const path = require('path');
 const fs = require('fs');
 
-// ─── OTP helper — writes to users table columns ───────────────
-// For register: user row created first with is_active=false, then activated on verify
-// For login/forgot: user already exists, just update otp columns
+// ─── OTP helpers ──────────────────────────────────────────────
 const DEMO_OTP = '123456';
 
 async function writeOtp(identifier) {
@@ -31,7 +29,6 @@ async function checkOtp(identifier, otp) {
   const user = result.rows[0];
   if (user.otp_code !== otp) return null;
   if (new Date() > new Date(user.otp_expires_at)) return null;
-  // Clear OTP after use
   await pool.query(
     `UPDATE users SET otp_code=NULL, otp_expires_at=NULL WHERE id=$1`,
     [user.id]
@@ -39,23 +36,30 @@ async function checkOtp(identifier, otp) {
   return user;
 }
 
+// Helper: get sangha's own UUID id from user id
+async function getSanghaId(userId) {
+  const res = await pool.query(
+    'SELECT id FROM sanghas WHERE sangha_auth_id=$1', [userId]
+  );
+  return res.rows[0]?.id || null;
+}
+
 // ════════════════════════════════════════════════════════════
-// REGISTER — Step 1: collect details + password → send OTP
+// REGISTER — Step 1: sangha_name + email/phone + password → OTP
 // POST /sangha/register/send-otp
 // ════════════════════════════════════════════════════════════
 const registerSendOtp = async (req, res) => {
   try {
-    const { sangha_name, location, contact_person, area_covered, email, phone, password } = req.body;
+    const { sangha_name, email, phone, password } = req.body;
 
-    if (!sangha_name || !location || !contact_person || !password || (!email && !phone)) {
+    if (!sangha_name || !password || (!email && !phone)) {
       return res.status(400).json({
-        message: 'sangha_name, location, contact_person, password and email or phone are required',
+        message: 'sangha_name, password, and email or phone are required',
       });
     }
     if (password.length < 8)
       return res.status(400).json({ message: 'Password must be at least 8 characters' });
 
-    // Check duplicate
     const existing = await pool.query(
       'SELECT id, is_active FROM users WHERE email=$1 OR phone=$2',
       [email || null, phone || null]
@@ -63,26 +67,24 @@ const registerSendOtp = async (req, res) => {
 
     if (existing.rows.length > 0) {
       const existingUser = existing.rows[0];
-      // If user exists but is_active=false, it's an incomplete registration — allow re-send OTP
       if (existingUser.is_active) {
         return res.status(409).json({ message: 'An account with this email or phone already exists' });
       }
-      // Re-use existing inactive user row — update password and sangha details
+      // Incomplete registration — re-use the row
       const password_hash = await bcrypt.hash(password, 10);
       await pool.query(
         `UPDATE users SET password_hash=$1, otp_code=NULL, otp_expires_at=NULL WHERE id=$2`,
         [password_hash, existingUser.id]
       );
-      // Update or insert sangha_profiles
       await pool.query(
-        `INSERT INTO sangha_profiles (user_id, sangha_name, location, contact_person, area_covered, status)
-         VALUES ($1,$2,$3,$4,$5,'pending_approval')
-         ON CONFLICT (user_id) DO UPDATE
-         SET sangha_name=$2, location=$3, contact_person=$4, area_covered=$5`,
-        [existingUser.id, sangha_name, location, contact_person, area_covered || null]
+        `INSERT INTO sanghas (sangha_auth_id, sangha_name, email, phone, status)
+         VALUES ($1,$2,$3,$4,'pending_approval')
+         ON CONFLICT (sangha_auth_id) DO UPDATE
+         SET sangha_name=$2`,
+        [existingUser.id, sangha_name, email || null, phone || null]
       );
     } else {
-      // Fresh registration — create user row with is_active=false (pending OTP)
+      // Fresh registration
       const password_hash = await bcrypt.hash(password, 10);
       const userRes = await pool.query(
         `INSERT INTO users (role, email, phone, password_hash, is_active)
@@ -91,16 +93,14 @@ const registerSendOtp = async (req, res) => {
       );
       const userId = userRes.rows[0].id;
       await pool.query(
-        `INSERT INTO sangha_profiles (user_id, sangha_name, location, contact_person, area_covered, status)
-         VALUES ($1,$2,$3,$4,$5,'pending_approval')`,
-        [userId, sangha_name, location, contact_person, area_covered || null]
+        `INSERT INTO sanghas (sangha_auth_id, sangha_name, email, phone, status)
+         VALUES ($1,$2,$3,$4,'pending_approval')`,
+        [userId, sangha_name, email || null, phone || null]
       );
     }
 
-    // Write OTP — identifier is email if provided, else phone
     const identifier = email || phone;
     await writeOtp(identifier);
-
     res.json({ message: 'OTP sent successfully' });
   } catch (err) {
     console.error(err);
@@ -122,28 +122,23 @@ const registerVerifyOtp = async (req, res) => {
     if (!otpUser)
       return res.status(400).json({ message: 'Invalid or expired OTP' });
 
-    // Activate user
     await pool.query(
       `UPDATE users SET is_active=true, updated_at=NOW() WHERE id=$1`,
       [otpUser.id]
     );
 
-    // Fetch sangha profile for response
-    const profileRes = await pool.query(
-      `SELECT sp.sangha_name, sp.status, u.role, u.email, u.phone
-       FROM sangha_profiles sp
-       JOIN users u ON u.id = sp.user_id
-       WHERE sp.user_id = $1`,
+    const sanghaRes = await pool.query(
+      `SELECT sangha_name, status FROM sanghas WHERE sangha_auth_id=$1`,
       [otpUser.id]
     );
-    const profile = profileRes.rows[0];
+    const sangha = sanghaRes.rows[0];
 
     const token = signToken({ id: otpUser.id, role: 'sangha' });
     res.status(201).json({
       token,
       role: 'sangha',
-      sanghaStatus: profile?.status ?? 'pending_approval',
-      sanghaName: profile?.sangha_name ?? '',
+      sanghaStatus: sangha?.status ?? 'pending_approval',
+      sanghaName:   sangha?.sangha_name ?? '',
       message: 'Registration successful! Awaiting admin approval.',
     });
   } catch (err) {
@@ -164,9 +159,9 @@ const loginSendOtp = async (req, res) => {
 
     const isEmail = identifier.includes('@');
     const userRes = await pool.query(
-      `SELECT u.id, u.password_hash, u.is_active, u.is_deleted
-       FROM users u
-       WHERE ${isEmail ? 'u.email' : 'u.phone'} = $1 AND u.role = 'sangha'`,
+      `SELECT id, password_hash, is_active, is_deleted
+       FROM users
+       WHERE ${isEmail ? 'email' : 'phone'} = $1 AND role = 'sangha'`,
       [identifier]
     );
 
@@ -174,7 +169,6 @@ const loginSendOtp = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
 
     const user = userRes.rows[0];
-
     if (user.is_deleted)
       return res.status(401).json({ message: 'Account has been deleted' });
     if (!user.is_active)
@@ -209,9 +203,9 @@ const loginVerifyOtp = async (req, res) => {
     const isEmail = identifier.includes('@');
     const userRes = await pool.query(
       `SELECT u.id, u.role, u.email, u.phone,
-              sp.status AS sangha_status, sp.sangha_name
+              s.status AS sangha_status, s.sangha_name
        FROM users u
-       LEFT JOIN sangha_profiles sp ON sp.user_id = u.id
+       LEFT JOIN sanghas s ON s.sangha_auth_id = u.id
        WHERE ${isEmail ? 'u.email' : 'u.phone'} = $1 AND u.role = 'sangha'`,
       [identifier]
     );
@@ -222,7 +216,7 @@ const loginVerifyOtp = async (req, res) => {
     const token = signToken({ id: user.id, role: user.role });
     res.json({
       token,
-      role: user.role,
+      role:         user.role,
       sanghaStatus: user.sangha_status,
       sanghaName:   user.sangha_name,
       email:        user.email,
@@ -246,7 +240,8 @@ const forgotSendOtp = async (req, res) => {
 
     const isEmail = identifier.includes('@');
     const userRes = await pool.query(
-      `SELECT id FROM users WHERE ${isEmail ? 'email' : 'phone'} = $1 AND role='sangha' AND is_active=true`,
+      `SELECT id FROM users
+       WHERE ${isEmail ? 'email' : 'phone'} = $1 AND role='sangha' AND is_active=true`,
       [identifier]
     );
     if (userRes.rows.length === 0)
@@ -261,7 +256,7 @@ const forgotSendOtp = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// FORGOT PASSWORD — Step 2: verify OTP
+// FORGOT PASSWORD — Step 2: verify OTP (keep OTP for reset)
 // POST /sangha/forgot-password/verify-otp
 // ════════════════════════════════════════════════════════════
 const forgotVerifyOtp = async (req, res) => {
@@ -270,8 +265,6 @@ const forgotVerifyOtp = async (req, res) => {
     if (!identifier || !otp)
       return res.status(400).json({ message: 'Identifier and OTP are required' });
 
-    // We verify but DON'T clear otp yet — reset endpoint needs it
-    // So do a read-only check here, then write a fresh verified marker OTP
     const isEmail = identifier.includes('@');
     const result = await pool.query(
       `SELECT id, otp_code, otp_expires_at FROM users
@@ -287,12 +280,9 @@ const forgotVerifyOtp = async (req, res) => {
     if (new Date() > new Date(user.otp_expires_at))
       return res.status(400).json({ message: 'OTP has expired' });
 
-    // Keep the OTP in DB but extend expiry by 15 min so reset can use it
+    // Extend expiry by 15 min so reset endpoint can also validate
     const newExpiry = new Date(Date.now() + 15 * 60 * 1000);
-    await pool.query(
-      `UPDATE users SET otp_expires_at=$1 WHERE id=$2`,
-      [newExpiry, user.id]
-    );
+    await pool.query(`UPDATE users SET otp_expires_at=$1 WHERE id=$2`, [newExpiry, user.id]);
 
     res.json({ message: 'OTP verified. You may now reset your password.' });
   } catch (err) {
@@ -313,7 +303,6 @@ const forgotReset = async (req, res) => {
     if (newPassword.length < 8)
       return res.status(400).json({ message: 'Password must be at least 8 characters' });
 
-    // Final OTP check + clear
     const otpUser = await checkOtp(identifier, otp);
     if (!otpUser)
       return res.status(400).json({ message: 'Invalid or expired OTP. Please restart.' });
@@ -323,7 +312,6 @@ const forgotReset = async (req, res) => {
       `UPDATE users SET password_hash=$1, updated_at=NOW() WHERE id=$2`,
       [password_hash, otpUser.id]
     );
-
     res.json({ message: 'Password reset successfully. You can now log in.' });
   } catch (err) {
     console.error(err);
@@ -332,16 +320,17 @@ const forgotReset = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// PROFILE
+// PROFILE — GET
+// GET /sangha/profile
 // ════════════════════════════════════════════════════════════
 const getSanghaProfile = async (req, res) => {
   try {
     const { id: userId } = req.user;
     const result = await pool.query(
-      `SELECT sp.*, u.email, u.phone
-       FROM sangha_profiles sp
-       JOIN users u ON u.id = sp.user_id
-       WHERE sp.user_id = $1`,
+      `SELECT s.*, u.email AS reg_email, u.phone AS reg_phone
+       FROM sanghas s
+       JOIN users u ON u.id = s.sangha_auth_id
+       WHERE s.sangha_auth_id = $1`,
       [userId]
     );
     if (result.rows.length === 0)
@@ -353,28 +342,37 @@ const getSanghaProfile = async (req, res) => {
   }
 };
 
+// ════════════════════════════════════════════════════════════
+// PROFILE — UPDATE
+// PUT /sangha/profile
+// ════════════════════════════════════════════════════════════
 const updateSanghaProfile = async (req, res) => {
   try {
     const { id: userId } = req.user;
     const {
-      sangha_name, location, contact_person, area_covered,
-      description, address_line, pincode, village_town,
-      taluk, district, state,
+      sangha_name, description,
+      address_line, pincode, village_town, taluk, district, state,
       sangha_contact_same, sangha_phone, sangha_email, logo_url,
     } = req.body;
 
     const result = await pool.query(
-      `UPDATE sangha_profiles
-       SET sangha_name=$1, location=$2, contact_person=$3, area_covered=$4,
-           description=$5, address_line=$6, pincode=$7, village_town=$8,
-           taluk=$9, district=$10, state=$11,
-           sangha_contact_same=$12, sangha_phone=$13, sangha_email=$14,
-           logo_url=$15, updated_at=NOW()
-       WHERE user_id=$16 RETURNING *`,
+      `UPDATE sanghas
+       SET sangha_name=$1, description=$2,
+           address_line=$3, pincode=$4, village_town=$5,
+           taluk=$6, district=$7, state=$8,
+           sangha_contact_same=$9,
+           sangha_phone=$10, sangha_email=$11,
+           logo_url=$12, updated_at=NOW()
+       WHERE sangha_auth_id=$13 RETURNING *`,
       [
-        sangha_name, location || district || '', contact_person, area_covered || null,
-        description || null, address_line || null, pincode || null, village_town || null,
-        taluk || null, district || null, state || null,
+        sangha_name,
+        description || null,
+        address_line || null,
+        pincode || null,
+        village_town || null,
+        taluk || null,
+        district || null,
+        state || null,
         sangha_contact_same ?? true,
         sangha_contact_same ? null : (sangha_phone || null),
         sangha_contact_same ? null : (sangha_email || null),
@@ -391,27 +389,27 @@ const updateSanghaProfile = async (req, res) => {
   }
 };
 
-// ─── POST /sangha/profile/logo ────────────────────────────────
+// ════════════════════════════════════════════════════════════
+// LOGO UPLOAD
+// POST /sangha/profile/logo
+// ════════════════════════════════════════════════════════════
 const uploadSanghaLogo = async (req, res) => {
   try {
     const { id: userId } = req.user;
     if (!req.file)
       return res.status(400).json({ message: 'No file uploaded' });
 
-    const filename = `sangha_${userId}_${Date.now()}${path.extname(req.file.originalname)}`;
-    const uploadDir = path.join(__dirname, '../../uploads/logos');
+    const filename  = `sangha_${userId}_${Date.now()}${path.extname(req.file.originalname)}`;
+    const uploadDir = path.join(__dirname, '../../../uploads/logos');
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-    const filepath = path.join(uploadDir, filename);
-    fs.writeFileSync(filepath, req.file.buffer);
-
+    fs.writeFileSync(path.join(uploadDir, filename), req.file.buffer);
     const logo_url = `/uploads/logos/${filename}`;
 
     await pool.query(
-      `UPDATE sangha_profiles SET logo_url=$1, updated_at=NOW() WHERE user_id=$2`,
+      `UPDATE sanghas SET logo_url=$1, updated_at=NOW() WHERE sangha_auth_id=$2`,
       [logo_url, userId]
     );
-
     res.json({ logo_url });
   } catch (err) {
     console.error(err);
@@ -421,17 +419,25 @@ const uploadSanghaLogo = async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // DASHBOARD
+// GET /sangha/dashboard
 // ════════════════════════════════════════════════════════════
 const getDashboard = async (req, res) => {
   try {
-    const { id: sanghaId } = req.user;
+    const { id: userId } = req.user;
+
+    // profiles.sangha_id references sanghas.id (UUID PK), not users.id
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId)
+      return res.status(404).json({ message: 'Sangha not found' });
+
     const [pending, approved, rejected, changesRequested, total] = await Promise.all([
-      pool.query("SELECT COUNT(*) FROM profiles WHERE status='submitted' AND sangha_id=$1", [sanghaId]),
-      pool.query("SELECT COUNT(*) FROM profiles WHERE status='approved' AND sangha_id=$1", [sanghaId]),
-      pool.query("SELECT COUNT(*) FROM profiles WHERE status='rejected' AND sangha_id=$1", [sanghaId]),
+      pool.query("SELECT COUNT(*) FROM profiles WHERE status='submitted'       AND sangha_id=$1", [sanghaId]),
+      pool.query("SELECT COUNT(*) FROM profiles WHERE status='approved'        AND sangha_id=$1", [sanghaId]),
+      pool.query("SELECT COUNT(*) FROM profiles WHERE status='rejected'        AND sangha_id=$1", [sanghaId]),
       pool.query("SELECT COUNT(*) FROM profiles WHERE status='changes_requested' AND sangha_id=$1", [sanghaId]),
-      pool.query("SELECT COUNT(*) FROM profiles WHERE sangha_id=$1", [sanghaId]),
+      pool.query("SELECT COUNT(*) FROM profiles WHERE sangha_id=$1",                               [sanghaId]),
     ]);
+
     res.json({
       pendingApplications: parseInt(pending.rows[0].count),
       approvedUsers:       parseInt(approved.rows[0].count),
@@ -450,7 +456,10 @@ const getDashboard = async (req, res) => {
 // ════════════════════════════════════════════════════════════
 const getMembers = async (req, res) => {
   try {
-    const { id: sanghaId } = req.user;
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
     const result = await pool.query(
       `SELECT u.id, u.email, u.phone,
               p.id AS profile_id, p.status, p.overall_completion_pct, p.submitted_at,
@@ -471,7 +480,10 @@ const getMembers = async (req, res) => {
 
 const getPendingUsers = async (req, res) => {
   try {
-    const { id: sanghaId } = req.user;
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
     const result = await pool.query(
       `SELECT u.id, u.email, u.phone,
               p.id AS profile_id, p.status, p.submitted_at,
@@ -520,9 +532,11 @@ const getUserForReview = async (req, res) => {
 
     res.json({
       user: userRes.rows[0], profile,
-      step1: s1.rows[0] || null, step2: s2.rows[0] || null,
+      step1: s1.rows[0] || null,
+      step2: s2.rows[0] || null,
       step3: { family_info: s3fi.rows[0] || null, members: s3mem.rows },
-      step4: s4.rows, step5: s5.rows,
+      step4: s4.rows,
+      step5: s5.rows,
       step6: { economic: s6eco.rows[0] || null, insurance: s6ins.rows, documents: s6doc.rows },
     });
   } catch (err) {
@@ -609,7 +623,10 @@ const requestChanges = async (req, res) => {
 // ════════════════════════════════════════════════════════════
 const getReports = async (req, res) => {
   try {
-    const { id: sanghaId } = req.user;
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
     const result = await pool.query(
       `SELECT
          COUNT(*) FILTER (WHERE status='approved')                      AS approved_users,
@@ -629,7 +646,7 @@ const getReports = async (req, res) => {
 
 const getActivityLogs = async (req, res) => {
   try {
-    const { id: sanghaId } = req.user;
+    const { id: userId } = req.user;
     const result = await pool.query(
       `SELECT prh.id, prh.action, prh.comment, prh.created_at,
               pd.first_name, pd.last_name, u.email, u.phone
@@ -639,7 +656,7 @@ const getActivityLogs = async (req, res) => {
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
        WHERE prh.performed_by = $1
        ORDER BY prh.created_at DESC LIMIT 100`,
-      [sanghaId]
+      [userId]
     );
     res.json(result.rows);
   } catch (err) {
@@ -654,11 +671,11 @@ const getActivityLogs = async (req, res) => {
 const getAllSanghas = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT sp.id, sp.sangha_name, sp.location, sp.contact_person,
-              sp.area_covered, sp.status, sp.created_at, u.email, u.phone
-       FROM sangha_profiles sp
-       JOIN users u ON u.id = sp.user_id
-       ORDER BY sp.created_at DESC`
+      `SELECT s.id, s.sangha_name, s.district AS location,
+              s.status, s.created_at, s.email, s.phone,
+              s.address_line, s.state
+       FROM sanghas s
+       ORDER BY s.created_at DESC`
     );
     res.json(result.rows);
   } catch (err) {
@@ -670,11 +687,11 @@ const getAllSanghas = async (req, res) => {
 const getSanghaById = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT sp.*, u.email, u.phone FROM sangha_profiles sp
-       JOIN users u ON u.id = sp.user_id WHERE sp.user_id = $1`,
+      `SELECT s.* FROM sanghas s WHERE s.sangha_auth_id = $1`,
       [req.params.id]
     );
-    if (result.rows.length === 0) return res.status(404).json({ message: 'Sangha not found' });
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'Sangha not found' });
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -684,12 +701,16 @@ const getSanghaById = async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // TEAM MEMBERS
+// sangha_members.sangha_id references sanghas.id
 // ════════════════════════════════════════════════════════════
 const getTeamMembers = async (req, res) => {
   try {
-    const { id: sanghaId } = req.user;
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
     const result = await pool.query(
-      `SELECT * FROM sangha_members WHERE sangha_user_id=$1 ORDER BY created_at DESC`,
+      `SELECT * FROM sangha_members WHERE sangha_id=$1 ORDER BY created_at DESC`,
       [sanghaId]
     );
     res.json(result.rows);
@@ -701,11 +722,15 @@ const getTeamMembers = async (req, res) => {
 
 const addTeamMember = async (req, res) => {
   try {
-    const { id: sanghaId } = req.user;
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
     const { fullName, gender, phone, email, dob, role, memberType } = req.body;
     if (!fullName || !role) return res.status(400).json({ message: 'Full name and role are required' });
+
     const result = await pool.query(
-      `INSERT INTO sangha_members (sangha_user_id, full_name, gender, phone, email, dob, role, member_type)
+      `INSERT INTO sangha_members (sangha_id, full_name, gender, phone, email, dob, role, member_type)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [sanghaId, fullName, gender || null, phone || null, email || null, dob || null, role, memberType || null]
     );
@@ -718,10 +743,13 @@ const addTeamMember = async (req, res) => {
 
 const deleteTeamMember = async (req, res) => {
   try {
-    const { id: sanghaId } = req.user;
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
     const { memberId } = req.params;
     const result = await pool.query(
-      `DELETE FROM sangha_members WHERE id=$1 AND sangha_user_id=$2 RETURNING id`,
+      `DELETE FROM sangha_members WHERE id=$1 AND sangha_id=$2 RETURNING id`,
       [memberId, sanghaId]
     );
     if (result.rows.length === 0) return res.status(404).json({ message: 'Member not found' });
@@ -737,12 +765,12 @@ const deleteTeamMember = async (req, res) => {
 // ════════════════════════════════════════════════════════════
 const getApprovedSanghas = async (req, res) => {
   try {
+    // Return s.id (sanghas PK) — this is what profiles.sangha_id references
     const result = await pool.query(
-      `SELECT u.id, sp.sangha_name, sp.location
-       FROM sangha_profiles sp
-       JOIN users u ON u.id = sp.user_id
-       WHERE sp.status = 'approved'
-       ORDER BY sp.sangha_name ASC`
+      `SELECT s.id, s.sangha_name, s.district AS location
+       FROM sanghas s
+       WHERE s.status = 'approved'
+       ORDER BY s.sangha_name ASC`
     );
     res.json(result.rows);
   } catch (err) {
@@ -752,26 +780,15 @@ const getApprovedSanghas = async (req, res) => {
 };
 
 module.exports = {
-  // Register OTP flow
   registerSendOtp, registerVerifyOtp,
-  // Login OTP flow
   loginSendOtp, loginVerifyOtp,
-  // Forgot password flow
   forgotSendOtp, forgotVerifyOtp, forgotReset,
-  // Profile
   getSanghaProfile, updateSanghaProfile, uploadSanghaLogo,
-  // Dashboard
   getDashboard,
-  // Members
   getMembers, getPendingUsers, getUserForReview,
-  // Actions
   approveUser, rejectUser, requestChanges,
-  // Reports
   getReports, getActivityLogs,
-  // Admin
   getAllSanghas, getSanghaById,
-  // Team
   getTeamMembers, addTeamMember, deleteTeamMember,
-  // Public
   getApprovedSanghas,
 };
