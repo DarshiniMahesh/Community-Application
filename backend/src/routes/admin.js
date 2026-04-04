@@ -4,6 +4,7 @@ const { authenticate, requireRole } = require('../middlewares/auth');
 const ac = require('../controllers/adminController');
 
 // ── Public ───────────────────────────────────────────────────
+// Admin login — no auth middleware here
 router.post('/login', ac.loginAdmin);
 
 // ── All routes below require admin auth ──────────────────────
@@ -14,20 +15,16 @@ router.use(requireRole('admin'));
 router.get('/dashboard', ac.getDashboard);
 
 // Sangha management
-router.get('/sangha/pending',       ac.getPendingSanghas);
-router.get('/sangha/all',           ac.getAllSanghas);
-router.post('/sangha/approve/:id',  ac.approveSangha);
-router.post('/sangha/reject/:id',   ac.rejectSangha);
+router.get('/sangha/pending',        ac.getPendingSanghas);
+router.get('/sangha/all',            ac.getAllSanghas);
+router.post('/sangha/approve/:id',   ac.approveSangha);
+router.post('/sangha/reject/:id',    ac.rejectSangha);
 
-// User management — specific routes BEFORE /:id param routes
-router.get('/users/all',            ac.getAllUsers);
-router.get('/users/pending',        ac.getPendingUsers);
-router.post('/users/approve',       ac.approveUser);
-router.post('/users/reject',        ac.rejectUser);
-router.get('/users',                ac.getApprovedUsers);
-
-// Full profile fetch + edit trigger — param routes LAST
-router.get('/users/:id/profile',    ac.getUserProfile);
-router.put('/users/:id/profile',    ac.updateUserProfile);
+// User management
+router.get('/users',                 ac.getApprovedUsers);
+router.get('/users/all',             ac.getAllUsers);
+router.get('/users/pending',         ac.getPendingUsers);   // supports ?sangha_id=xxx
+router.post('/users/approve',        ac.approveUser);
+router.post('/users/reject',         ac.rejectUser);
 
 module.exports = router;

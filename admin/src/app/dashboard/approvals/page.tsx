@@ -22,7 +22,6 @@ interface SanghaItem {
   description: string;
   status: string;
   created_at: string;
-  updated_at: string;
 }
 
 interface UserItem {
@@ -228,20 +227,8 @@ export default function ApprovalsPage() {
                     {s.name?.[0] ?? '?'}
                   </div>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--gray-900)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--gray-900)' }}>
                       {s.name} <span className="chip">{s.id}</span>
-                      {s.updated_at && s.created_at !== s.updated_at && (
-                        <span style={{
-                          fontSize: 10,
-                          background: '#e0f2fe',
-                          color: '#0369a1',
-                          padding: '2px 6px',
-                          borderRadius: 6,
-                          fontWeight: 600,
-                        }}>
-                          Edited
-                        </span>
-                      )}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
