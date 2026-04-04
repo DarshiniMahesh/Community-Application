@@ -99,17 +99,17 @@ export default function Page() {
   const s6doc = ((data?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || []);
 
   const status        = profile?.status as string;
-  const isLocked      = ["submitted", "under_review", "approved"].includes(status);
+  // Approved users CAN edit from profile page — only submitted/under_review are locked
+  const isLocked      = ["submitted", "under_review"].includes(status);
   const completionPct = (profile?.overall_completion_pct as number) || 0;
 
   const fullName    = s1 ? [s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ") : "Your Name";
   const initials    = s1 ? `${s1.first_name?.[0] || ""}${s1.last_name?.[0] || ""}`.toUpperCase() : "?";
   const currentAddr = s4?.find(a => a.address_type === "current");
 
-  const userEduRow  = s5?.[0] ?? null;
+  const userEduRow    = s5?.[0] ?? null;
   const familyMembers = s3?.members || [];
 
-  // Match insurance/doc row by relation for self, by name+relation for family
   const userIns = s6ins.find(r => (r.member_relation as string) === "Self");
   const userDoc = s6doc.find(r => (r.member_relation as string) === "Self");
 
@@ -151,6 +151,17 @@ export default function Page() {
             <InfoField icon={Users}    label="Marital Status" value={s1.is_married ? "Married" : "Single"} />
             {s1.fathers_name && <InfoField icon={User} label="Father's Name" value={s1.fathers_name} />}
             {s1.mothers_name && <InfoField icon={User} label="Mother's Name" value={s1.mothers_name} />}
+            {s1.is_part_of_sangha === "yes" && (
+              <>
+                <InfoField icon={Users} label="Sangha Name"   value={s1.sangha_name} />
+                <InfoField icon={Users} label="Sangha Role"   value={s1.sangha_role} />
+                <InfoField icon={Users} label="Sangha Tenure" value={
+                  s1.sangha_tenure === "part_time" ? "Part Time"
+                  : s1.sangha_tenure === "full_time" ? "Full Time"
+                  : s1.sangha_tenure
+                } />
+              </>
+            )}
           </div>
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
@@ -159,12 +170,25 @@ export default function Page() {
       <Section title="Religious Details" href="/dashboard/profile/religious-details" filled={!!s2} isLocked={isLocked}>
         {s2 ? (
           <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-            <InfoField icon={FileText} label="Gotra"         value={s2.gotra} />
-            <InfoField icon={FileText} label="Pravara"       value={s2.pravara} />
-            <InfoField icon={FileText} label="Upanama"       value={s2.upanama} />
-            <InfoField icon={FileText} label="Kuladevata"    value={s2.kuladevata_other || s2.kuladevata} />
-            <InfoField icon={User}     label="Surname"       value={s2.surname_in_use} />
-            <InfoField icon={User}     label="Family Priest" value={s2.priest_name} />
+            <InfoField icon={FileText} label="Gotra"                         value={s2.gotra} />
+            <InfoField icon={FileText} label="Pravara"                       value={s2.pravara} />
+            <InfoField icon={FileText} label="Upanama (General)"             value={s2.upanama_general} />
+            <InfoField icon={FileText} label="Upanama (Proper)"              value={s2.upanama_proper} />
+            <InfoField icon={FileText} label="Kuladevata"                    value={s2.kuladevata_other || s2.kuladevata} />
+            <InfoField icon={User}     label="Surname"                       value={s2.surname_in_use} />
+            <InfoField icon={User}     label="Family Priest"                 value={s2.priest_name} />
+            <InfoField icon={MapPin}   label="Priest Location"               value={s2.priest_location} />
+            <InfoField
+              icon={FileText}
+              label="Ancestral Family Tracing Challenge"
+              value={s2.demi_god_challenge === "yes" ? "Yes" : s2.demi_god_challenge === "no" ? "No" : null}
+            />
+            {s2.demi_god_challenge === "no" && (
+              <InfoField icon={FileText} label="Demi God" value={s2.demi_god} />
+            )}
+            {s2.demi_god_challenge === "yes" && (
+              <InfoField icon={FileText} label="Common Relative Names" value={s2.demi_god_notes} />
+            )}
           </div>
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
@@ -200,11 +224,10 @@ export default function Page() {
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
 
-      {/* Education & Profession — user row + all family member rows */}
+      {/* Education & Profession */}
       <Section title="Education & Profession" href="/dashboard/profile/education-profession" filled={!!userEduRow} isLocked={isLocked}>
         {userEduRow ? (
           <div className="space-y-2">
-            {/* User's own row */}
             <div className="flex items-center justify-between p-2 bg-muted rounded-lg text-sm">
               <span className="font-medium">{userEduRow.member_name as string || fullName}</span>
               <span className="text-muted-foreground">
@@ -216,7 +239,6 @@ export default function Page() {
                     : ""}
               </span>
             </div>
-            {/* Family member rows — s5[1], s5[2], ... */}
             {(s5 ?? []).slice(1).map((edu, i) => (
               <div key={i} className="flex items-center justify-between p-2 bg-muted rounded-lg text-sm">
                 <span className="font-medium">{edu.member_name as string || `Member ${i + 1}`}</span>
@@ -234,17 +256,15 @@ export default function Page() {
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
 
-      {/* Economic Details — income + insurance + documents */}
+      {/* Economic Details */}
       <Section title="Economic Details" href="/dashboard/profile/economic-details" filled={!!s6eco} isLocked={isLocked}>
         {s6eco ? (
           <div className="space-y-5">
-            {/* Income */}
             <div className="grid grid-cols-2 gap-x-8 gap-y-5">
               <InfoField icon={Wallet} label="Self Income"   value={formatIncome(s6eco.self_income as string)} />
               <InfoField icon={Wallet} label="Family Income" value={formatIncome(s6eco.family_income as string)} />
             </div>
 
-            {/* Insurance per member */}
             {s6ins.length > 0 && (
               <div>
                 <Label className="text-xs text-muted-foreground mb-2 block">Insurance Coverage</Label>
@@ -256,9 +276,9 @@ export default function Page() {
                       </div>
                       <div className="grid grid-cols-2 divide-x divide-border">
                         {[
-                          { label: "Health", key: "health_coverage" },
-                          { label: "Life",   key: "life_coverage" },
-                          { label: "Term",   key: "term_coverage" },
+                          { label: "Health",       key: "health_coverage" },
+                          { label: "Life",         key: "life_coverage" },
+                          { label: "Term",         key: "term_coverage" },
                           { label: "Konkani Card", key: "konkani_card_coverage" },
                         ].map(({ label, key }) => (
                           <div key={key} className="flex items-center justify-between px-3 py-1.5 text-xs">
@@ -273,7 +293,6 @@ export default function Page() {
               </div>
             )}
 
-            {/* Documents per member */}
             {s6doc.length > 0 && (
               <div>
                 <Label className="text-xs text-muted-foreground mb-2 block">Documents</Label>
@@ -285,11 +304,11 @@ export default function Page() {
                       </div>
                       <div className="grid grid-cols-2 divide-x divide-border">
                         {[
-                          { label: "Aadhaar",    key: "aadhaar_coverage" },
-                          { label: "PAN",        key: "pan_coverage" },
-                          { label: "Voter ID",   key: "voter_id_coverage" },
-                          { label: "Land Docs",  key: "land_doc_coverage" },
-                          { label: "DL",         key: "dl_coverage" },
+                          { label: "Aadhaar",   key: "aadhaar_coverage" },
+                          { label: "PAN",       key: "pan_coverage" },
+                          { label: "Voter ID",  key: "voter_id_coverage" },
+                          { label: "Land Docs", key: "land_doc_coverage" },
+                          { label: "DL",        key: "dl_coverage" },
                         ].map(({ label, key }) => (
                           <div key={key} className="flex items-center justify-between px-3 py-1.5 text-xs">
                             <span className="text-muted-foreground">{label}</span>

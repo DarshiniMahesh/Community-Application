@@ -14,7 +14,6 @@ import { ArrowLeft, ArrowRight, User, Heart, Shield, Users, RotateCcw } from "lu
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
-import { resolve } from "dns";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -27,19 +26,20 @@ const steps = [
 ];
 
 const sanghaRoles = [
-  "Common Member","Treasurer","Accountant","Secretary",
-  "Auditor","Hon. Secretary","President","Hon. President",
-  "Advisor","Legal Advisor",
+  "Common Member", "Treasurer", "Accountant", "Secretary",
+  "Auditor", "Hon. Secretary", "President", "Hon. President",
+  "Advisor", "Legal Advisor",
 ];
 
 export default function Page() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]               = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [canReset, setCanReset] = useState(false);
-  const [userContact, setUserContact] = useState({ email: "", phone: "" });
-  const [sanghaList, setSanghaList] = useState<any[]>([]);
+  const [resetting, setResetting]           = useState(false);
+  const [canReset, setCanReset]             = useState(false);
+  const [userContact, setUserContact]       = useState({ email: "", phone: "" });
+  const [sanghaList, setSanghaList]         = useState<{ id: string; sangha_name: string; location: string }[]>([]);
+
   const [formData, setFormData] = useState({
     firstName: "", middleName: "", lastName: "",
     gender: "", dateOfBirth: "",
@@ -52,6 +52,7 @@ export default function Page() {
     sanghaRole: "",
     sanghaTenure: "",
   });
+
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -59,17 +60,13 @@ export default function Page() {
       api.get("/users/profile/full"),
       api.get("/users/profile"),
     ]).then(([full, meta]) => {
-      const s = full.step1;
+      const s      = full.step1;
       const status = meta.status as string;
       setCanReset(status === "draft" || status === "changes_requested" || status === "approved");
-
-      api.get("/users/profile").then(p => {
-        setUserContact({
-          email: (p as Record<string,string>).email || "",
-          phone: (p as Record<string,string>).phone || "",
-        });
-      }).catch(() => {});
-
+      setUserContact({
+        email: (meta as Record<string, string>).email || "",
+        phone: (meta as Record<string, string>).phone || "",
+      });
       if (s) {
         setFormData({
           firstName:         s.first_name || "",
@@ -90,18 +87,10 @@ export default function Page() {
         });
       }
     }).catch(() => {});
-  }, []);
 
-
-  useEffect(() => {
     api.get("/sangha/approved-list")
-      .then((res) => {
-        console.log("SANGHA:", res);
-        setSanghaList(res);
-      })
-      .catch((err) => {
-        console.log(err);
-      });
+      .then((res) => setSanghaList(res))
+      .catch(() => {});
   }, []);
 
   const buildPayload = () => ({
@@ -134,7 +123,7 @@ export default function Page() {
     if (!formData.hasDisability)     e.hasDisability  = "Please select disability status";
     if (!formData.isPartOfSangha)    e.isPartOfSangha = "Please answer Sangha membership";
     if (formData.isPartOfSangha === "yes" && !formData.sanghaName.trim()) e.sanghaName = "Sangha name is required";
-    if (formData.isPartOfSangha === "yes" && !formData.sanghaRole) e.sanghaRole = "Please select your role";
+    if (formData.isPartOfSangha === "yes" && !formData.sanghaRole)        e.sanghaRole = "Please select your role";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -164,7 +153,7 @@ export default function Page() {
         surnameInUse: "", surnameAsPerGotra: "",
         fathersName: "", mothersName: "",
         maritalStatus: "", hasDisability: "",
-        isPartOfSangha: "", sanghaName: "", sanghaRole: "",sanghaTenure: "",
+        isPartOfSangha: "", sanghaName: "", sanghaRole: "", sanghaTenure: "",
       });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
@@ -347,12 +336,12 @@ export default function Page() {
           <div className="space-y-3">
             <Label>Are you currently part of any Sangha? <span className="text-destructive">*</span></Label>
             <RadioGroup value={formData.isPartOfSangha}
-              onValueChange={v => { setFormData(p => ({ ...p, isPartOfSangha: v, sanghaName: "", sanghaRole: "" })); setErrors(e => ({ ...e, isPartOfSangha: "" })); }}
+              onValueChange={v => { setFormData(p => ({ ...p, isPartOfSangha: v, sanghaName: "", sanghaRole: "", sanghaTenure: "" })); setErrors(e => ({ ...e, isPartOfSangha: "" })); }}
               className="flex gap-6">
               {["No", "Yes"].map(opt => (
                 <div key={opt}
                   className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 cursor-pointer transition-all ${formData.isPartOfSangha === opt.toLowerCase() ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
-                  onClick={() => { setFormData(p => ({ ...p, isPartOfSangha: opt.toLowerCase(), sanghaName: "", sanghaRole: "" })); setErrors(e => ({ ...e, isPartOfSangha: "" })); }}>
+                  onClick={() => { setFormData(p => ({ ...p, isPartOfSangha: opt.toLowerCase(), sanghaName: "", sanghaRole: "", sanghaTenure: "" })); setErrors(e => ({ ...e, isPartOfSangha: "" })); }}>
                   <RadioGroupItem value={opt.toLowerCase()} id={`sangha-${opt}`} />
                   <Label htmlFor={`sangha-${opt}`} className="font-normal cursor-pointer">{opt}</Label>
                 </div>
@@ -364,30 +353,25 @@ export default function Page() {
           {formData.isPartOfSangha === "yes" && (
             <div className="grid grid-cols-3 gap-4 pt-2">
               <div className="space-y-2 w-full">
-<Label>Sangha Name <span className="text-destructive">*</span></Label>
-  <Select
-    value={formData.sanghaName}
-    onValueChange={(v) => set("sanghaName", v)}
-  >
-    <SelectTrigger className={errors.sanghaName ? "border-destructive" : ""}>
-      <SelectValue placeholder="Select a Sangha" />
-    </SelectTrigger>
-    <SelectContent>
-      {sanghaList.length === 0 ? (
-        <SelectItem value="none" disabled>
-          No approved Sanghas available
-        </SelectItem>
-      ) : (
-      sanghaList.map((s) => (
-        <SelectItem key={s.id} value={s.sangha_name}>
-          {s.sangha_name} — {s.location}
-        </SelectItem>
-      )))}
-    </SelectContent>
-  </Select>
-  {errors.sanghaName && <p className="text-xs text-destructive">{errors.sanghaName}</p>}
-  </div>
-
+                <Label>Sangha Name <span className="text-destructive">*</span></Label>
+                <Select value={formData.sanghaName} onValueChange={(v) => set("sanghaName", v)}>
+                  <SelectTrigger className={errors.sanghaName ? "border-destructive" : ""}>
+                    <SelectValue placeholder="Select a Sangha" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sanghaList.length === 0 ? (
+                      <SelectItem value="none" disabled>No approved Sanghas available</SelectItem>
+                    ) : (
+                      sanghaList.map((s) => (
+                        <SelectItem key={s.id} value={s.sangha_name}>
+                          {s.sangha_name} — {s.location}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {errors.sanghaName && <p className="text-xs text-destructive">{errors.sanghaName}</p>}
+              </div>
 
               <div className="space-y-2 w-full">
                 <Label>Your Role <span className="text-destructive">*</span></Label>
@@ -401,23 +385,19 @@ export default function Page() {
                 </Select>
                 {errors.sanghaRole && <p className="text-xs text-destructive">{errors.sanghaRole}</p>}
               </div>
-              
-              <div className="space-y-2 w-full">
-  <Label>Tenure <span className="text-destructive">*</span></Label>
-  <Select
-    value={formData.sanghaTenure}
-    onValueChange={(v) => set("sanghaTenure", v)}
-  >
-    <SelectTrigger>
-      <SelectValue placeholder="Select tenure" />
-    </SelectTrigger>
-    <SelectContent>
-      <SelectItem value="part_time">Part Time</SelectItem>
-      <SelectItem value="full_time">Full Time</SelectItem>
-    </SelectContent>
-  </Select>
-</div>
 
+              <div className="space-y-2 w-full">
+                <Label>Tenure</Label>
+                <Select value={formData.sanghaTenure} onValueChange={(v) => set("sanghaTenure", v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select tenure" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="part_time">Part Time</SelectItem>
+                    <SelectItem value="full_time">Full Time</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
         </CardContent>

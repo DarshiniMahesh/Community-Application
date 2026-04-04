@@ -99,16 +99,10 @@ function SectionHeader({
   );
 }
 
-// ✅ FIX: Strict coverage check — array must exist AND have at least one value.
-// Old logic used .length > 0 which treated any non-empty array as true,
-// causing every field to show "Yes" even for wrong/mismatched data.
 function hasCoverage(obj: Record<string, unknown> | undefined, key: string): boolean {
   return Array.isArray(obj?.[key]) && (obj![key] as string[]).length > 0;
 }
 
-// ✅ FIX: Always match insurance/document rows by member_name + member_relation.
-// Old code used array index (s6ins[idx+1]) which breaks if the API returns
-// rows in a different order or a member was added/removed.
 function findMemberRow(
   rows: Record<string, unknown>[],
   name: string,
@@ -154,7 +148,7 @@ export default function Page() {
   }, []);
 
   const status      = profileMeta?.status as string;
-  const isLocked    = ["submitted", "under_review", "approved"].includes(status);
+  const isLocked    = ["submitted", "under_review"].includes(status);
   const submittedAt = profileMeta?.submitted_at as string | null;
 
   const handleSubmit = () => {
@@ -199,8 +193,6 @@ export default function Page() {
 
   const userEdu = s5?.[0];
 
-  // ✅ FIX: Match user's own insurance/doc row by relation "Self", not assumed index 0.
-  // If the API ever returns rows in a different order, index 0 would be wrong.
   const userIns = findMemberRow(s6ins, s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "", "Self")
     ?? s6ins.find(r => (r.member_relation as string) === "Self");
   const userDoc = findMemberRow(s6doc, s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "", "Self")
@@ -268,8 +260,9 @@ export default function Page() {
                   <Field label="Disability"     value={s1.has_disability === "yes" ? "Yes" : s1.has_disability === "no" ? "No" : null} />
                   {s1.is_part_of_sangha === "yes" && (
                     <>
-                      <Field label="Sangha Name" value={s1.sangha_name} />
-                      <Field label="Sangha Role" value={s1.sangha_role} />
+                      <Field label="Sangha Name"   value={s1.sangha_name} />
+                      <Field label="Sangha Role"   value={s1.sangha_role} />
+                      <Field label="Sangha Tenure" value={s1.sangha_tenure === "part_time" ? "Part Time" : s1.sangha_tenure === "full_time" ? "Full Time" : s1.sangha_tenure} />
                     </>
                   )}
                 </div>
@@ -283,13 +276,24 @@ export default function Page() {
               <SectionHeader title="Religious Details" href="/dashboard/profile/religious-details" isLocked={isLocked} />
               {s2 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <Field label="Gotra"           value={s2.gotra} />
-                  <Field label="Pravara"         value={s2.pravara} />
-                  <Field label="Upanama"         value={s2.upanama} />
-                  <Field label="Kuladevata"      value={s2.kuladevata_other || s2.kuladevata} />
-                  <Field label="Surname"         value={s2.surname_in_use} />
-                  <Field label="Family Priest"   value={s2.priest_name} />
-                  <Field label="Priest Location" value={s2.priest_location} />
+                  <Field label="Gotra"                value={s2.gotra} />
+                  <Field label="Pravara"              value={s2.pravara} />
+                  <Field label="Upanama (General)"    value={s2.upanama_general} />
+                  <Field label="Upanama (Proper)"     value={s2.upanama_proper} />
+                  <Field label="Kuladevata"           value={s2.kuladevata_other || s2.kuladevata} />
+                  <Field label="Surname"              value={s2.surname_in_use} />
+                  <Field label="Family Priest"        value={s2.priest_name} />
+                  <Field label="Priest Location"      value={s2.priest_location} />
+                  <Field
+                    label="Ancestral Family Tracing Challenge"
+                    value={s2.demi_god_challenge === "yes" ? "Yes" : s2.demi_god_challenge === "no" ? "No" : null}
+                  />
+                  {s2.demi_god_challenge === "no" && (
+                    <Field label="Demi God" value={s2.demi_god} />
+                  )}
+                  {s2.demi_god_challenge === "yes" && (
+                    <Field label="Common Relative Names" value={s2.demi_god_notes} />
+                  )}
                 </div>
               ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
             </div>
@@ -422,10 +426,6 @@ export default function Page() {
             <CardContent className="space-y-8">
               {familyMembers.map((member, idx) => {
                 const memberEdu = s5?.[idx + 1];
-
-                // ✅ FIX: Match by member_name + member_relation, never by index.
-                // s6ins[idx+1] would silently pick the wrong row if any member
-                // was added, removed, or returned in a different order from the API.
                 const memberIns = findMemberRow(s6ins, member.name, member.relation);
                 const memberDoc = findMemberRow(s6doc, member.name, member.relation);
 
