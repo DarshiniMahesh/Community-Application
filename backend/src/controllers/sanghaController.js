@@ -9,7 +9,7 @@ const DEMO_OTP = '123456';
 
 async function writeOtp(identifier) {
   const isEmail = identifier.includes('@');
-  const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+  const expires = new Date(Date.now() + 10 * 60 * 1000);
   await pool.query(
     `UPDATE users SET otp_code=$1, otp_expires_at=$2
      WHERE ${isEmail ? 'email' : 'phone'} = $3`,
@@ -36,7 +36,6 @@ async function checkOtp(identifier, otp) {
   return user;
 }
 
-// Helper: get sangha's own UUID id from user id
 async function getSanghaId(userId) {
   const res = await pool.query(
     'SELECT id FROM sanghas WHERE sangha_auth_id=$1', [userId]
@@ -45,17 +44,14 @@ async function getSanghaId(userId) {
 }
 
 // ════════════════════════════════════════════════════════════
-// REGISTER — Step 1: sangha_name + email/phone + password → OTP
+// REGISTER — Step 1
 // POST /sangha/register/send-otp
 // ════════════════════════════════════════════════════════════
 const registerSendOtp = async (req, res) => {
   try {
     const { sangha_name, email, phone, password } = req.body;
-
     if (!sangha_name || !password || (!email && !phone)) {
-      return res.status(400).json({
-        message: 'sangha_name, password, and email or phone are required',
-      });
+      return res.status(400).json({ message: 'sangha_name, password, and email or phone are required' });
     }
     if (password.length < 8)
       return res.status(400).json({ message: 'Password must be at least 8 characters' });
@@ -70,7 +66,6 @@ const registerSendOtp = async (req, res) => {
       if (existingUser.is_active) {
         return res.status(409).json({ message: 'An account with this email or phone already exists' });
       }
-      // Incomplete registration — re-use the row
       const password_hash = await bcrypt.hash(password, 10);
       await pool.query(
         `UPDATE users SET password_hash=$1, otp_code=NULL, otp_expires_at=NULL WHERE id=$2`,
@@ -84,7 +79,6 @@ const registerSendOtp = async (req, res) => {
         [existingUser.id, sangha_name, email || null, phone || null]
       );
     } else {
-      // Fresh registration
       const password_hash = await bcrypt.hash(password, 10);
       const userRes = await pool.query(
         `INSERT INTO users (role, email, phone, password_hash, is_active)
@@ -109,7 +103,7 @@ const registerSendOtp = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// REGISTER — Step 2: verify OTP → activate account
+// REGISTER — Step 2
 // POST /sangha/register/verify-otp
 // ════════════════════════════════════════════════════════════
 const registerVerifyOtp = async (req, res) => {
@@ -148,7 +142,7 @@ const registerVerifyOtp = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// LOGIN — Step 1: verify credentials → send OTP
+// LOGIN — Step 1
 // POST /sangha/login/send-otp
 // ════════════════════════════════════════════════════════════
 const loginSendOtp = async (req, res) => {
@@ -187,7 +181,7 @@ const loginSendOtp = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// LOGIN — Step 2: verify OTP → return token
+// LOGIN — Step 2
 // POST /sangha/login/verify-otp
 // ════════════════════════════════════════════════════════════
 const loginVerifyOtp = async (req, res) => {
@@ -229,7 +223,7 @@ const loginVerifyOtp = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// FORGOT PASSWORD — Step 1: send OTP
+// FORGOT PASSWORD — Step 1
 // POST /sangha/forgot-password/send-otp
 // ════════════════════════════════════════════════════════════
 const forgotSendOtp = async (req, res) => {
@@ -256,7 +250,7 @@ const forgotSendOtp = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// FORGOT PASSWORD — Step 2: verify OTP (keep OTP for reset)
+// FORGOT PASSWORD — Step 2
 // POST /sangha/forgot-password/verify-otp
 // ════════════════════════════════════════════════════════════
 const forgotVerifyOtp = async (req, res) => {
@@ -280,7 +274,6 @@ const forgotVerifyOtp = async (req, res) => {
     if (new Date() > new Date(user.otp_expires_at))
       return res.status(400).json({ message: 'OTP has expired' });
 
-    // Extend expiry by 15 min so reset endpoint can also validate
     const newExpiry = new Date(Date.now() + 15 * 60 * 1000);
     await pool.query(`UPDATE users SET otp_expires_at=$1 WHERE id=$2`, [newExpiry, user.id]);
 
@@ -292,7 +285,7 @@ const forgotVerifyOtp = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// FORGOT PASSWORD — Step 3: reset password
+// FORGOT PASSWORD — Step 3
 // POST /sangha/forgot-password/reset
 // ════════════════════════════════════════════════════════════
 const forgotReset = async (req, res) => {
@@ -396,7 +389,6 @@ const updateSanghaProfile = async (req, res) => {
 const submitProfile = async (req, res) => {
   try {
     const { id: userId } = req.user;
-
     const result = await pool.query(
       `UPDATE sanghas
        SET status='pending_approval', updated_at=NOW()
@@ -404,10 +396,8 @@ const submitProfile = async (req, res) => {
        RETURNING status`,
       [userId]
     );
-
     if (result.rows.length === 0)
       return res.status(404).json({ message: 'Sangha not found' });
-
     res.json({ message: 'Profile submitted for approval' });
   } catch (err) {
     console.error(err);
@@ -450,17 +440,16 @@ const uploadSanghaLogo = async (req, res) => {
 const getDashboard = async (req, res) => {
   try {
     const { id: userId } = req.user;
-
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId)
       return res.status(404).json({ message: 'Sangha not found' });
 
     const [pending, approved, rejected, changesRequested, total] = await Promise.all([
-      pool.query("SELECT COUNT(*) FROM profiles WHERE status='submitted'       AND sangha_id=$1", [sanghaId]),
-      pool.query("SELECT COUNT(*) FROM profiles WHERE status='approved'        AND sangha_id=$1", [sanghaId]),
-      pool.query("SELECT COUNT(*) FROM profiles WHERE status='rejected'        AND sangha_id=$1", [sanghaId]),
+      pool.query("SELECT COUNT(*) FROM profiles WHERE status='submitted'         AND sangha_id=$1", [sanghaId]),
+      pool.query("SELECT COUNT(*) FROM profiles WHERE status='approved'          AND sangha_id=$1", [sanghaId]),
+      pool.query("SELECT COUNT(*) FROM profiles WHERE status='rejected'          AND sangha_id=$1", [sanghaId]),
       pool.query("SELECT COUNT(*) FROM profiles WHERE status='changes_requested' AND sangha_id=$1", [sanghaId]),
-      pool.query("SELECT COUNT(*) FROM profiles WHERE sangha_id=$1",                               [sanghaId]),
+      pool.query("SELECT COUNT(*) FROM profiles WHERE sangha_id=$1",                                [sanghaId]),
     ]);
 
     res.json({
@@ -578,10 +567,18 @@ const approveUser = async (req, res) => {
   try {
     const { userId, comment } = req.body;
     const { id: reviewerId } = req.user;
-    const profileRes = await pool.query('SELECT id, status FROM profiles WHERE user_id=$1', [userId]);
-    if (profileRes.rows.length === 0) return res.status(404).json({ message: 'Profile not found' });
-    const { id: profileId, status } = profileRes.rows[0];
-    if (status === 'approved') return res.status(409).json({ message: 'Profile already approved' });
+
+    const profileRes = await pool.query(
+      'SELECT id, status, sangha_id FROM profiles WHERE user_id=$1',
+      [userId]
+    );
+    if (profileRes.rows.length === 0)
+      return res.status(404).json({ message: 'Profile not found' });
+
+    const { id: profileId, status, sangha_id } = profileRes.rows[0];
+    if (status === 'approved')
+      return res.status(409).json({ message: 'Profile already approved' });
+
     await pool.query(
       `UPDATE profiles SET status='approved', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2 WHERE id=$3`,
       [reviewerId, comment || null, profileId]
@@ -590,6 +587,62 @@ const approveUser = async (req, res) => {
       `INSERT INTO profile_review_history (profile_id, action, performed_by, comment) VALUES ($1,'approved',$2,$3)`,
       [profileId, reviewerId, comment || null]
     );
+
+    const personalRes = await pool.query(
+      `SELECT first_name, middle_name, last_name, gender, date_of_birth,
+              is_part_of_sangha, sangha_role, sangha_tenure
+       FROM personal_details WHERE profile_id=$1`,
+      [profileId]
+    );
+
+    if (personalRes.rows.length > 0) {
+      const pd = personalRes.rows[0];
+      if (pd.is_part_of_sangha === 'yes' && sangha_id) {
+        const userRes = await pool.query(
+          'SELECT email, phone FROM users WHERE id=$1', [userId]
+        );
+        const u = userRes.rows[0];
+
+        const alreadyExists = await pool.query(
+          `SELECT id FROM sangha_members
+           WHERE sangha_id=$1
+             AND (
+               ($2::text IS NOT NULL AND email = $2)
+               OR ($3::text IS NOT NULL AND phone = $3)
+             )`,
+          [sangha_id, u?.email || null, u?.phone || null]
+        );
+
+        if (alreadyExists.rows.length === 0) {
+          let memberType = pd.sangha_tenure || null;
+          if (memberType) {
+            const t = memberType.toLowerCase().replace(/[_\s]/g, '');
+            if (t === 'fulltime') memberType = 'Full Time';
+            if (t === 'parttime') memberType = 'Part Time';
+          }
+
+          await pool.query(
+            `INSERT INTO sangha_members
+               (sangha_id, first_name, middle_name, last_name,
+                gender, email, phone, dob, role, member_type)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            [
+              sangha_id,
+              pd.first_name,
+              pd.middle_name   || null,
+              pd.last_name,
+              pd.gender        || null,
+              u?.email         || null,
+              u?.phone         || null,
+              pd.date_of_birth || null,
+              pd.sangha_role   || null,
+              memberType,
+            ]
+          );
+        }
+      }
+    }
+
     res.json({ message: 'User approved successfully' });
   } catch (err) {
     console.error(err);
@@ -670,19 +723,34 @@ const getReports = async (req, res) => {
   }
 };
 
+// ════════════════════════════════════════════════════════════
+// ACTIVITY LOGS  ← UPDATED
+// GET /sangha/activity-logs
+// ════════════════════════════════════════════════════════════
 const getActivityLogs = async (req, res) => {
   try {
     const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
     const result = await pool.query(
-      `SELECT prh.id, prh.action, prh.comment, prh.created_at,
-              pd.first_name, pd.last_name, u.email, u.phone
-       FROM profile_review_history prh
-       JOIN profiles p ON p.id = prh.profile_id
+      `SELECT
+         p.id              AS profile_id,
+         u.id              AS user_id,
+         u.email,
+         u.phone,
+         pd.first_name,
+         pd.last_name,
+         p.status,
+         p.submitted_at,
+         p.reviewed_at,
+         p.review_comment
+       FROM profiles p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
-       WHERE prh.performed_by = $1
-       ORDER BY prh.created_at DESC LIMIT 100`,
-      [userId]
+       WHERE p.sangha_id = $1
+       ORDER BY COALESCE(p.submitted_at, p.created_at) DESC`,
+      [sanghaId]
     );
     res.json(result.rows);
   } catch (err) {
@@ -735,7 +803,24 @@ const getTeamMembers = async (req, res) => {
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
     const result = await pool.query(
-      `SELECT * FROM sangha_members WHERE sangha_id=$1 ORDER BY created_at DESC`,
+      `SELECT
+         id,
+         TRIM(CONCAT(first_name, ' ',
+           COALESCE(middle_name || ' ', ''),
+           last_name)) AS full_name,
+         first_name,
+         middle_name,
+         last_name,
+         gender,
+         phone,
+         email,
+         dob,
+         role,
+         member_type,
+         created_at
+       FROM sangha_members
+       WHERE sangha_id=$1
+       ORDER BY created_at DESC`,
       [sanghaId]
     );
     res.json(result.rows);
@@ -751,14 +836,60 @@ const addTeamMember = async (req, res) => {
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
-    const { fullName, gender, phone, email, dob, role, memberType } = req.body;
-    if (!fullName || !role) return res.status(400).json({ message: 'Full name and role are required' });
+    const { firstName, middleName, lastName, gender, phone, email, dob, role, memberType } = req.body;
+
+    if (!firstName || !lastName || !role) {
+      return res.status(400).json({ message: 'First name, last name and role are required' });
+    }
+    if (!phone && !email) {
+      return res.status(400).json({ message: 'At least one of phone or email is required' });
+    }
+
+    if (email || phone) {
+      const existingUser = await pool.query(
+        `SELECT id FROM users WHERE ($1::text IS NOT NULL AND email = $1) OR ($2::text IS NOT NULL AND phone = $2)`,
+        [email || null, phone || null]
+      );
+      if (existingUser.rows.length > 0) {
+        return res.status(400).json({
+          message: 'A registered user with this email or phone already exists. They can apply directly through the app.',
+        });
+      }
+    }
+
+    if (email || phone) {
+      const existingMember = await pool.query(
+        `SELECT id FROM sangha_members
+         WHERE sangha_id = $1
+           AND (($2::text IS NOT NULL AND email = $2) OR ($3::text IS NOT NULL AND phone = $3))`,
+        [sanghaId, email || null, phone || null]
+      );
+      if (existingMember.rows.length > 0) {
+        return res.status(400).json({
+          message: 'A member with this email or phone already exists in this Sangha.',
+        });
+      }
+    }
 
     const result = await pool.query(
-      `INSERT INTO sangha_members (sangha_id, full_name, gender, phone, email, dob, role, member_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [sanghaId, fullName, gender || null, phone || null, email || null, dob || null, role, memberType || null]
+      `INSERT INTO sangha_members
+         (sangha_id, first_name, middle_name, last_name, gender, phone, email, dob, role, member_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       RETURNING *`,
+      [
+        sanghaId,
+        firstName,
+        middleName || null,
+        lastName,
+        gender     || null,
+        phone      || null,
+        email      || null,
+        dob        || null,
+        role,
+        memberType || null,
+      ]
     );
+
     res.status(201).json({ message: 'Member added', member: result.rows[0] });
   } catch (err) {
     console.error(err);

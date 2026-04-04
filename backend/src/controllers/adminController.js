@@ -6,11 +6,9 @@ const { signToken } = require('../utils/jwt');
 const loginAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;
-
     if (!email || !password)
       return res.status(400).json({ message: 'Email and password are required' });
 
-    // Hardcoded demo admin
     if (email === 'admin@gmail.com' && password === 'admin@123') {
       const token = signToken({ id: 'hardcoded-admin', role: 'admin' });
       return res.json({ token, role: 'admin', email });
@@ -26,10 +24,8 @@ const loginAdmin = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
 
     const user = userRes.rows[0];
-
     if (!user.is_active || user.is_deleted)
       return res.status(401).json({ message: 'Account is disabled' });
-
     if (!user.password_hash)
       return res.status(401).json({ message: 'Invalid credentials' });
 
@@ -51,15 +47,9 @@ const loginAdmin = async (req, res) => {
 const getDashboard = async (req, res) => {
   try {
     const [
-      totalUsers,
-      totalSangha,
-      approvedUsers,
-      rejectedUsers,
-      pendingUsers,
-      changesRequested,
-      pendingSangha,
-      approvedSangha,
-      rejectedSangha,
+      totalUsers, totalSangha,
+      approvedUsers, rejectedUsers, pendingUsers, changesRequested,
+      pendingSangha, approvedSangha, rejectedSangha,
     ] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM users WHERE role='user' AND is_deleted=FALSE"),
       pool.query("SELECT COUNT(*) FROM sanghas"),
@@ -111,7 +101,6 @@ const getPendingSanghas = async (req, res) => {
 };
 
 // ─── GET /admin/sangha/all ────────────────────────────────────
-// Returns only approved sanghas for the Sangha Management page
 const getAllSanghas = async (req, res) => {
   try {
     const result = await pool.query(
@@ -133,22 +122,16 @@ const getAllSanghas = async (req, res) => {
 };
 
 // ─── POST /admin/sangha/approve/:id ──────────────────────────
-// :id is sanghas.sangha_auth_id (the sangha's user id)
 const approveSangha = async (req, res) => {
   try {
     const { id } = req.params;
-
     const result = await pool.query(
-      `UPDATE sanghas
-       SET status='approved', updated_at=NOW()
-       WHERE sangha_auth_id=$1
-       RETURNING id`,
+      `UPDATE sanghas SET status='approved', updated_at=NOW()
+       WHERE sangha_auth_id=$1 RETURNING id`,
       [id]
     );
-
     if (result.rows.length === 0)
       return res.status(404).json({ message: 'Sangha not found' });
-
     res.json({ message: 'Sangha approved successfully' });
   } catch (err) {
     console.error(err);
@@ -157,23 +140,17 @@ const approveSangha = async (req, res) => {
 };
 
 // ─── POST /admin/sangha/reject/:id ───────────────────────────
-// :id is sanghas.sangha_auth_id (the sangha's user id)
 const rejectSangha = async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
-
     const result = await pool.query(
-      `UPDATE sanghas
-       SET status='rejected', rejection_reason=$1, updated_at=NOW()
-       WHERE sangha_auth_id=$2
-       RETURNING id`,
+      `UPDATE sanghas SET status='rejected', rejection_reason=$1, updated_at=NOW()
+       WHERE sangha_auth_id=$2 RETURNING id`,
       [reason || null, id]
     );
-
     if (result.rows.length === 0)
       return res.status(404).json({ message: 'Sangha not found' });
-
     res.json({ message: 'Sangha rejected successfully' });
   } catch (err) {
     console.error(err);
@@ -182,7 +159,6 @@ const rejectSangha = async (req, res) => {
 };
 
 // ─── GET /admin/users ─────────────────────────────────────────
-// Approved users whose sangha is also approved
 const getApprovedUsers = async (req, res) => {
   try {
     const result = await pool.query(
@@ -195,8 +171,7 @@ const getApprovedUsers = async (req, res) => {
        JOIN users u ON u.id = p.user_id
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
        LEFT JOIN sanghas s ON s.id = p.sangha_id
-       WHERE p.status = 'approved'
-         AND s.status = 'approved'
+       WHERE p.status = 'approved' AND s.status = 'approved'
        ORDER BY p.updated_at DESC`
     );
     res.json(result.rows);
@@ -207,11 +182,9 @@ const getApprovedUsers = async (req, res) => {
 };
 
 // ─── GET /admin/users/pending ─────────────────────────────────
-// Pending users — optionally filtered by ?sangha_id=xxx
 const getPendingUsers = async (req, res) => {
   try {
     const { sangha_id } = req.query;
-
     let query = `
       SELECT u.id, u.email, u.phone,
              p.id AS profile_id, p.status, p.submitted_at, p.overall_completion_pct,
@@ -224,15 +197,12 @@ const getPendingUsers = async (req, res) => {
       LEFT JOIN sanghas s ON s.id = p.sangha_id
       WHERE p.status IN ('submitted', 'under_review')
     `;
-
     const params = [];
     if (sangha_id) {
       params.push(sangha_id);
       query += ` AND p.sangha_id = $${params.length}`;
     }
-
     query += ' ORDER BY p.submitted_at DESC';
-
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
@@ -246,39 +216,30 @@ const approveUser = async (req, res) => {
   try {
     const { userId, comment } = req.body;
     const adminId = req.user.id;
-
     if (!userId)
       return res.status(400).json({ message: 'userId is required' });
 
     const profileRes = await pool.query(
       'SELECT id, status FROM profiles WHERE user_id=$1', [userId]
     );
-
     if (profileRes.rows.length === 0)
       return res.status(404).json({ message: 'Profile not found' });
 
     const { id: profileId, status } = profileRes.rows[0];
-
     if (status === 'approved')
       return res.status(409).json({ message: 'Profile already approved' });
 
     const reviewerId = adminId === 'hardcoded-admin' ? null : adminId;
-
     await pool.query(
-      `UPDATE profiles
-       SET status='approved', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2
-       WHERE id=$3`,
+      `UPDATE profiles SET status='approved', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2 WHERE id=$3`,
       [reviewerId, comment || null, profileId]
     );
-
     if (reviewerId) {
       await pool.query(
-        `INSERT INTO profile_review_history (profile_id, action, performed_by, comment)
-         VALUES ($1, 'approved', $2, $3)`,
+        `INSERT INTO profile_review_history (profile_id, action, performed_by, comment) VALUES ($1,'approved',$2,$3)`,
         [profileId, reviewerId, comment || null]
       );
     }
-
     res.json({ message: 'User approved successfully' });
   } catch (err) {
     console.error(err);
@@ -291,35 +252,27 @@ const rejectUser = async (req, res) => {
   try {
     const { userId, comment } = req.body;
     const adminId = req.user.id;
-
     if (!userId)
       return res.status(400).json({ message: 'userId is required' });
 
     const profileRes = await pool.query(
       'SELECT id, status FROM profiles WHERE user_id=$1', [userId]
     );
-
     if (profileRes.rows.length === 0)
       return res.status(404).json({ message: 'Profile not found' });
 
     const { id: profileId } = profileRes.rows[0];
     const reviewerId = adminId === 'hardcoded-admin' ? null : adminId;
-
     await pool.query(
-      `UPDATE profiles
-       SET status='rejected', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2
-       WHERE id=$3`,
+      `UPDATE profiles SET status='rejected', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2 WHERE id=$3`,
       [reviewerId, comment || null, profileId]
     );
-
     if (reviewerId) {
       await pool.query(
-        `INSERT INTO profile_review_history (profile_id, action, performed_by, comment)
-         VALUES ($1, 'rejected', $2, $3)`,
+        `INSERT INTO profile_review_history (profile_id, action, performed_by, comment) VALUES ($1,'rejected',$2,$3)`,
         [profileId, reviewerId, comment || null]
       );
     }
-
     res.json({ message: 'User rejected successfully' });
   } catch (err) {
     console.error(err);
@@ -328,7 +281,6 @@ const rejectUser = async (req, res) => {
 };
 
 // ─── GET /admin/users/all ─────────────────────────────────────
-// All users regardless of status (full user management)
 const getAllUsers = async (req, res) => {
   try {
     const result = await pool.query(
@@ -351,6 +303,65 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+// ─── GET /admin/activity-logs ─────────────────────────────────
+const getActivityLogs = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT
+         p.id              AS profile_id,
+         u.id              AS user_id,
+         u.email,
+         u.phone,
+         pd.first_name,
+         pd.last_name,
+         p.status,
+         p.submitted_at,
+         p.reviewed_at,
+         p.review_comment,
+         CASE
+           WHEN ru.role = 'admin'  THEN 'Admin'
+           WHEN ru.role = 'sangha' THEN COALESCE(sr.sangha_name, 'Sangha')
+           ELSE NULL
+         END AS reviewed_by_name
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN personal_details pd ON pd.profile_id = p.id
+       LEFT JOIN users ru ON ru.id = p.reviewed_by
+       LEFT JOIN sanghas sr ON sr.sangha_auth_id = p.reviewed_by
+       ORDER BY COALESCE(p.submitted_at, p.created_at) DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── GET /admin/sangha/history ────────────────────────────────
+const getSanghaHistory = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT
+         s.id,
+         s.sangha_auth_id,
+         s.sangha_name,
+         s.email,
+         s.phone,
+         s.district  AS location,
+         s.state,
+         s.status,
+         s.created_at  AS submitted_at,
+         s.updated_at  AS reviewed_at
+       FROM sanghas s
+       ORDER BY s.updated_at DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = {
   loginAdmin,
   getDashboard,
@@ -363,4 +374,6 @@ module.exports = {
   approveUser,
   rejectUser,
   getAllUsers,
+  getActivityLogs,
+  getSanghaHistory,
 };

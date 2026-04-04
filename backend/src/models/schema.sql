@@ -565,12 +565,26 @@ SET password_hash = '$2b$10$wHh8lQFQmY7zv9qK1QzQ6uYJqz0J6QJp0qvR6z7Yt8Xw8Gq9J1m9
 WHERE email = 'admin@gmail.com';
 
 
-
 --changes--
+-- Drop the old full_name column since controller builds it from first/middle/last
+ALTER TABLE sangha_members DROP COLUMN IF EXISTS full_name;
+ 
+-- Confirm final structure
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = 'sangha_members'
+ORDER BY ordinal_position;
 
-ALTER TABLE addresses
-DROP COLUMN city;
+INSERT INTO sangha_members (sangha_id, first_name, last_name, email, phone, role, member_type)
+SELECT p.sangha_id, pd.first_name, pd.last_name, u.email, u.phone, pd.sangha_role, pd.sangha_tenure
+FROM profiles p
+JOIN personal_details pd ON pd.profile_id = p.id
+JOIN users u ON u.id = p.user_id
+WHERE p.status = 'approved' AND pd.is_part_of_sangha = 'yes' AND p.sangha_id IS NOT NULL;
 
-ALTER TABLE addresses
-ADD COLUMN taluk VARCHAR(100),
-ADD COLUMN district VARCHAR(100);
+UPDATE sangha_members sm
+SET gender = pd.gender
+FROM profiles p
+JOIN personal_details pd ON pd.profile_id = p.id
+JOIN users u ON u.id = p.user_id
+WHERE sm.email = u.email OR sm.phone = u.phone;

@@ -31,6 +31,9 @@ router.post('/profile/reset/step4', requireRole('user'), uc.resetStep4);
 router.post('/profile/reset/step5', requireRole('user'), uc.resetStep5);
 router.post('/profile/reset/step6', requireRole('user'), uc.resetStep6);
 
+// Activity logs (user's own history)
+router.get('/activity-logs',        requireRole('user'), uc.getUserActivityLogs);
+
 // Sangha / Admin views
 router.get('/pending',              requireRole('sangha', 'admin'), uc.getPendingUsers);
 router.get('/:id',                  requireRole('sangha', 'admin'), uc.getUserById);

@@ -606,7 +606,6 @@ const submitApplication = async (req, res) => {
     if (!step1_completed)
       return res.status(400).json({ message: 'Complete at least Step 1 before submitting' });
 
-    // ✅ FIXED: query sanghas table directly using sanghas.id (UUID)
     const sanghaCheck = await pool.query(
       `SELECT id FROM sanghas WHERE id = $1 AND status = 'approved'`,
       [sangha_id]
@@ -844,6 +843,29 @@ const getUserById = async (req, res) => {
   }
 };
 
+// ─── GET /users/activity-logs ─────────────────────────────────
+const getUserActivityLogs = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const result = await pool.query(
+      `SELECT
+         p.id            AS profile_id,
+         p.status,
+         p.submitted_at,
+         p.reviewed_at,
+         p.review_comment
+       FROM profiles p
+       WHERE p.user_id = $1
+       ORDER BY p.updated_at DESC`,
+      [userId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 // ─── HELPERS ─────────────────────────────────────────────────
 function calcStep1Pct(data) {
   const required = ['first_name', 'last_name', 'gender'];
@@ -865,4 +887,5 @@ module.exports = {
   resetProfile,
   resetStep1, resetStep2, resetStep3, resetStep4, resetStep5, resetStep6,
   getPendingUsers, getUserById,
+  getUserActivityLogs,
 };
