@@ -1,8 +1,5 @@
 const pool = require('../config/db');
 
-// ─── HELPER: parse PostgreSQL enum array strings ──────────────
-// node-postgres returns custom enum arrays as "{val1,val2}" strings,
-// not as JS arrays. This normalizes them before sending to the client.
 function parsePgArray(val) {
   if (!val) return [];
   if (Array.isArray(val)) return val;
@@ -14,7 +11,6 @@ function parsePgArray(val) {
   return [];
 }
 
-// ─── HELPER: get or create profile ───────────────────────────
 const getOrCreateProfile = async (userId) => {
   let res = await pool.query('SELECT * FROM profiles WHERE user_id=$1', [userId]);
   if (res.rows.length === 0) {
@@ -26,7 +22,6 @@ const getOrCreateProfile = async (userId) => {
   return res.rows[0];
 };
 
-// ─── HELPER: update step completion pct ──────────────────────
 const updateProfilePct = async (profileId, stepKey, pct, completed) => {
   const stepNumber = stepKey.match(/step(\d+)/)[1];
   await pool.query(
@@ -105,10 +100,6 @@ const getFullProfile = async (req, res) => {
       })
     );
 
-    // ✅ FIX: Normalize all doc_coverage[] enum arrays.
-    // node-postgres returns custom enum arrays as raw strings e.g. "{self}"
-    // instead of JS arrays. parsePgArray converts them to proper JS arrays
-    // so Array.isArray() checks and .length checks work correctly on the client.
     const normalizedInsurance = s6ins.rows.map(row => ({
       ...row,
       health_coverage:       parsePgArray(row.health_coverage),
@@ -163,7 +154,7 @@ const saveStep1 = async (req, res) => {
       fathers_name, mothers_name, mothers_maiden_name,
       is_married, wife_name, wife_maiden_name, husbands_name,
       has_disability,
-      is_part_of_sangha, sangha_name, sangha_role,
+      is_part_of_sangha, sangha_name, sangha_role, sangha_tenure,
     } = req.body;
 
     if (!first_name || !last_name || !gender) {
@@ -183,9 +174,9 @@ const saveStep1 = async (req, res) => {
            fathers_name=$8, mothers_name=$9, mothers_maiden_name=$10,
            is_married=$11, wife_name=$12, wife_maiden_name=$13, husbands_name=$14,
            has_disability=$15,
-           is_part_of_sangha=$16, sangha_name=$17, sangha_role=$18,
+           is_part_of_sangha=$16, sangha_name=$17, sangha_role=$18, sangha_tenure=$19,
            updated_at=NOW()
-         WHERE profile_id=$19`,
+         WHERE profile_id=$20`,
         [
           first_name, middle_name || null, last_name,
           gender, date_of_birth || null,
@@ -196,6 +187,7 @@ const saveStep1 = async (req, res) => {
           is_part_of_sangha || null,
           is_part_of_sangha === 'yes' ? sangha_name || null : null,
           is_part_of_sangha === 'yes' ? sangha_role || null : null,
+          is_part_of_sangha === 'yes' ? sangha_tenure || null : null,
           pid,
         ]
       );
@@ -208,8 +200,8 @@ const saveStep1 = async (req, res) => {
             fathers_name, mothers_name, mothers_maiden_name,
             is_married, wife_name, wife_maiden_name, husbands_name,
             has_disability,
-            is_part_of_sangha, sangha_name, sangha_role)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+            is_part_of_sangha, sangha_name, sangha_role, sangha_tenure)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
         [
           pid,
           first_name, middle_name || null, last_name,
@@ -221,6 +213,7 @@ const saveStep1 = async (req, res) => {
           is_part_of_sangha || null,
           is_part_of_sangha === 'yes' ? sangha_name || null : null,
           is_part_of_sangha === 'yes' ? sangha_role || null : null,
+          is_part_of_sangha === 'yes' ? sangha_tenure || null : null,
         ]
       );
     }
@@ -242,10 +235,12 @@ const saveStep2 = async (req, res) => {
     const pid = profile.id;
 
     const {
-      gotra, pravara, upanama,
+      gotra, pravara,
+      upanama_general, upanama_proper,
       kuladevata, kuladevata_other,
       surname_in_use, surname_as_per_gotra,
       priest_name, priest_location,
+      demi_god_challenge, demi_god, demi_god_notes,
     } = req.body;
 
     const exists = await pool.query(
@@ -255,34 +250,46 @@ const saveStep2 = async (req, res) => {
     if (exists.rows.length > 0) {
       await pool.query(
         `UPDATE religious_details SET
-           gotra=$1, pravara=$2, upanama=$3,
-           kuladevata=$4, kuladevata_other=$5,
-           surname_in_use=$6, surname_as_per_gotra=$7,
-           priest_name=$8, priest_location=$9,
+           gotra=$1, pravara=$2,
+           upanama_general=$3, upanama_proper=$4,
+           kuladevata=$5, kuladevata_other=$6,
+           surname_in_use=$7, surname_as_per_gotra=$8,
+           priest_name=$9, priest_location=$10,
+           demi_god_challenge=$11, demi_god=$12, demi_god_notes=$13,
            updated_at=NOW()
-         WHERE profile_id=$10`,
+         WHERE profile_id=$14`,
         [
-          gotra || null, pravara || null, upanama || null,
+          gotra || null, pravara || null,
+          upanama_general || null, upanama_proper || null,
           kuladevata || null, kuladevata_other || null,
           surname_in_use || null, surname_as_per_gotra || null,
           priest_name || null, priest_location || null,
+          demi_god_challenge || null,
+          demi_god_challenge === 'yes' ? null : (demi_god || null),
+          demi_god_challenge === 'yes' ? (demi_god_notes || null) : null,
           pid,
         ]
       );
     } else {
       await pool.query(
         `INSERT INTO religious_details
-           (profile_id, gotra, pravara, upanama,
+           (profile_id, gotra, pravara,
+            upanama_general, upanama_proper,
             kuladevata, kuladevata_other,
             surname_in_use, surname_as_per_gotra,
-            priest_name, priest_location)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            priest_name, priest_location,
+            demi_god_challenge, demi_god, demi_god_notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
         [
           pid,
-          gotra || null, pravara || null, upanama || null,
+          gotra || null, pravara || null,
+          upanama_general || null, upanama_proper || null,
           kuladevata || null, kuladevata_other || null,
           surname_in_use || null, surname_as_per_gotra || null,
           priest_name || null, priest_location || null,
+          demi_god_challenge || null,
+          demi_god_challenge === 'yes' ? null : (demi_god || null),
+          demi_god_challenge === 'yes' ? (demi_god_notes || null) : null,
         ]
       );
     }
@@ -593,20 +600,19 @@ const submitApplication = async (req, res) => {
 
     const { id: pid, status, step1_completed } = profile.rows[0];
 
-    if (['submitted', 'under_review', 'approved'].includes(status))
-      return res.status(409).json({ message: 'Application already submitted' });
+    if (['submitted', 'under_review'].includes(status))
+      return res.status(409).json({ message: 'Application already submitted and under review' });
 
     if (!step1_completed)
       return res.status(400).json({ message: 'Complete at least Step 1 before submitting' });
 
+    // ✅ FIXED: query sanghas table directly using sanghas.id (UUID)
     const sanghaCheck = await pool.query(
-      `SELECT u.id FROM users u
-       JOIN sangha_profiles sp ON sp.user_id = u.id
-       WHERE u.id = $1 AND sp.status = 'approved'`,
+      `SELECT id FROM sanghas WHERE id = $1 AND status = 'approved'`,
       [sangha_id]
     );
     if (sanghaCheck.rows.length === 0)
-      return res.status(400).json({ message: 'Selected Sangha is not valid' });
+      return res.status(400).json({ message: 'Selected Sangha is not valid or not yet approved' });
 
     await pool.query(
       "UPDATE profiles SET status='submitted', submitted_at=NOW(), sangha_id=$1 WHERE id=$2",
@@ -848,7 +854,7 @@ function calcStep1Pct(data) {
 }
 
 function calcStep2Pct(data) {
-  const fields = ['gotra', 'pravara', 'kuladevata', 'priest_name'];
+  const fields = ['gotra', 'pravara', 'upanama_general', 'upanama_proper', 'kuladevata', 'demi_god_challenge'];
   return Math.round((fields.filter(f => data[f]).length / fields.length) * 100);
 }
 

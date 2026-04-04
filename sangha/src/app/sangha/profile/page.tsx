@@ -74,7 +74,7 @@ export default function SanghaProfilePage() {
   const [formData, setFormData] = useState<SanghaProfile>(emptyProfile);
   const [editing, setEditing]   = useState(false);
   const [loading, setLoading]   = useState(true);
-  const [saving, setSaving]     = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors]     = useState<Partial<Record<keyof SanghaProfile, string>>>({});
   const [pincodeLoading, setPincodeLoading] = useState(false);
 
@@ -143,12 +143,12 @@ export default function SanghaProfilePage() {
 
   const validate = () => {
     const e: Partial<Record<keyof SanghaProfile, string>> = {};
-    if (!formData.sangha_name.trim())   e.sangha_name  = "Sangha name is required";
-    if (!(formData.address_line ?? "").trim())  e.address_line = "Address is required";
+    if (!(formData.sangha_name ?? "").trim())  e.sangha_name  = "Sangha name is required";
+    if (!(formData.address_line ?? "").trim()) e.address_line = "Address is required";
     if (!formData.pincode || formData.pincode.length !== 6)
       e.pincode = "Valid 6-digit pincode required";
-    if (!formData.district.trim()) e.district = "District is required";
-    if (!formData.state.trim())    e.state    = "State is required";
+    if (!(formData.district ?? "").trim()) e.district = "District is required";
+    if (!(formData.state ?? "").trim())    e.state    = "State is required";
     if (!formData.sangha_contact_same) {
       if (!formData.sangha_phone && !formData.sangha_email)
         e.sangha_phone = "Provide at least one contact (phone or email)";
@@ -161,18 +161,21 @@ export default function SanghaProfilePage() {
     return Object.keys(e).length === 0;
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmitForApproval = async () => {
     if (!validate()) return;
-    setSaving(true);
+
+    setSubmitting(true);
     try {
       let logo_url = formData.logo_url;
+
       if (logoFile) {
         const fd = new FormData();
         fd.append("logo", logoFile);
         const uploadRes = await api.postForm("/sangha/profile/logo", fd);
         logo_url = uploadRes.logo_url;
       }
+
+      // Save first
       await api.put("/sangha/profile", {
         sangha_name:         formData.sangha_name,
         logo_url,
@@ -187,14 +190,18 @@ export default function SanghaProfilePage() {
         sangha_phone:        formData.sangha_contact_same ? undefined : formData.sangha_phone,
         sangha_email:        formData.sangha_contact_same ? undefined : formData.sangha_email,
       });
-      toast.success("Profile updated");
+
+      // Then submit
+      await api.post("/sangha/submit", {});
+
+      toast.success("Profile submitted for approval!");
       setEditing(false);
       setLogoFile(null);
       fetchProfile();
     } catch (err: any) {
-      toast.error(err.message || "Failed to update profile");
+      toast.error(err.message || "Failed to submit for approval");
     } finally {
-      setSaving(false);
+      setSubmitting(false);
     }
   };
 
@@ -203,6 +210,7 @@ export default function SanghaProfilePage() {
     pending_approval: "bg-yellow-100 text-yellow-800 border-yellow-200",
     rejected:         "bg-red-100 text-red-800 border-red-200",
     suspended:        "bg-gray-100 text-gray-800 border-gray-200",
+    draft:            "bg-blue-100 text-blue-800 border-blue-200",
   };
 
   const fullAddress = [
@@ -278,9 +286,6 @@ export default function SanghaProfilePage() {
             )}
 
             <div className="flex gap-3 justify-center pt-2">
-              <Button variant="outline" onClick={() => setEditing(true)}>
-                Edit Profile
-              </Button>
               <Button variant="secondary" className="gap-2" onClick={fetchProfile}>
                 <RefreshCw className="h-4 w-4" aria-hidden="true" /> Refresh Status
               </Button>
@@ -391,6 +396,35 @@ export default function SanghaProfilePage() {
                 )}
               </div>
             </div>
+
+            {/* Draft state — prompt to submit */}
+            {profile.status === "draft" && (
+              <>
+                <Separator />
+                <div className="rounded-md bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800 space-y-3">
+                  <p className="font-medium">Your profile is saved as a draft.</p>
+                  <p>Complete your profile details and submit for admin approval to get started.</p>
+                  <Button
+                    onClick={handleSubmitForApproval}
+                    disabled={submitting}
+                    className="w-full sm:w-auto"
+                  >
+                    {submitting ? "Submitting..." : "Submit for Approval"}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {/* Rejected state — allow resubmit */}
+            {profile.status === "rejected" && (
+              <>
+                <Separator />
+                <div className="rounded-md bg-red-50 border border-red-200 p-4 text-sm text-red-800 space-y-3">
+                  <p className="font-medium">Your profile was rejected.</p>
+                  <p>Please edit your profile to address any issues, then resubmit for approval.</p>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -405,7 +439,7 @@ export default function SanghaProfilePage() {
         <p className="text-muted-foreground mt-1">Update your Sangha details</p>
       </div>
 
-      <form onSubmit={handleSave} className="space-y-5">
+      <form className="space-y-5">
 
         {/* Basic Info */}
         <Card className="shadow-sm">
@@ -424,8 +458,6 @@ export default function SanghaProfilePage() {
                     </span>
                   )}
                 </div>
-
-                {/* FIX 1: aria-label added to button so it has discernible text */}
                 <button
                   type="button"
                   aria-label="Upload Sangha logo"
@@ -434,8 +466,6 @@ export default function SanghaProfilePage() {
                 >
                   <Camera className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
-
-                {/* FIX 2: aria-label + aria-describedby added to hidden file input */}
                 <input
                   ref={logoInputRef}
                   id="logo-upload"
@@ -674,9 +704,17 @@ export default function SanghaProfilePage() {
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? "Saving..." : "Save Changes"}
-          </Button>
+          {profile.status !== "pending_approval" && (
+            <Button
+              type="button"
+              variant="default"
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={handleSubmitForApproval}
+              disabled={submitting}
+            >
+              {submitting ? "Submitting..." : "Submit for Approval"}
+            </Button>
+          )}
         </div>
       </form>
     </div>

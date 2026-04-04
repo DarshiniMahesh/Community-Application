@@ -10,14 +10,19 @@ type Tab = 'sangha' | 'user';
 
 interface SanghaItem {
   id: string;
-  user_id: string;
+  sangha_auth_id: string;
   name: string;
   email: string;
+  reg_email: string;
   phone: string;
+  reg_phone: string;
   location: string;
-  contact_person: string;
+  address_line: string;
+  state: string;
+  description: string;
   status: string;
   created_at: string;
+  updated_at: string;
 }
 
 interface UserItem {
@@ -39,7 +44,7 @@ export default function ApprovalsPage() {
   const [pendingUsers, setPendingUsers] = useState<UserItem[]>([]);
   const [pendingSanghas, setPendingSanghas] = useState<SanghaItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [rejectModal, setRejectModal] = useState<{ id: string; name: string; kind: Tab } | null>(null);
+  const [rejectModal, setRejectModal] = useState<{ id: string; sangha_auth_id?: string; name: string; kind: Tab } | null>(null);
   const [viewModal, setViewModal] = useState<SanghaItem | UserItem | null>(null);
   const [viewKind, setViewKind] = useState<Tab>('sangha');
   const [reason, setReason] = useState('');
@@ -76,16 +81,24 @@ export default function ApprovalsPage() {
       .finally(() => setLoading(false));
   }, [getToken]);
 
+  // ── Uses sangha_auth_id (not user_id) ──
   const approveSangha = async (item: SanghaItem) => {
     const token = getToken();
     if (!token) return;
     setActionLoading(true);
     try {
-      await fetch(`${BASE_URL}/api/admin/sangha/approve/${item.user_id}`, {
+      const res = await fetch(`${BASE_URL}/api/admin/sangha/approve/${item.sangha_auth_id}`, {
         method: 'POST',
         headers: authHeaders(token),
       });
-      setPendingSanghas(p => p.filter(s => s.id !== item.id));
+      if (res.ok) {
+        setPendingSanghas(p => p.filter(s => s.id !== item.id));
+      } else {
+        const err = await res.json();
+        alert(err.message || 'Failed to approve sangha');
+      }
+    } catch (e) {
+      console.error(e);
     } finally {
       setActionLoading(false);
     }
@@ -96,12 +109,19 @@ export default function ApprovalsPage() {
     if (!token) return;
     setActionLoading(true);
     try {
-      await fetch(`${BASE_URL}/api/admin/users/approve`, {
+      const res = await fetch(`${BASE_URL}/api/admin/users/approve`, {
         method: 'POST',
         headers: authHeaders(token),
         body: JSON.stringify({ userId: item.id }),
       });
-      setPendingUsers(p => p.filter(u => u.id !== item.id));
+      if (res.ok) {
+        setPendingUsers(p => p.filter(u => u.id !== item.id));
+      } else {
+        const err = await res.json();
+        alert(err.message || 'Failed to approve user');
+      }
+    } catch (e) {
+      console.error(e);
     } finally {
       setActionLoading(false);
     }
@@ -114,9 +134,8 @@ export default function ApprovalsPage() {
     setActionLoading(true);
     try {
       if (rejectModal.kind === 'sangha') {
-        const item = pendingSanghas.find(s => s.id === rejectModal.id);
-        if (!item) return;
-        await fetch(`${BASE_URL}/api/admin/sangha/reject/${item.user_id}`, {
+        // Use sangha_auth_id for the reject endpoint
+        await fetch(`${BASE_URL}/api/admin/sangha/reject/${rejectModal.sangha_auth_id}`, {
           method: 'POST',
           headers: authHeaders(token),
           body: JSON.stringify({ reason }),
@@ -130,6 +149,8 @@ export default function ApprovalsPage() {
         });
         setPendingUsers(p => p.filter(u => u.id !== rejectModal.id));
       }
+    } catch (e) {
+      console.error(e);
     } finally {
       setActionLoading(false);
       setRejectModal(null);
@@ -143,23 +164,25 @@ export default function ApprovalsPage() {
   ];
 
   const getSanghaViewFields = (s: SanghaItem): [string, string][] => [
-    ['ID',             s.id],
-    ['Name',           s.name],
-    ['Email',          s.email],
-    ['Phone',          s.phone],
-    ['Location',       s.location || '—'],
-    ['Contact Person', s.contact_person || '—'],
-    ['Submitted',      s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'],
+    ['ID',          s.id],
+    ['Name',        s.name],
+    ['Email',       s.reg_email || s.email || '—'],
+    ['Phone',       s.reg_phone || s.phone || '—'],
+    ['Address',     s.address_line || '—'],
+    ['Location',    s.location || '—'],
+    ['State',       s.state || '—'],
+    ['Description', s.description || '—'],
+    ['Submitted',   s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'],
   ];
 
   const getUserViewFields = (u: UserItem): [string, string][] => [
-    ['ID',             u.id],
-    ['Name',           `${u.first_name || ''} ${u.last_name || ''}`.trim() || '—'],
-    ['Email',          u.email],
-    ['Phone',          u.phone],
+    ['ID',               u.id],
+    ['Name',             `${u.first_name || ''} ${u.last_name || ''}`.trim() || '—'],
+    ['Email',            u.email],
+    ['Phone',            u.phone || '—'],
     ['Requested Sangha', u.sangha_name || '—'],
-    ['Status',         u.status],
-    ['Submitted',      u.submitted_at ? new Date(u.submitted_at).toLocaleDateString() : '—'],
+    ['Status',           u.status],
+    ['Submitted',        u.submitted_at ? new Date(u.submitted_at).toLocaleDateString() : '—'],
   ];
 
   if (loading) return (
@@ -205,25 +228,59 @@ export default function ApprovalsPage() {
                     {s.name?.[0] ?? '?'}
                   </div>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--gray-900)' }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--gray-900)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                       {s.name} <span className="chip">{s.id}</span>
+                      {s.updated_at && s.created_at !== s.updated_at && (
+                        <span style={{
+                          fontSize: 10,
+                          background: '#e0f2fe',
+                          color: '#0369a1',
+                          padding: '2px 6px',
+                          borderRadius: 6,
+                          fontWeight: 600,
+                        }}>
+                          Edited
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span style={{ width: 13, height: 13, display: 'inline-flex' }}>{IC.mail}</span>
-                        {s.email}
+                        {s.reg_email || s.email}
                       </span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span style={{ width: 13, height: 13, display: 'inline-flex' }}>{IC.phone}</span>
-                        {s.phone}
+                        {s.reg_phone || s.phone}
                       </span>
                     </div>
+                    {s.location && (
+                      <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 4 }}>
+                        📍 {s.location}{s.state ? `, ${s.state}` : ''}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button className="btn btn-success btn-sm" disabled={actionLoading} onClick={() => approveSangha(s)}>Approve</button>
-                  <button className="btn btn-danger btn-sm"  disabled={actionLoading} onClick={() => setRejectModal({ id: s.id, name: s.name, kind: 'sangha' })}>Reject</button>
-                  <button className="btn btn-secondary btn-sm" onClick={() => { setViewModal(s); setViewKind('sangha'); }}>See</button>
+                  <button
+                    className="btn btn-success btn-sm"
+                    disabled={actionLoading}
+                    onClick={() => approveSangha(s)}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    className="btn btn-danger btn-sm"
+                    disabled={actionLoading}
+                    onClick={() => setRejectModal({ id: s.id, sangha_auth_id: s.sangha_auth_id, name: s.name, kind: 'sangha' })}
+                  >
+                    Reject
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => { setViewModal(s); setViewKind('sangha'); }}
+                  >
+                    See
+                  </button>
                 </div>
               </div>
             </div>
@@ -266,7 +323,6 @@ export default function ApprovalsPage() {
                           {u.phone}
                         </span>
                       </div>
-                      {/* ── Sangha badge ── */}
                       {u.sangha_name && (
                         <div style={{ marginTop: 6 }}>
                           <span style={{
@@ -285,9 +341,26 @@ export default function ApprovalsPage() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button className="btn btn-success btn-sm" disabled={actionLoading} onClick={() => approveUser(u)}>Approve</button>
-                    <button className="btn btn-danger btn-sm"  disabled={actionLoading} onClick={() => setRejectModal({ id: u.id, name: displayName, kind: 'user' })}>Reject</button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => { setViewModal(u); setViewKind('user'); }}>See</button>
+                    <button
+                      className="btn btn-success btn-sm"
+                      disabled={actionLoading}
+                      onClick={() => approveUser(u)}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="btn btn-danger btn-sm"
+                      disabled={actionLoading}
+                      onClick={() => setRejectModal({ id: u.id, name: displayName, kind: 'user' })}
+                    >
+                      Reject
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => { setViewModal(u); setViewKind('user'); }}
+                    >
+                      See
+                    </button>
                   </div>
                 </div>
               </div>
@@ -301,7 +374,9 @@ export default function ApprovalsPage() {
           open
           title={`${viewKind === 'sangha' ? 'Sangha' : 'User'} Info — ${viewModal.id}`}
           onClose={() => setViewModal(null)}
-          footer={<button className="btn btn-secondary" onClick={() => setViewModal(null)}>Close</button>}
+          footer={
+            <button className="btn btn-secondary" onClick={() => setViewModal(null)}>Close</button>
+          }
         >
           {(viewKind === 'sangha'
             ? getSanghaViewFields(viewModal as SanghaItem)
@@ -324,8 +399,12 @@ export default function ApprovalsPage() {
           maxWidth="420px"
           footer={
             <>
-              <button className="btn btn-secondary" onClick={() => { setRejectModal(null); setReason(''); }}>Cancel</button>
-              <button className="btn btn-danger" disabled={actionLoading} onClick={confirmReject}>Confirm Rejection</button>
+              <button className="btn btn-secondary" onClick={() => { setRejectModal(null); setReason(''); }}>
+                Cancel
+              </button>
+              <button className="btn btn-danger" disabled={actionLoading} onClick={confirmReject}>
+                Confirm Rejection
+              </button>
             </>
           }
         >

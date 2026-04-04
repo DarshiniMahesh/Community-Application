@@ -241,7 +241,12 @@ CREATE TABLE IF NOT EXISTS religious_details (
   updated_at            TIMESTAMP DEFAULT NOW(),
   UNIQUE (profile_id)
 );
-
+ALTER TABLE religious_details
+  ADD COLUMN upanama_general     TEXT,
+  ADD COLUMN upanama_proper      TEXT,
+  ADD COLUMN demi_god_challenge  TEXT,
+  ADD COLUMN demi_god            TEXT,
+  ADD COLUMN demi_god_notes      TEXT;
 -- ============================================================
 -- 7. FAMILY INFORMATION — Step 3
 -- ============================================================
@@ -558,3 +563,14 @@ ON CONFLICT (email) DO NOTHING;
 UPDATE users
 SET password_hash = '$2b$10$wHh8lQFQmY7zv9qK1QzQ6uYJqz0J6QJp0qvR6z7Yt8Xw8Gq9J1m9W'
 WHERE email = 'admin@gmail.com';
+
+
+
+--changes--
+
+ALTER TABLE addresses
+DROP COLUMN city;
+
+ALTER TABLE addresses
+ADD COLUMN taluk VARCHAR(100),
+ADD COLUMN district VARCHAR(100);
