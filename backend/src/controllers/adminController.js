@@ -107,7 +107,7 @@ const getAllSanghas = async (req, res) => {
       `SELECT s.id, s.sangha_auth_id, s.sangha_name AS name,
               s.district AS location, s.status, s.created_at,
               s.address_line, s.state, s.email, s.phone,
-              s.description, s.logo_url,
+              s.description, s.logo_url, s.is_blocked,
               u.email AS reg_email, u.phone AS reg_phone
        FROM sanghas s
        JOIN users u ON u.id = s.sangha_auth_id
@@ -162,7 +162,7 @@ const rejectSangha = async (req, res) => {
 const getApprovedUsers = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.phone,
+      `SELECT u.id, u.email, u.phone, u.is_blocked,
               p.id AS profile_id, p.status, p.submitted_at, p.overall_completion_pct,
               p.sangha_id,
               pd.first_name, pd.last_name, pd.gender,
@@ -171,7 +171,7 @@ const getApprovedUsers = async (req, res) => {
        JOIN users u ON u.id = p.user_id
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
        LEFT JOIN sanghas s ON s.id = p.sangha_id
-       WHERE p.status = 'approved' AND s.status = 'approved'
+       WHERE p.status = 'approved' AND u.is_deleted = FALSE
        ORDER BY p.updated_at DESC`
     );
     res.json(result.rows);
@@ -186,7 +186,7 @@ const getPendingUsers = async (req, res) => {
   try {
     const { sangha_id } = req.query;
     let query = `
-      SELECT u.id, u.email, u.phone,
+      SELECT u.id, u.email, u.phone, u.is_blocked,
              p.id AS profile_id, p.status, p.submitted_at, p.overall_completion_pct,
              p.sangha_id,
              pd.first_name, pd.last_name,
@@ -195,7 +195,7 @@ const getPendingUsers = async (req, res) => {
       JOIN users u ON u.id = p.user_id
       LEFT JOIN personal_details pd ON pd.profile_id = p.id
       LEFT JOIN sanghas s ON s.id = p.sangha_id
-      WHERE p.status IN ('submitted', 'under_review')
+      WHERE p.status IN ('submitted', 'under_review') AND u.is_deleted = FALSE
     `;
     const params = [];
     if (sangha_id) {
@@ -284,7 +284,7 @@ const rejectUser = async (req, res) => {
 const getAllUsers = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.phone, u.created_at,
+      `SELECT u.id, u.email, u.phone, u.created_at, u.is_blocked,
               p.id AS profile_id, p.status, p.submitted_at,
               p.overall_completion_pct, p.sangha_id,
               pd.first_name, pd.last_name, pd.gender,
@@ -350,12 +350,217 @@ const getSanghaHistory = async (req, res) => {
          s.district  AS location,
          s.state,
          s.status,
+         s.is_blocked,
          s.created_at  AS submitted_at,
          s.updated_at  AS reviewed_at
        FROM sanghas s
        ORDER BY s.updated_at DESC`
     );
     res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── GET /admin/blocklist/users ───────────────────────────────
+// Supports ?search=xyz for live search. Returns empty array when no search term.
+const getBlocklistUsers = async (req, res) => {
+  try {
+    const { search } = req.query;
+
+    // If no search term, return empty — frontend shows "search to find users"
+    if (!search || !search.trim()) {
+      return res.json([]);
+    }
+
+    const param = `%${search.trim()}%`;
+
+    const result = await pool.query(
+      `SELECT u.id, u.email, u.phone, u.is_blocked, u.created_at,
+              pd.first_name, pd.last_name,
+              s.sangha_name,
+              p.status AS profile_status
+       FROM users u
+       JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN personal_details pd ON pd.profile_id = p.id
+       LEFT JOIN sanghas s ON s.id = p.sangha_id
+       WHERE u.role = 'user'
+         AND u.is_deleted = FALSE
+         AND p.status = 'approved'
+         AND (
+           pd.first_name ILIKE $1 OR
+           pd.last_name  ILIKE $1 OR
+           u.email       ILIKE $1 OR
+           u.phone       ILIKE $1 OR
+           s.sangha_name ILIKE $1
+         )
+       ORDER BY u.is_blocked ASC, pd.first_name ASC`,
+      [param]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── GET /admin/blocklist/sanghas ─────────────────────────────
+// Supports ?search=xyz for live search. Returns empty array when no search term.
+const getBlocklistSanghas = async (req, res) => {
+  try {
+    const { search } = req.query;
+
+    // If no search term, return empty — frontend shows "search to find sanghas"
+    if (!search || !search.trim()) {
+      return res.json([]);
+    }
+
+    const param = `%${search.trim()}%`;
+
+    const result = await pool.query(
+      `SELECT s.id, s.sangha_auth_id, s.sangha_name, s.email, s.phone,
+              s.district AS location, s.status, s.is_blocked, s.created_at
+       FROM sanghas s
+       WHERE s.status = 'approved'
+         AND (
+           s.sangha_name ILIKE $1 OR
+           s.email       ILIKE $1 OR
+           s.phone       ILIKE $1 OR
+           s.district    ILIKE $1
+         )
+       ORDER BY s.is_blocked ASC, s.sangha_name ASC`,
+      [param]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /admin/users/block ──────────────────────────────────
+const blockUser = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ message: 'userId is required' });
+    const result = await pool.query(
+      `UPDATE users SET is_blocked=TRUE, updated_at=NOW() WHERE id=$1 AND role='user' RETURNING id`,
+      [userId]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'User not found' });
+    res.json({ message: 'User blocked successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /admin/users/unblock ────────────────────────────────
+const unblockUser = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ message: 'userId is required' });
+    const result = await pool.query(
+      `UPDATE users SET is_blocked=FALSE, updated_at=NOW() WHERE id=$1 AND role='user' RETURNING id`,
+      [userId]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'User not found' });
+    res.json({ message: 'User unblocked successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── DELETE /admin/users/delete ───────────────────────────────
+const deleteUser = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ message: 'userId is required' });
+
+    const result = await pool.query(
+      `DELETE FROM users WHERE id=$1 AND role='user' RETURNING id`,
+      [userId]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'User not found' });
+    res.json({ message: 'User deleted permanently' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /admin/sangha/block ─────────────────────────────────
+const blockSangha = async (req, res) => {
+  try {
+    const { sanghaId } = req.body;
+    if (!sanghaId) return res.status(400).json({ message: 'sanghaId is required' });
+
+    const sanghaRes = await pool.query(
+      `UPDATE sanghas SET is_blocked=TRUE, updated_at=NOW() WHERE id=$1 RETURNING sangha_auth_id`,
+      [sanghaId]
+    );
+    if (sanghaRes.rows.length === 0)
+      return res.status(404).json({ message: 'Sangha not found' });
+
+    await pool.query(
+      `UPDATE users SET is_blocked=TRUE, updated_at=NOW() WHERE id=$1`,
+      [sanghaRes.rows[0].sangha_auth_id]
+    );
+    res.json({ message: 'Sangha blocked successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /admin/sangha/unblock ───────────────────────────────
+const unblockSangha = async (req, res) => {
+  try {
+    const { sanghaId } = req.body;
+    if (!sanghaId) return res.status(400).json({ message: 'sanghaId is required' });
+
+    const sanghaRes = await pool.query(
+      `UPDATE sanghas SET is_blocked=FALSE, updated_at=NOW() WHERE id=$1 RETURNING sangha_auth_id`,
+      [sanghaId]
+    );
+    if (sanghaRes.rows.length === 0)
+      return res.status(404).json({ message: 'Sangha not found' });
+
+    await pool.query(
+      `UPDATE users SET is_blocked=FALSE, updated_at=NOW() WHERE id=$1`,
+      [sanghaRes.rows[0].sangha_auth_id]
+    );
+    res.json({ message: 'Sangha unblocked successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── DELETE /admin/sangha/delete ──────────────────────────────
+const deleteSangha = async (req, res) => {
+  try {
+    const { sanghaId } = req.body;
+    if (!sanghaId) return res.status(400).json({ message: 'sanghaId is required' });
+
+    const sanghaRes = await pool.query(
+      `SELECT sangha_auth_id FROM sanghas WHERE id=$1`,
+      [sanghaId]
+    );
+    if (sanghaRes.rows.length === 0)
+      return res.status(404).json({ message: 'Sangha not found' });
+
+    const authId = sanghaRes.rows[0].sangha_auth_id;
+
+    await pool.query(`DELETE FROM sanghas WHERE id=$1`, [sanghaId]);
+    await pool.query(`DELETE FROM users WHERE id=$1`, [authId]);
+
+    res.json({ message: 'Sangha deleted permanently' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -376,4 +581,12 @@ module.exports = {
   getAllUsers,
   getActivityLogs,
   getSanghaHistory,
+  getBlocklistUsers,
+  getBlocklistSanghas,
+  blockUser,
+  unblockUser,
+  deleteUser,
+  blockSangha,
+  unblockSangha,
+  deleteSangha,
 };

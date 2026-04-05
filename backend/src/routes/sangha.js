@@ -42,6 +42,7 @@ router.get('/review-user/:id',     requireRole('sangha', 'admin'), sc.getUserFor
 router.post('/approve',            requireRole('sangha', 'admin'), sc.approveUser);
 router.post('/reject',             requireRole('sangha', 'admin'), sc.rejectUser);
 router.post('/request-changes',    requireRole('sangha', 'admin'), sc.requestChanges);
+router.post('/block-user',         requireRole('sangha'), sc.blockUser);
 
 // Reports & logs
 router.get('/reports',             requireRole('sangha', 'admin'), sc.getReports);

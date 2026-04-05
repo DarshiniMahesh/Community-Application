@@ -15,12 +15,14 @@ const NAV = [
     { href: '/dashboard/approvals', label: 'Approvals',         icon: 'check', badge: true },
     { href: '/dashboard/history',   label: 'Activity Log',      icon: 'clock'  },
     { href: '/dashboard/reports',   label: 'Reports',           icon: 'chart'  },
+    { href: '/dashboard/blocklist', label: 'Block',             icon: 'block'  },
   ]},
 ];
 
 const ICONS: Record<string, React.ReactNode> = {
   home: IC.home, users: IC.users, shield: IC.shield,
   check: IC.check, clock: IC.clock, chart: IC.chart,
+  block: IC.block,
 };
 
 export default function Sidebar() {

@@ -153,7 +153,7 @@ const loginSendOtp = async (req, res) => {
 
     const isEmail = identifier.includes('@');
     const userRes = await pool.query(
-      `SELECT id, password_hash, is_active, is_deleted
+      `SELECT id, password_hash, is_active, is_deleted, is_blocked
        FROM users
        WHERE ${isEmail ? 'email' : 'phone'} = $1 AND role = 'sangha'`,
       [identifier]
@@ -164,9 +164,11 @@ const loginSendOtp = async (req, res) => {
 
     const user = userRes.rows[0];
     if (user.is_deleted)
-      return res.status(401).json({ message: 'Account has been deleted' });
+      return res.status(401).json({ message: 'No account found with these details.' });
     if (!user.is_active)
       return res.status(401).json({ message: 'Account is not active. Please complete registration.' });
+    if (user.is_blocked)
+      return res.status(403).json({ message: 'Your account has been blocked. Please contact admin.' });
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid)
@@ -196,7 +198,7 @@ const loginVerifyOtp = async (req, res) => {
 
     const isEmail = identifier.includes('@');
     const userRes = await pool.query(
-      `SELECT u.id, u.role, u.email, u.phone,
+      `SELECT u.id, u.role, u.email, u.phone, u.is_blocked,
               s.status AS sangha_status, s.sangha_name
        FROM users u
        LEFT JOIN sanghas s ON s.sangha_auth_id = u.id
@@ -204,6 +206,9 @@ const loginVerifyOtp = async (req, res) => {
       [identifier]
     );
     const user = userRes.rows[0];
+
+    if (user.is_blocked)
+      return res.status(403).json({ message: 'Your account has been blocked. Please contact admin.' });
 
     await pool.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]);
 
@@ -475,7 +480,7 @@ const getMembers = async (req, res) => {
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
     const result = await pool.query(
-      `SELECT u.id, u.email, u.phone,
+      `SELECT u.id, u.email, u.phone, u.is_blocked,
               p.id AS profile_id, p.status, p.overall_completion_pct, p.submitted_at,
               pd.first_name, pd.last_name, pd.gender
        FROM profiles p
@@ -500,7 +505,7 @@ const getPendingUsers = async (req, res) => {
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
     const result = await pool.query(
-      `SELECT u.id, u.email, u.phone,
+      `SELECT u.id, u.email, u.phone, u.is_blocked,
               p.id AS profile_id, p.status, p.submitted_at,
               p.overall_completion_pct, pd.first_name, pd.last_name
        FROM profiles p
@@ -698,6 +703,41 @@ const requestChanges = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
+// BLOCK USER (sangha can only block, not unblock/delete)
+// POST /sangha/block-user
+// ════════════════════════════════════════════════════════════
+const blockUser = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const { id: sanghaUserId } = req.user;
+    if (!userId) return res.status(400).json({ message: 'userId is required' });
+
+    const sanghaId = await getSanghaId(sanghaUserId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
+    // Confirm user belongs to this sangha
+    const profileCheck = await pool.query(
+      `SELECT id FROM profiles WHERE user_id=$1 AND sangha_id=$2`,
+      [userId, sanghaId]
+    );
+    if (profileCheck.rows.length === 0)
+      return res.status(403).json({ message: 'User does not belong to your sangha' });
+
+    const result = await pool.query(
+      `UPDATE users SET is_blocked=TRUE, updated_at=NOW() WHERE id=$1 AND role='user' RETURNING id`,
+      [userId]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'User not found' });
+
+    res.json({ message: 'User blocked. They must contact admin to unblock.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ════════════════════════════════════════════════════════════
 // REPORTS & LOGS
 // ════════════════════════════════════════════════════════════
 const getReports = async (req, res) => {
@@ -724,7 +764,7 @@ const getReports = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// ACTIVITY LOGS  ← UPDATED
+// ACTIVITY LOGS
 // GET /sangha/activity-logs
 // ════════════════════════════════════════════════════════════
 const getActivityLogs = async (req, res) => {
@@ -943,6 +983,7 @@ module.exports = {
   getDashboard,
   getMembers, getPendingUsers, getUserForReview,
   approveUser, rejectUser, requestChanges,
+  blockUser,
   getReports, getActivityLogs,
   getAllSanghas, getSanghaById,
   getTeamMembers, addTeamMember, deleteTeamMember,

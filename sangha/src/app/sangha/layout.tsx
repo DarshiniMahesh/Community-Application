@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Menu, X, LogOut, Users, UserCog,
-  FileText, Activity, UserCircle2, Clock,
+  FileText, Activity, UserCircle2, Clock, ShieldOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clearAuth } from "@/lib/api";
@@ -16,6 +16,7 @@ const navigation = [
   { name: "Sangha Members",  href: "/sangha/members",         icon: Users },
   { name: "Reports",         href: "/sangha/reports",         icon: FileText },
   { name: "Activity Logs",   href: "/sangha/activity-logs",   icon: Activity },
+  { name: "Block Users",     href: "/sangha/block",           icon: ShieldOff },
   { name: "Profile",         href: "/sangha/profile",         icon: UserCircle2 },
 ];
 

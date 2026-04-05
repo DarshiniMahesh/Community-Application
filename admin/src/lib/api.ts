@@ -43,10 +43,11 @@ export const api = {
     return data;
   },
 
-  delete: async (path: string) => {
+  delete: async (path: string, body?: object) => {
     const res = await fetch(`${BASE_URL}${path}`, {
       method: 'DELETE',
       headers: getHeaders(),
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Something went wrong');
