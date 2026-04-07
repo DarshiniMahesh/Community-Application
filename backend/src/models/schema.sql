@@ -588,3 +588,4 @@ FROM profiles p
 JOIN personal_details pd ON pd.profile_id = p.id
 JOIN users u ON u.id = p.user_id
 WHERE sm.email = u.email OR sm.phone = u.phone;
+ 

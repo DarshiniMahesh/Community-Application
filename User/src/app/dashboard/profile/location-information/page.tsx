@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ArrowRight, Plus, Trash2, MapPin, Navigation, Loader2, RotateCcw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, Trash2, MapPin, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
@@ -24,22 +24,37 @@ const steps = [
   { id: "7", name: "Review",    href: "/dashboard/profile/review-submit" },
 ];
 
-interface Address { flatNo: string; building: string; street: string; area: string; city: string; state: string; pincode: string; lat: string; lng: string; }
+interface Address {
+  flatNo: string;
+  building: string;
+  street: string;
+  landmark: string;
+  area: string;
+  city: string;
+  taluk: string;
+  district: string;
+  pincode: string;
+  country: string;
+}
+
 interface OldAddress extends Address { id: string; }
 
-const emptyAddress = (): Address => ({ flatNo: "", building: "", street: "", area: "", city: "", state: "", pincode: "", lat: "", lng: "" });
-
-async function reverseGeocode(lat: number, lng: number): Promise<Partial<Address>> {
-  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, { headers: { "Accept-Language": "en" } });
-  const data = await res.json();
-  const addr = data.address || {};
-  return { area: addr.suburb || addr.neighbourhood || addr.village || "", city: addr.city || addr.town || addr.district || "", state: addr.state || "", pincode: addr.postcode || "", street: addr.road || "", lat: lat.toFixed(6), lng: lng.toFixed(6) };
-}
+const emptyAddress = (): Address => ({
+  flatNo: "",
+  building: "",
+  street: "",
+  landmark: "",
+  area: "",
+  city: "",
+  taluk: "",
+  district: "",
+  pincode: "",
+  country: "India",
+});
 
 export default function Page() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [gpsLoading, setGpsLoading] = useState<"current"|"hometown"|null>(null);
+  const [loading, setLoading]                 = useState(false);
   const [currentAddress, setCurrentAddress]   = useState<Address>(emptyAddress());
   const [hometownAddress, setHometownAddress] = useState<Address>(emptyAddress());
   const [oldAddresses, setOldAddresses]       = useState<OldAddress[]>([]);
@@ -51,14 +66,25 @@ export default function Page() {
 
   useEffect(() => {
     api.get("/users/profile").then(meta => {
-      const s = (meta as Record<string,string>).status;
+      const s = (meta as Record<string, string>).status;
       setCanReset(s === "draft" || s === "changes_requested" || s === "approved");
     }).catch(() => {});
 
     api.get("/users/profile/full").then((data) => {
       const olds: OldAddress[] = [];
       (data.step4 || []).forEach((a: Record<string, string>) => {
-        const mapped: Address = { flatNo: a.flat_no || "", building: a.building || "", street: a.street || "", area: a.area || "", city: a.city || "", state: a.state || "", pincode: a.pincode || "", lat: a.latitude || "", lng: a.longitude || "" };
+        const mapped: Address = {
+          flatNo:   a.flat_no   || "",
+          building: a.building  || "",
+          street:   a.street    || "",
+          landmark: a.landmark  || "",
+          area:     a.area      || "",
+          city:     a.city      || "",
+          taluk:    a.taluk     || "",
+          district: a.district  || "",
+          pincode:  a.pincode   || "",
+          country:  a.country   || "India",
+        };
         if (a.address_type === "current")       setCurrentAddress(mapped);
         else if (a.address_type === "hometown") setHometownAddress(mapped);
         else olds.push({ ...mapped, id: a.address_type });
@@ -73,10 +99,17 @@ export default function Page() {
 
   const buildPayload = () => {
     const toAddr = (a: Address, type: string) => ({
-      address_type: type, flat_no: a.flatNo || null, building: a.building || null,
-      street: a.street || null, area: a.area || null, city: a.city || null,
-      state: a.state || null, pincode: a.pincode || null,
-      latitude: a.lat ? Number(a.lat) : null, longitude: a.lng ? Number(a.lng) : null,
+      address_type: type,
+      flat_no:      a.flatNo   || null,
+      building:     a.building || null,
+      street:       a.street   || null,
+      landmark:     a.landmark || null,
+      area:         a.area     || null,
+      city:         a.city     || null,
+      taluk:        a.taluk    || null,
+      district:     a.district || null,
+      pincode:      a.pincode  || null,
+      country:      a.country  || "India",
     });
     const addresses = [toAddr(currentAddress, "current")];
     if (!sameAsCurrent) addresses.push(toAddr(hometownAddress, "hometown"));
@@ -87,36 +120,15 @@ export default function Page() {
 
   useAutoSave("/users/profile/step4", buildPayload, [currentAddress, hometownAddress, oldAddresses, sameAsCurrent]);
 
-  const detectLocation = async (target: "current"|"hometown") => {
-    if (!navigator.geolocation) { toast.error("GPS not supported"); return; }
-    setGpsLoading(target);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const filled = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
-          if (target === "current") {
-            setCurrentAddress(prev => ({ ...prev, ...filled }));
-            if (sameAsCurrent) setHometownAddress(prev => ({ ...prev, ...filled }));
-          } else {
-            setHometownAddress(prev => ({ ...prev, ...filled }));
-          }
-          toast.success("Location detected!");
-        } catch { toast.error("Could not fetch address. Fill manually."); }
-        finally { setGpsLoading(null); }
-      },
-      () => { setGpsLoading(null); toast.error("Location denied. Fill manually."); },
-      { timeout: 10000 }
-    );
-  };
-
   const validate = () => {
     const e: Record<string, string> = {};
+    if (!currentAddress.flatNo.trim())  e.currentFlatNo  = "Flat/House No. is required";
+    if (!currentAddress.street.trim())  e.currentStreet  = "Street is required";
+    if (!currentAddress.area.trim())    e.currentArea    = "Area is required";
     if (!currentAddress.city.trim())    e.currentCity    = "City is required";
-    if (!currentAddress.state.trim())   e.currentState   = "State is required";
     if (!currentAddress.pincode.trim()) e.currentPincode = "Pincode is required";
     if (!sameAsCurrent) {
-      if (!hometownAddress.city.trim())  e.hometownCity  = "City is required";
-      if (!hometownAddress.state.trim()) e.hometownState = "State is required";
+      if (!hometownAddress.city.trim()) e.hometownCity   = "City is required";
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -153,56 +165,149 @@ export default function Page() {
     }
   };
 
-  const renderAddressFields = (address: Address, setAddress: (a: Address) => void, prefix: string, target: "current"|"hometown", readOnly = false) => (
-    <div className="space-y-4">
-      {!readOnly && (
-        <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/5 border border-primary/20">
-          <Navigation className="h-5 w-5 text-primary flex-shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-medium">Auto-detect Location</p>
-            <p className="text-xs text-muted-foreground">Fill address fields automatically using GPS</p>
-          </div>
-          <Button type="button" size="sm" variant="outline" onClick={() => detectLocation(target)} disabled={gpsLoading !== null} className="gap-2 border-primary/30 text-primary">
-            {gpsLoading === target ? <><Loader2 className="h-4 w-4 animate-spin" /> Detecting...</> : <><Navigation className="h-4 w-4" /> Detect GPS</>}
-          </Button>
-        </div>
-      )}
-      {address.lat && address.lng && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 px-3 py-2 rounded-lg">
-          <MapPin className="h-3.5 w-3.5 text-primary" /><span>GPS: {address.lat}, {address.lng}</span>
-        </div>
-      )}
+  const setField = (
+    setter: (a: Address) => void,
+    address: Address,
+    field: keyof Address,
+    value: string,
+    errorKey?: string
+  ) => {
+    setter({ ...address, [field]: value });
+    if (errorKey) setErrors(ev => ({ ...ev, [errorKey]: "" }));
+  };
+
+  const renderAddressFields = (
+    address: Address,
+    setAddress: (a: Address) => void,
+    prefix: string,
+    readOnly = false
+  ) => (
+    <div className="space-y-5">
+
+      {/* Row 1: Flat No + Building */}
       <div className="grid md:grid-cols-2 gap-4">
-        {[["flatNo","Flat / House No."],["building","Building / Society"],["street","Street / Road"],["area","Area / Locality"]].map(([field, label]) => (
-          <div key={field} className="space-y-2">
-            <Label>{label}</Label>
-            <Input placeholder={`Enter ${label.toLowerCase()}`} value={address[field as keyof Address]}
-              disabled={readOnly}
-              onChange={e => !readOnly && setAddress({ ...address, [field]: e.target.value })} />
-          </div>
-        ))}
         <div className="space-y-2">
-          <Label>City {!readOnly && <span className="text-destructive">*</span>}</Label>
-          <Input placeholder="Enter city" value={address.city} disabled={readOnly}
-            onChange={e => { if (!readOnly) { setAddress({...address, city: e.target.value}); setErrors(ev => ({...ev, [`${prefix}City`]: ""})); } }}
-            className={errors[`${prefix}City`] ? "border-destructive" : ""} />
-          {errors[`${prefix}City`] && <p className="text-xs text-destructive">{errors[`${prefix}City`]}</p>}
+          <Label>Flat / House No. {!readOnly && <span className="text-destructive">*</span>}</Label>
+          <Input
+            placeholder="e.g. 12A, Flat 3"
+            value={address.flatNo}
+            disabled={readOnly}
+            onChange={e => setField(setAddress, address, "flatNo", e.target.value, `${prefix}FlatNo`)}
+            className={errors[`${prefix}FlatNo`] ? "border-destructive" : ""}
+          />
+          {errors[`${prefix}FlatNo`] && <p className="text-xs text-destructive">{errors[`${prefix}FlatNo`]}</p>}
         </div>
         <div className="space-y-2">
-          <Label>State {!readOnly && <span className="text-destructive">*</span>}</Label>
-          <Input placeholder="Enter state" value={address.state} disabled={readOnly}
-            onChange={e => { if (!readOnly) { setAddress({...address, state: e.target.value}); setErrors(ev => ({...ev, [`${prefix}State`]: ""})); } }}
-            className={errors[`${prefix}State`] ? "border-destructive" : ""} />
-          {errors[`${prefix}State`] && <p className="text-xs text-destructive">{errors[`${prefix}State`]}</p>}
-        </div>
-        <div className="space-y-2">
-          <Label>Pincode {!readOnly && prefix === "current" && <span className="text-destructive">*</span>}</Label>
-          <Input placeholder="6-digit pincode" value={address.pincode} maxLength={6} disabled={readOnly}
-            onChange={e => { if (!readOnly) { setAddress({...address, pincode: e.target.value}); setErrors(ev => ({...ev, [`${prefix}Pincode`]: ""})); } }}
-            className={errors[`${prefix}Pincode`] ? "border-destructive" : ""} />
-          {errors[`${prefix}Pincode`] && <p className="text-xs text-destructive">{errors[`${prefix}Pincode`]}</p>}
+          <Label>Building / Society</Label>
+          <Input
+            placeholder="e.g. Sunshine Apartments"
+            value={address.building}
+            disabled={readOnly}
+            onChange={e => setField(setAddress, address, "building", e.target.value)}
+          />
         </div>
       </div>
+
+      {/* Row 2: Street + Landmark */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Street / Road {!readOnly && <span className="text-destructive">*</span>}</Label>
+          <Input
+            placeholder="e.g. MG Road, 2nd Cross"
+            value={address.street}
+            disabled={readOnly}
+            onChange={e => setField(setAddress, address, "street", e.target.value, `${prefix}Street`)}
+            className={errors[`${prefix}Street`] ? "border-destructive" : ""}
+          />
+          {errors[`${prefix}Street`] && <p className="text-xs text-destructive">{errors[`${prefix}Street`]}</p>}
+        </div>
+        <div className="space-y-2">
+          <Label>Landmark</Label>
+          <Input
+            placeholder="e.g. Near City Mall, Opp. Hospital"
+            value={address.landmark}
+            disabled={readOnly}
+            onChange={e => setField(setAddress, address, "landmark", e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Row 3: Area + City */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Area / Locality {!readOnly && <span className="text-destructive">*</span>}</Label>
+          <Input
+            placeholder="e.g. Koramangala, Andheri West"
+            value={address.area}
+            disabled={readOnly}
+            onChange={e => setField(setAddress, address, "area", e.target.value, `${prefix}Area`)}
+            className={errors[`${prefix}Area`] ? "border-destructive" : ""}
+          />
+          {errors[`${prefix}Area`] && <p className="text-xs text-destructive">{errors[`${prefix}Area`]}</p>}
+        </div>
+        <div className="space-y-2">
+          <Label>City / Town {!readOnly && <span className="text-destructive">*</span>}</Label>
+          <Input
+            placeholder="e.g. Bengaluru"
+            value={address.city}
+            disabled={readOnly}
+            onChange={e => setField(setAddress, address, "city", e.target.value, `${prefix}City`)}
+            className={errors[`${prefix}City`] ? "border-destructive" : ""}
+          />
+          {errors[`${prefix}City`] && <p className="text-xs text-destructive">{errors[`${prefix}City`]}</p>}
+        </div>
+      </div>
+
+      {/* Row 4: Taluk + District */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Taluk</Label>
+          <Input
+            placeholder="e.g. Bangalore South"
+            value={address.taluk}
+            disabled={readOnly}
+            onChange={e => setField(setAddress, address, "taluk", e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>District</Label>
+          <Input
+            placeholder="e.g. Bengaluru Urban"
+            value={address.district}
+            disabled={readOnly}
+            onChange={e => setField(setAddress, address, "district", e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Row 5: Pincode + Country */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Pincode {!readOnly && <span className="text-destructive">*</span>}</Label>
+          <Input
+            placeholder="6-digit pincode"
+            value={address.pincode}
+            maxLength={6}
+            disabled={readOnly}
+            onChange={e => {
+              const val = e.target.value.replace(/\D/g, "");
+              setField(setAddress, address, "pincode", val, `${prefix}Pincode`);
+            }}
+            className={errors[`${prefix}Pincode`] ? "border-destructive" : ""}
+          />
+          {errors[`${prefix}Pincode`] && <p className="text-xs text-destructive">{errors[`${prefix}Pincode`]}</p>}
+        </div>
+        <div className="space-y-2">
+          <Label>Country</Label>
+          <Input
+            placeholder="Country"
+            value={address.country}
+            disabled={readOnly}
+            onChange={e => setField(setAddress, address, "country", e.target.value)}
+          />
+        </div>
+      </div>
+
     </div>
   );
 
@@ -217,8 +322,12 @@ export default function Page() {
           <p className="text-muted-foreground mt-1">Step 4 of 7: Provide your address details</p>
         </div>
         {canReset && (
-          <Button variant="outline" size="sm" className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
-            onClick={() => setShowResetDialog(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 text-destructive border-destructive hover:bg-destructive/10 mt-4"
+            onClick={() => setShowResetDialog(true)}
+          >
             <RotateCcw className="h-4 w-4" /> Reset This Step
           </Button>
         )}
@@ -226,34 +335,71 @@ export default function Page() {
 
       <Stepper steps={steps} currentStep={3} />
 
+      {/* Current Address */}
       <Card className="shadow-sm border-l-4 border-l-primary">
         <CardHeader>
-          <div className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" /><CardTitle>Current Address</CardTitle></div>
+          <div className="flex items-center gap-2">
+            <MapPin className="h-5 w-5 text-primary" />
+            <CardTitle>Current Address</CardTitle>
+          </div>
           <CardDescription>Your present residential address</CardDescription>
         </CardHeader>
-        <CardContent>{renderAddressFields(currentAddress, setCurrentAddress, "current", "current")}</CardContent>
+        <CardContent>
+          {renderAddressFields(currentAddress, setCurrentAddress, "current")}
+        </CardContent>
       </Card>
 
+      {/* Hometown Address */}
       <Card className="shadow-sm">
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2"><MapPin className="h-5 w-5 text-muted-foreground" /><CardTitle>Home Town Address</CardTitle></div>
+          <div className="flex items-center gap-2">
+            <MapPin className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>Home Town Address</CardTitle>
           </div>
           <CardDescription>Your native place or ancestral home</CardDescription>
           <div className="flex items-center gap-2 pt-2">
-            <Checkbox id="sameAsCurrent" checked={sameAsCurrent} onCheckedChange={c => setSameAsCurrent(c as boolean)} />
-            <Label htmlFor="sameAsCurrent" className="font-normal cursor-pointer text-sm">Home Town Address is same as Current Address</Label>
+            <Checkbox
+              id="sameAsCurrent"
+              checked={sameAsCurrent}
+              onCheckedChange={c => setSameAsCurrent(c as boolean)}
+            />
+            <Label htmlFor="sameAsCurrent" className="font-normal cursor-pointer text-sm">
+              Home Town Address is same as Current Address
+            </Label>
           </div>
         </CardHeader>
-        {!sameAsCurrent && <CardContent>{renderAddressFields(hometownAddress, setHometownAddress, "hometown", "hometown")}</CardContent>}
-        {sameAsCurrent && <CardContent><div className="p-3 bg-muted/40 rounded-lg text-sm text-muted-foreground">Using current address as hometown address.</div></CardContent>}
+        {!sameAsCurrent && (
+          <CardContent>
+            {renderAddressFields(hometownAddress, setHometownAddress, "hometown")}
+          </CardContent>
+        )}
+        {sameAsCurrent && (
+          <CardContent>
+            <div className="p-3 bg-muted/40 rounded-lg text-sm text-muted-foreground">
+              Using current address as hometown address.
+            </div>
+          </CardContent>
+        )}
       </Card>
 
+      {/* Old Address History */}
       <Card className="shadow-sm">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <div><CardTitle>Old Location History</CardTitle><CardDescription>Add up to 4 previous addresses (Optional)</CardDescription></div>
-            <Button onClick={() => { if (oldAddresses.length < 4) setOldAddresses(prev => [...prev, { ...emptyAddress(), id: Date.now().toString() }]); }} size="sm" variant="outline" disabled={oldAddresses.length >= 4} className="gap-2">
+            <div>
+              <CardTitle>Old Location History</CardTitle>
+              <CardDescription>Add up to 4 previous addresses (Optional)</CardDescription>
+            </div>
+            <Button
+              onClick={() => {
+                if (oldAddresses.length < 4)
+                  setOldAddresses(prev => [...prev, { ...emptyAddress(), id: Date.now().toString() }]);
+              }}
+              size="sm"
+              variant="outline"
+              disabled={oldAddresses.length >= 4}
+              className="gap-2"
+            >
               <Plus className="h-4 w-4" /> Add Previous Address
             </Button>
           </div>
@@ -264,16 +410,89 @@ export default function Page() {
               <div key={address.id} className="p-4 border rounded-xl bg-muted/30 space-y-4">
                 <div className="flex items-center justify-between">
                   <h4 className="font-medium text-sm">Previous Address {index + 1}</h4>
-                  <Button aria-label="Remove address" variant="ghost" size="sm" onClick={() => setOldAddresses(prev => prev.filter(a => a.id !== address.id))}>
+                  <Button
+                    aria-label="Remove address"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setOldAddresses(prev => prev.filter(a => a.id !== address.id))}
+                  >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
+
+                {/* Row 1 */}
                 <div className="grid md:grid-cols-2 gap-4">
-                  {(["flatNo","building","street","area","city","state","pincode"] as (keyof Address)[]).map(field => (
-                    <Input key={field} placeholder={field.charAt(0).toUpperCase() + field.slice(1)} value={address[field]}
-                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, [field]: e.target.value } : a))} />
-                  ))}
+                  <div className="space-y-2">
+                    <Label>Flat / House No.</Label>
+                    <Input placeholder="e.g. 12A, Flat 3" value={address.flatNo}
+                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, flatNo: e.target.value } : a))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Building / Society</Label>
+                    <Input placeholder="e.g. Sunshine Apartments" value={address.building}
+                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, building: e.target.value } : a))} />
+                  </div>
                 </div>
+
+                {/* Row 2 */}
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Street / Road</Label>
+                    <Input placeholder="e.g. MG Road" value={address.street}
+                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, street: e.target.value } : a))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Landmark</Label>
+                    <Input placeholder="e.g. Near City Mall" value={address.landmark}
+                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, landmark: e.target.value } : a))} />
+                  </div>
+                </div>
+
+                {/* Row 3 */}
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Area / Locality</Label>
+                    <Input placeholder="e.g. Koramangala" value={address.area}
+                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, area: e.target.value } : a))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>City / Town</Label>
+                    <Input placeholder="e.g. Bengaluru" value={address.city}
+                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, city: e.target.value } : a))} />
+                  </div>
+                </div>
+
+                {/* Row 4 */}
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Taluk</Label>
+                    <Input placeholder="e.g. Bangalore South" value={address.taluk}
+                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, taluk: e.target.value } : a))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>District</Label>
+                    <Input placeholder="e.g. Bengaluru Urban" value={address.district}
+                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, district: e.target.value } : a))} />
+                  </div>
+                </div>
+
+                {/* Row 5 */}
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Pincode</Label>
+                    <Input placeholder="6-digit pincode" maxLength={6} value={address.pincode}
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g, "");
+                        setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, pincode: val } : a));
+                      }} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Country</Label>
+                    <Input placeholder="Country" value={address.country}
+                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, country: e.target.value } : a))} />
+                  </div>
+                </div>
+
               </div>
             ))}
           </CardContent>
@@ -293,7 +512,9 @@ export default function Page() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Reset Location Information?</AlertDialogTitle>
-            <AlertDialogDescription>This will clear only your location information. All other steps remain intact.</AlertDialogDescription>
+            <AlertDialogDescription>
+              This will clear only your location information. All other steps remain intact.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

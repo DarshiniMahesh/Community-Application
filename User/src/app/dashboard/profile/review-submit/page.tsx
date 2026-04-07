@@ -115,6 +115,39 @@ function findMemberRow(
   );
 }
 
+function formatAddress(a: Record<string, string>): string {
+  return [a.flat_no, a.building, a.street, a.landmark, a.area, a.city, a.taluk, a.district, a.pincode, a.country]
+    .filter(Boolean).join(", ");
+}
+
+function formatTenure(t: string): string {
+  if (t === "part_time") return "Part Time";
+  if (t === "full_time") return "Full Time";
+  return t;
+}
+
+function formatStatus(s: string): string {
+  if (s === "active") return "Active";
+  if (s === "passed_away") return "Passed Away";
+  if (s === "unknown") return "Unknown";
+  return s;
+}
+
+function formatProfession(p: string): string {
+  const map: Record<string, string> = {
+    self_employed: "Self Employed or Business",
+    stem: "Science, Technology, Engineering & Mathematics",
+    healthcare: "Healthcare & Medicine",
+    business: "Business & Management",
+    law: "Law & Governance",
+    education: "Education & Research",
+    arts_media: "Arts, Media & Communication",
+    trades: "Trades & Vocational Professions",
+    agriculture: "Agriculture & Others",
+  };
+  return map[p] || p;
+}
+
 interface Sangha {
   id: string;
   sangha_name: string;
@@ -142,7 +175,7 @@ export default function Page() {
       setProfileData(full);
       setProfileMeta(meta);
       setSanghas(sanghaList);
-      if (meta?.sangha_id) setSelectedSangha(meta.sangha_id);
+      if (meta?.sangha_id) setSelectedSangha(meta.sangha_id as string);
     }).catch(() => toast.error("Failed to load profile"))
       .finally(() => setLoading(false));
   }, []);
@@ -180,25 +213,58 @@ export default function Page() {
   );
 
   const s1    = profileData?.step1 as Record<string, string> | null;
-  const s2    = profileData?.step2 as Record<string, string> | null;
-  const s3    = profileData?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
+  const s2    = profileData?.step2 as Record<string, unknown> | null;
   const s4    = profileData?.step4 as Record<string, string>[] | null;
   const s5    = profileData?.step5 as Record<string, unknown>[] | null;
   const s6eco = (profileData?.step6 as { economic?: Record<string, unknown> } | null)?.economic;
   const s6ins = ((profileData?.step6 as { insurance?: Record<string, unknown>[] } | null)?.insurance || []);
   const s6doc = ((profileData?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || []);
 
+  const s3typed = profileData?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
+  let familyType = s3typed?.family_info?.family_type || "";
+  let familyMembers: Record<string, string>[] = s3typed?.members || [];
+
+  const s3raw = profileData?.step3;
+  if (Array.isArray(s3raw) && familyMembers.length === 0) {
+    familyMembers = s3raw as Record<string, string>[];
+  }
+
   const currentAddr  = s4?.find(a => a.address_type === "current");
   const hometownAddr = s4?.find(a => a.address_type === "hometown");
+  const oldAddresses = s4?.filter(a => a.address_type?.startsWith("old_")) || [];
 
-  const userEdu = s5?.[0];
+  const s2DemiGodsRaw = s2?.demi_gods;
+  const demiGodsList: string[] = Array.isArray(s2DemiGodsRaw)
+    ? s2DemiGodsRaw as string[]
+    : typeof s2DemiGodsRaw === "string"
+      ? (s2DemiGodsRaw as string).split(",").map(d => d.trim()).filter(Boolean)
+      : [];
+  const demiGodOther = s2?.demi_god_other as string | null;
+  const allDemiGods = [
+    ...demiGodsList.filter(d => d !== "Other"),
+    ...(demiGodOther ? demiGodOther.split(",").map(t => t.trim()).filter(Boolean) : []),
+  ];
 
-  const userIns = findMemberRow(s6ins, s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "", "Self")
-    ?? s6ins.find(r => (r.member_relation as string) === "Self");
-  const userDoc = findMemberRow(s6doc, s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "", "Self")
-    ?? s6doc.find(r => (r.member_relation as string) === "Self");
+  const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "";
 
-  const familyMembers = s3?.members || [];
+  const userIns = findMemberRow(s6ins, userName, "Self") ?? s6ins.find(r => (r.member_relation as string) === "Self");
+  const userDoc = findMemberRow(s6doc, userName, "Self") ?? s6doc.find(r => (r.member_relation as string) === "Self");
+  const userEdu = s5?.[0] ?? null;
+
+  const fac: string[] = [];
+  if (s6eco?.fac_rented_house)      fac.push("Staying in Rented House");
+  if (s6eco?.fac_own_house)         fac.push("Own a House");
+  if (s6eco?.fac_agricultural_land) fac.push("Own Agricultural Land");
+  if (s6eco?.fac_two_wheeler)       fac.push("Own a Two Wheeler");
+  if (s6eco?.fac_car)               fac.push("Own a Car");
+
+  const inv: string[] = [];
+  if (s6eco?.inv_fixed_deposits)   inv.push("Fixed Deposits");
+  if (s6eco?.inv_mutual_funds_sip) inv.push("Mutual Funds / SIP");
+  if (s6eco?.inv_shares_demat)     inv.push("Trading in Shares / Demat Account");
+  if (s6eco?.inv_others)           inv.push("Investment - Others");
+
+  void familyType;
 
   return (
     <>
@@ -213,7 +279,6 @@ export default function Page() {
 
         <Stepper steps={steps} currentStep={6} />
 
-        {/* Locked banner */}
         {isLocked && (
           <Card className="border-l-4 border-l-blue-500 bg-blue-50 shadow-sm">
             <CardContent className="pt-4 pb-4">
@@ -237,32 +302,30 @@ export default function Page() {
           </Card>
         )}
 
-        {/* YOUR INFORMATION */}
         <Card className="shadow-sm border-l-4 border-l-primary">
           <CardHeader>
             <CardTitle className="text-lg">Your Information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
 
-            {/* Personal */}
             <div>
               <SectionHeader title="Personal Details" href="/dashboard/profile/personal-details" isLocked={isLocked} />
               {s1 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <Field label="Full Name"      value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
-                  <Field label="Gender"         value={s1.gender} />
+                  <Field label="Gender"         value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
                   <Field label="Date of Birth"  value={formatDate(s1.date_of_birth)} />
                   <Field label="Marital Status" value={s1.is_married ? "Married" : "Single"} />
-                  {s1.is_married && <Field label="Spouse Name" value={s1.wife_name || s1.husbands_name} />}
                   <Field label="Father's Name"  value={s1.fathers_name} />
                   <Field label="Mother's Name"  value={s1.mothers_name} />
                   <Field label="Surname in Use" value={s1.surname_in_use} />
-                  <Field label="Disability"     value={s1.has_disability === "yes" ? "Yes" : s1.has_disability === "no" ? "No" : null} />
-                  {s1.is_part_of_sangha === "yes" && (
+                  <Field label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
+                  <Field label="Disability"     value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
+                  {(s1.is_part_of_sangha === "yes" || s1.is_part_of_sangha === "true") && (
                     <>
                       <Field label="Sangha Name"   value={s1.sangha_name} />
                       <Field label="Sangha Role"   value={s1.sangha_role} />
-                      <Field label="Sangha Tenure" value={s1.sangha_tenure === "part_time" ? "Part Time" : s1.sangha_tenure === "full_time" ? "Full Time" : s1.sangha_tenure} />
+                      <Field label="Sangha Tenure" value={formatTenure(s1.sangha_tenure)} />
                     </>
                   )}
                 </div>
@@ -271,90 +334,161 @@ export default function Page() {
 
             <Separator />
 
-            {/* Religious */}
             <div>
               <SectionHeader title="Religious Details" href="/dashboard/profile/religious-details" isLocked={isLocked} />
               {s2 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <Field label="Gotra"                value={s2.gotra} />
-                  <Field label="Pravara"              value={s2.pravara} />
-                  <Field label="Upanama (General)"    value={s2.upanama_general} />
-                  <Field label="Upanama (Proper)"     value={s2.upanama_proper} />
-                  <Field label="Kuladevata"           value={s2.kuladevata_other || s2.kuladevata} />
-                  <Field label="Surname"              value={s2.surname_in_use} />
-                  <Field label="Family Priest"        value={s2.priest_name} />
-                  <Field label="Priest Location"      value={s2.priest_location} />
-                  <Field
-                    label="Ancestral Family Tracing Challenge"
-                    value={s2.demi_god_challenge === "yes" ? "Yes" : s2.demi_god_challenge === "no" ? "No" : null}
-                  />
-                  {s2.demi_god_challenge === "no" && (
-                    <Field label="Demi God" value={s2.demi_god} />
-                  )}
-                  {s2.demi_god_challenge === "yes" && (
-                    <Field label="Common Relative Names" value={s2.demi_god_notes} />
-                  )}
-                </div>
-              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
-            </div>
-
-            <Separator />
-
-            {/* Location */}
-            <div>
-              <SectionHeader title="Location" href="/dashboard/profile/location-information" isLocked={isLocked} />
-              {currentAddr ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Current Address</Label>
-                    <p className="text-sm font-medium mt-0.5">
-                      {[currentAddr.flat_no, currentAddr.building, currentAddr.street, currentAddr.area,
-                        currentAddr.city, currentAddr.state, currentAddr.pincode].filter(Boolean).join(", ")}
-                    </p>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <Field label="Surname in Use"       value={s2.surname_in_use as string} />
+                    <Field label="Surname as per Gotra" value={s2.surname_as_per_gotra as string} />
+                    <Field label="Family Priest"        value={s2.priest_name as string} />
+                    <Field label="Priest Location"      value={s2.priest_location as string} />
+                    <Field label="Gotra"                value={s2.gotra as string} />
+                    <Field label="Pravara"              value={s2.pravara as string} />
+                    <Field label="Upanama (General)"    value={s2.upanama_general as string} />
+                    <Field label="Upanama (Proper)"     value={s2.upanama_proper as string} />
+                    <Field label="Kuladevata"           value={((s2.kuladevata_other as string) || (s2.kuladevata as string)) ?? null} />
+                    <Field
+                      label="Ancestral Tracing Challenge"
+                      value={s2.ancestral_challenge === "yes" ? "Yes" : s2.ancestral_challenge === "no" ? "No" : null}
+                    />
+                    {s2.ancestral_challenge === "yes" && (
+                      <Field label="Common Relative Known Names" value={s2.ancestral_challenge_notes as string} />
+                    )}
                   </div>
-                  {hometownAddr && (
-                    <div>
-                      <Label className="text-xs text-muted-foreground">Home Town</Label>
-                      <p className="text-sm font-medium mt-0.5">
-                        {[hometownAddr.city, hometownAddr.state].filter(Boolean).join(", ")}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
-            </div>
-
-            <Separator />
-
-            {/* User Education */}
-            <div>
-              <SectionHeader title="Education &amp; Profession" href="/dashboard/profile/education-profession" isLocked={isLocked} />
-              {userEdu ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <Field label="Highest Education" value={userEdu.highest_education as string} />
-                  {userEdu.is_currently_studying
-                    ? <Field label="Status" value="Currently Studying / Pursuing" />
-                    : <Field label="Profession" value={userEdu.profession_type as string} />
-                  }
-                  <Field label="Industry"      value={userEdu.industry as string} />
-                  <Field label="Brief Profile" value={userEdu.brief_profile as string} />
-                  {(userEdu.certifications as string[])?.filter(c => c).length > 0 && (
-                    <div className="col-span-2">
-                      <Label className="text-xs text-muted-foreground">Certifications</Label>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {(userEdu.certifications as string[]).filter(c => c).map((c, i) => (
-                          <Badge key={i} variant="secondary" className="text-xs">{c}</Badge>
+                  {allDemiGods.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Demi God(s)</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {allDemiGods.map((god, i) => (
+                          <Badge key={i} variant="secondary" className="text-xs">{god}</Badge>
                         ))}
                       </div>
                     </div>
                   )}
-                  {(userEdu.languages as { language: string }[])?.length > 0 && (
-                    <div className="col-span-2">
-                      <Label className="text-xs text-muted-foreground">Languages</Label>
-                      <div className="flex flex-wrap gap-1 mt-1">
+                </div>
+              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+            </div>
+
+            <Separator />
+
+            <div>
+              <SectionHeader title="Family Information" href="/dashboard/profile/family-information" isLocked={isLocked} />
+              {familyMembers.length > 0 ? (
+                <div className="space-y-3">
+                  {s3typed?.family_info?.family_type && (
+                    <Field
+                      label="Family Type"
+                      value={s3typed.family_info.family_type === "nuclear" ? "Nuclear Family" : s3typed.family_info.family_type === "joint" ? "Joint Family" : s3typed.family_info.family_type}
+                    />
+                  )}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm border border-border rounded-lg overflow-hidden">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          {["Relation","Name","Date of Birth","Gender","Status","Disability"].map(h => (
+                            <th key={h} className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground border-b border-border">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {familyMembers.map((m, i) => (
+                          <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}>
+                            <td className="px-3 py-2 font-medium">{m.relation}</td>
+                            <td className="px-3 py-2">{m.name || "—"}</td>
+                            <td className="px-3 py-2">{m.dob ? formatDate(m.dob) : m.age ? `Age ${m.age}` : "—"}</td>
+                            <td className="px-3 py-2 capitalize">{m.gender || "—"}</td>
+                            <td className="px-3 py-2">{m.status ? formatStatus(m.status) : "—"}</td>
+                            <td className="px-3 py-2">{m.disability === "yes" ? "Yes" : m.disability === "no" ? "No" : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+            </div>
+
+            <Separator />
+
+            <div>
+              <SectionHeader title="Location" href="/dashboard/profile/location-information" isLocked={isLocked} />
+              {currentAddr ? (
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Current Address</Label>
+                    <p className="text-sm font-medium mt-0.5">{formatAddress(currentAddr)}</p>
+                  </div>
+                  {hometownAddr && (
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Home Town Address</Label>
+                      <p className="text-sm font-medium mt-0.5">{formatAddress(hometownAddr)}</p>
+                    </div>
+                  )}
+                  {oldAddresses.map((a, i) => (
+                    <div key={i}>
+                      <Label className="text-xs text-muted-foreground">Previous Address {i + 1}</Label>
+                      <p className="text-sm font-medium mt-0.5">{formatAddress(a)}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+            </div>
+
+            <Separator />
+
+            <div>
+              <SectionHeader title="Education &amp; Profession" href="/dashboard/profile/education-profession" isLocked={isLocked} />
+              {userEdu ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <Field
+                      label="Currently Studying"
+                      value={userEdu.is_currently_studying ? "Yes" : "No"}
+                    />
+                    {userEdu.is_currently_studying && (
+                      <Field
+                        label="Currently Working"
+                        value={userEdu.is_currently_working === true ? "Yes" : userEdu.is_currently_working === false ? "No" : null}
+                      />
+                    )}
+                    {(userEdu.profession_type as string) && (
+                      <Field label="Profession" value={formatProfession(userEdu.profession_type as string)} />
+                    )}
+                    {(userEdu.industry as string) && (
+                      <Field label="Industry / Field" value={userEdu.industry as string} />
+                    )}
+                    {(userEdu.brief_profile as string) && (
+                      <Field label="Brief Profile" value={userEdu.brief_profile as string} />
+                    )}
+                  </div>
+
+                  {(userEdu.educations as Record<string, string>[])?.filter(e => e.degree_type).length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Education</Label>
+                      <div className="space-y-2">
+                        {(userEdu.educations as Record<string, string>[]).filter(e => e.degree_type).map((edu, i) => (
+                          <div key={i} className="flex flex-wrap gap-x-6 gap-y-1 p-3 rounded-lg bg-muted/30 border border-border text-sm">
+                            <span className="font-medium">{edu.degree_type}</span>
+                            {edu.degree_name && <span className="text-muted-foreground">{edu.degree_name}</span>}
+                            {edu.university && <span className="text-muted-foreground">{edu.university}</span>}
+                            {edu.start_date && edu.end_date && (
+                              <span className="text-muted-foreground text-xs">{formatDate(edu.start_date)} – {formatDate(edu.end_date)}</span>
+                            )}
+                            {edu.certificate && <span className="text-muted-foreground text-xs">Cert: {edu.certificate}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(userEdu.languages as { language: string; language_other?: string }[])?.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Languages Known</Label>
+                      <div className="flex flex-wrap gap-1">
                         {(userEdu.languages as { language: string; language_other?: string }[]).map((l, i) => (
                           <Badge key={i} variant="secondary" className="text-xs">
-                            {l.language === "Other" ? l.language_other : l.language}
+                            {l.language === "Other" ? (l.language_other ?? "") : l.language}
                           </Badge>
                         ))}
                       </div>
@@ -366,7 +500,6 @@ export default function Page() {
 
             <Separator />
 
-            {/* User Economic */}
             <div>
               <SectionHeader title="Economic Details" href="/dashboard/profile/economic-details" isLocked={isLocked} />
               {s6eco ? (
@@ -374,17 +507,31 @@ export default function Page() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-3 rounded-xl bg-muted/40 border border-border space-y-1">
                       <Label className="text-xs text-muted-foreground">Self Income</Label>
-                      <p className="text-sm font-semibold text-foreground">
-                        {formatIncome(s6eco.self_income as string) || "—"}
-                      </p>
+                      <p className="text-sm font-semibold">{formatIncome(s6eco.self_income as string) || "—"}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-muted/40 border border-border space-y-1">
                       <Label className="text-xs text-muted-foreground">Family Income</Label>
-                      <p className="text-sm font-semibold text-foreground">
-                        {formatIncome(s6eco.family_income as string) || "—"}
-                      </p>
+                      <p className="text-sm font-semibold">{formatIncome(s6eco.family_income as string) || "—"}</p>
                     </div>
                   </div>
+
+                  {fac.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Family Facilities</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {fac.map(f => <Badge key={f} variant="secondary" className="text-xs">{f}</Badge>)}
+                      </div>
+                    </div>
+                  )}
+
+                  {inv.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Investments</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {inv.map(iv => <Badge key={iv} variant="secondary" className="text-xs">{iv}</Badge>)}
+                      </div>
+                    </div>
+                  )}
 
                   {userIns && (
                     <div>
@@ -417,14 +564,13 @@ export default function Page() {
           </CardContent>
         </Card>
 
-        {/* FAMILY MEMBERS */}
-        {familyMembers.length > 0 && (
+        {familyMembers.filter(m => m.relation !== "Self").length > 0 && (
           <Card className="shadow-sm">
             <CardHeader>
               <CardTitle className="text-lg">Family Members</CardTitle>
             </CardHeader>
             <CardContent className="space-y-8">
-              {familyMembers.map((member, idx) => {
+              {familyMembers.filter(m => m.relation !== "Self").map((member, idx) => {
                 const memberEdu = s5?.[idx + 1];
                 const memberIns = findMemberRow(s6ins, member.name, member.relation);
                 const memberDoc = findMemberRow(s6doc, member.name, member.relation);
@@ -437,7 +583,7 @@ export default function Page() {
                         <span className="text-sm font-bold text-primary">{idx + 1}</span>
                       </div>
                       <div>
-                        <p className="font-semibold text-foreground">{member.name}</p>
+                        <p className="font-semibold text-foreground">{member.name || `Member ${idx + 1}`}</p>
                         <p className="text-xs text-muted-foreground">{member.relation}</p>
                       </div>
                     </div>
@@ -447,75 +593,103 @@ export default function Page() {
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                         <Field label="Name"       value={member.name} />
                         <Field label="Relation"   value={member.relation} />
-                        <Field label="Date of Birth" value={
-                          member.dob
-                            ? formatDate(member.dob)
-                            : member.age
-                              ? `Age: ${member.age}`
-                              : null
-                        } />
-                        <Field label="Gender"     value={member.gender} />
-                        <Field label="Status"     value={member.status} />
-                        <Field label="Disability" value={
-                          member.disability === "yes" ? "Yes" : member.disability === "no" ? "No" : null
-                        } />
+                        <Field label="Date of Birth" value={member.dob ? formatDate(member.dob) : member.age ? `Age: ${member.age}` : null} />
+                        <Field label="Gender"     value={member.gender ? member.gender.charAt(0).toUpperCase() + member.gender.slice(1) : null} />
+                        <Field label="Status"     value={member.status ? formatStatus(member.status) : null} />
+                        <Field label="Disability" value={member.disability === "yes" ? "Yes" : member.disability === "no" ? "No" : null} />
                       </div>
                     </div>
 
-                    <div>
-                      <SectionHeader title="Education &amp; Profession" href="/dashboard/profile/education-profession" isLocked={isLocked} memberIndex={idx + 1} />
-                      {memberEdu ? (
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                          <Field label="Highest Education" value={memberEdu.highest_education as string} />
-                          {memberEdu.is_currently_studying
-                            ? <Field label="Status" value="Currently Studying / Pursuing" />
-                            : <Field label="Profession" value={memberEdu.profession_type as string} />
-                          }
-                          <Field label="Industry" value={memberEdu.industry as string} />
-                          {(memberEdu.languages as { language: string }[])?.length > 0 && (
-                            <div className="col-span-2">
-                              <Label className="text-xs text-muted-foreground">Languages</Label>
-                              <div className="flex flex-wrap gap-1 mt-1">
+                    {memberEdu && (
+                      <div>
+                        <SectionHeader title="Education &amp; Profession" href="/dashboard/profile/education-profession" isLocked={isLocked} memberIndex={idx + 1} />
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            <Field
+                              label="Currently Studying"
+                              value={memberEdu.is_currently_studying ? "Yes" : "No"}
+                            />
+                            {memberEdu.is_currently_studying && (
+                              <Field
+                                label="Currently Working"
+                                value={memberEdu.is_currently_working === true ? "Yes" : memberEdu.is_currently_working === false ? "No" : null}
+                              />
+                            )}
+                            {(memberEdu.profession_type as string) && (
+                              <Field label="Profession" value={formatProfession(memberEdu.profession_type as string)} />
+                            )}
+                            {(memberEdu.industry as string) && (
+                              <Field label="Industry / Field" value={memberEdu.industry as string} />
+                            )}
+                            {(memberEdu.brief_profile as string) && (
+                              <Field label="Brief Profile" value={memberEdu.brief_profile as string} />
+                            )}
+                          </div>
+
+                          {(memberEdu.educations as Record<string, string>[])?.filter(e => e.degree_type).length > 0 && (
+                            <div className="space-y-2">
+                              <Label className="text-xs text-muted-foreground">Education</Label>
+                              <div className="space-y-2">
+                                {(memberEdu.educations as Record<string, string>[]).filter(e => e.degree_type).map((edu, ei) => (
+                                  <div key={ei} className="flex flex-wrap gap-x-6 gap-y-1 p-3 rounded-lg bg-muted/30 border border-border text-sm">
+                                    <span className="font-medium">{edu.degree_type}</span>
+                                    {edu.degree_name && <span className="text-muted-foreground">{edu.degree_name}</span>}
+                                    {edu.university && <span className="text-muted-foreground">{edu.university}</span>}
+                                    {edu.start_date && edu.end_date && (
+                                      <span className="text-muted-foreground text-xs">{formatDate(edu.start_date)} – {formatDate(edu.end_date)}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {(memberEdu.languages as { language: string; language_other?: string }[])?.length > 0 && (
+                            <div className="space-y-1.5">
+                              <Label className="text-xs text-muted-foreground">Languages Known</Label>
+                              <div className="flex flex-wrap gap-1">
                                 {(memberEdu.languages as { language: string; language_other?: string }[]).map((l, li) => (
                                   <Badge key={li} variant="secondary" className="text-xs">
-                                    {l.language === "Other" ? l.language_other : l.language}
+                                    {l.language === "Other" ? (l.language_other ?? "") : l.language}
                                   </Badge>
                                 ))}
                               </div>
                             </div>
                           )}
                         </div>
-                      ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
-                    </div>
-
-                    <div>
-                      <SectionHeader title="Insurance &amp; Documents" href="/dashboard/profile/economic-details" isLocked={isLocked} memberIndex={idx + 1} />
-                      <div className="space-y-4">
-                        {memberIns && (
-                          <div>
-                            <Label className="text-xs text-muted-foreground mb-2 block">Insurance</Label>
-                            <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
-                              <CoverageRow label="Health Insurance" value={hasCoverage(memberIns, "health_coverage")} />
-                              <CoverageRow label="Life Insurance"   value={hasCoverage(memberIns, "life_coverage")} />
-                              <CoverageRow label="Term Insurance"   value={hasCoverage(memberIns, "term_coverage")} />
-                              <CoverageRow label="Konkani Card"     value={hasCoverage(memberIns, "konkani_card_coverage")} />
-                            </div>
-                          </div>
-                        )}
-                        {memberDoc && (
-                          <div>
-                            <Label className="text-xs text-muted-foreground mb-2 block">Documents</Label>
-                            <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
-                              <CoverageRow label="Aadhaar"   value={hasCoverage(memberDoc, "aadhaar_coverage")} />
-                              <CoverageRow label="PAN"       value={hasCoverage(memberDoc, "pan_coverage")} />
-                              <CoverageRow label="Voter ID"  value={hasCoverage(memberDoc, "voter_id_coverage")} />
-                              <CoverageRow label="Land Docs" value={hasCoverage(memberDoc, "land_doc_coverage")} />
-                              <CoverageRow label="DL"        value={hasCoverage(memberDoc, "dl_coverage")} />
-                            </div>
-                          </div>
-                        )}
                       </div>
-                    </div>
+                    )}
+
+                    {(memberIns || memberDoc) && (
+                      <div>
+                        <SectionHeader title="Insurance &amp; Documents" href="/dashboard/profile/economic-details" isLocked={isLocked} memberIndex={idx + 1} />
+                        <div className="space-y-4">
+                          {memberIns && (
+                            <div>
+                              <Label className="text-xs text-muted-foreground mb-2 block">Insurance</Label>
+                              <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
+                                <CoverageRow label="Health Insurance" value={hasCoverage(memberIns, "health_coverage")} />
+                                <CoverageRow label="Life Insurance"   value={hasCoverage(memberIns, "life_coverage")} />
+                                <CoverageRow label="Term Insurance"   value={hasCoverage(memberIns, "term_coverage")} />
+                                <CoverageRow label="Konkani Card"     value={hasCoverage(memberIns, "konkani_card_coverage")} />
+                              </div>
+                            </div>
+                          )}
+                          {memberDoc && (
+                            <div>
+                              <Label className="text-xs text-muted-foreground mb-2 block">Documents</Label>
+                              <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
+                                <CoverageRow label="Aadhaar"   value={hasCoverage(memberDoc, "aadhaar_coverage")} />
+                                <CoverageRow label="PAN"       value={hasCoverage(memberDoc, "pan_coverage")} />
+                                <CoverageRow label="Voter ID"  value={hasCoverage(memberDoc, "voter_id_coverage")} />
+                                <CoverageRow label="Land Docs" value={hasCoverage(memberDoc, "land_doc_coverage")} />
+                                <CoverageRow label="DL"        value={hasCoverage(memberDoc, "dl_coverage")} />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -523,7 +697,6 @@ export default function Page() {
           </Card>
         )}
 
-        {/* Submit section */}
         {!isLocked && (
           <>
             <Card className="shadow-sm">

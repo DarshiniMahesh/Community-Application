@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ArrowRight, RotateCcw, Check } from "lucide-react";
+import { ArrowLeft, ArrowRight, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { INCOME_SLAB_MAP, INCOME_SLAB_REVERSE } from "@/lib/constants";
@@ -34,40 +34,81 @@ const investmentOptions = ["Fixed Deposits", "Mutual Funds / SIP", "Trading in S
 
 interface MemberCoverage {
   id: string; name: string; relation: string;
-  healthInsurance: boolean; lifeInsurance: boolean;
-  termInsurance: boolean; konkaniCard: boolean;
-  aadhaar: boolean; pan: boolean; voterId: boolean;
-  landDocuments: boolean; drivingLicense: boolean;
+  healthInsurance: boolean | null;
+  lifeInsurance: boolean | null;
+  termInsurance: boolean | null;
+  konkaniCard: boolean | null;
+  aadhaar: boolean | null;
+  pan: boolean | null;
+  voterId: boolean | null;
+  landDocuments: boolean | null;
+  drivingLicense: boolean | null;
 }
 
 function blankMember(id: string, name = "", relation = ""): MemberCoverage {
   return {
     id, name, relation,
-    healthInsurance: false, lifeInsurance: false,
-    termInsurance: false, konkaniCard: false,
-    aadhaar: false, pan: false, voterId: false,
-    landDocuments: false, drivingLicense: false,
+    healthInsurance: null,
+    lifeInsurance: null,
+    termInsurance: null,
+    konkaniCard: null,
+    aadhaar: null,
+    pan: null,
+    voterId: null,
+    landDocuments: null,
+    drivingLicense: null,
   };
 }
 
-// ✅ Strict check — array must exist AND have at least one value
-function hasCov(arr: unknown): boolean {
-  return Array.isArray(arr) && arr.length > 0;
+/**
+ * Converts API coverage arrays to boolean | null:
+ * - If the field doesn't exist on the API response object → null (never saved)
+ * - If the field exists and has items → true (Yes)
+ * - If the field exists and is an empty array → false (No)
+ */
+function hasCov(obj: Record<string, unknown>, key: string): boolean | null {
+  if (!(key in obj)) return null;
+  const arr = obj[key];
+  if (!Array.isArray(arr)) return null;
+  return arr.length > 0;
 }
 
-function ToggleCell({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+/**
+ * Three-state toggle: null = nothing selected (both grey), true = Yes (green), false = No (red).
+ * Clicking the already-active button de-selects it back to null.
+ */
+function ToggleCell({
+  checked,
+  onChange,
+}: {
+  checked: boolean | null;
+  onChange: (val: boolean | null) => void;
+}) {
   return (
-    <div className="flex items-center justify-center">
+    <div className="flex items-center justify-center gap-2">
+      {/* YES button */}
       <button
         type="button"
-        onClick={onChange}
-        className={`inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg border-2 text-xs font-semibold transition-all min-w-[56px] ${
-          checked
-            ? "border-primary bg-primary/10 text-primary shadow-sm"
-            : "border-border text-muted-foreground hover:border-primary/40 hover:bg-muted/50"
+        onClick={() => onChange(checked === true ? null : true)}
+        className={`flex items-center justify-center w-14 h-8 rounded-full text-xs font-semibold border-2 transition-all duration-200 ${
+          checked === true
+            ? "bg-green-500 border-green-500 text-white shadow-md"
+            : "bg-white border-gray-200 text-gray-400 hover:border-green-300 hover:text-green-400"
         }`}
       >
-        {checked ? <><Check className="h-3 w-3" />Yes</> : <span className="text-base leading-none">—</span>}
+        Yes
+      </button>
+      {/* NO button */}
+      <button
+        type="button"
+        onClick={() => onChange(checked === false ? null : false)}
+        className={`flex items-center justify-center w-14 h-8 rounded-full text-xs font-semibold border-2 transition-all duration-200 ${
+          checked === false
+            ? "bg-red-500 border-red-500 text-white shadow-md"
+            : "bg-white border-gray-200 text-gray-400 hover:border-red-300 hover:text-red-400"
+        }`}
+      >
+        No
       </button>
     </div>
   );
@@ -134,17 +175,14 @@ export default function Page() {
       const documents  = (data.step6?.documents  || []) as Record<string, unknown>[];
 
       setMembers(bases.map((base) => {
-        // ✅ FIX: For "Self", match by relation only (name can drift between
-        // what was saved and what we reconstruct from s1 first+last name).
-        // For family members, match by both name and relation together.
-        const ins = base.relation === "Self"
+        const ins: Record<string, unknown> = base.relation === "Self"
           ? (insurance.find(i => (i.member_relation as string) === "Self") ?? {})
           : (insurance.find(i =>
               (i.member_name     as string) === base.name &&
               (i.member_relation as string) === base.relation
             ) ?? {});
 
-        const doc = base.relation === "Self"
+        const doc: Record<string, unknown> = base.relation === "Self"
           ? (documents.find(d => (d.member_relation as string) === "Self") ?? {})
           : (documents.find(d =>
               (d.member_name     as string) === base.name &&
@@ -153,15 +191,15 @@ export default function Page() {
 
         return {
           ...blankMember(base.id, base.name, base.relation),
-          healthInsurance: hasCov(ins.health_coverage),
-          lifeInsurance:   hasCov(ins.life_coverage),
-          termInsurance:   hasCov(ins.term_coverage),
-          konkaniCard:     hasCov(ins.konkani_card_coverage),
-          aadhaar:         hasCov(doc.aadhaar_coverage),
-          pan:             hasCov(doc.pan_coverage),
-          voterId:         hasCov(doc.voter_id_coverage),
-          landDocuments:   hasCov(doc.land_doc_coverage),
-          drivingLicense:  hasCov(doc.dl_coverage),
+          healthInsurance: hasCov(ins, "health_coverage"),
+          lifeInsurance:   hasCov(ins, "life_coverage"),
+          termInsurance:   hasCov(ins, "term_coverage"),
+          konkaniCard:     hasCov(ins, "konkani_card_coverage"),
+          aadhaar:         hasCov(doc, "aadhaar_coverage"),
+          pan:             hasCov(doc, "pan_coverage"),
+          voterId:         hasCov(doc, "voter_id_coverage"),
+          landDocuments:   hasCov(doc, "land_doc_coverage"),
+          drivingLicense:  hasCov(doc, "dl_coverage"),
         };
       }));
 
@@ -181,9 +219,19 @@ export default function Page() {
     setSelectedInvestments(p => p.includes(i) ? p.filter(x => x !== i) : [...p, i]);
   };
 
-  const toggleMember = (id: string, field: keyof MemberCoverage) => {
+  const setMemberField = (id: string, field: keyof MemberCoverage, val: boolean | null) => {
     userInteracted.current = true;
-    setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: !m[field] } : m));
+    setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: val } : m));
+  };
+
+  /**
+   * null  → send null to backend (never touched)
+   * true  → send ["self"] (has coverage)
+   * false → send []       (explicitly No)
+   */
+  const covToPayload = (val: boolean | null): string[] | null => {
+    if (val === null) return null;
+    return val ? ["self"] : [];
   };
 
   const buildPayload = () => ({
@@ -204,26 +252,23 @@ export default function Page() {
       member_name:           m.name     || null,
       member_relation:       m.relation || null,
       sort_order:            i,
-      health_coverage:       m.healthInsurance ? ["self"] : [],
-      life_coverage:         m.lifeInsurance   ? ["self"] : [],
-      term_coverage:         m.termInsurance   ? ["self"] : [],
-      konkani_card_coverage: m.konkaniCard     ? ["self"] : [],
+      health_coverage:       covToPayload(m.healthInsurance),
+      life_coverage:         covToPayload(m.lifeInsurance),
+      term_coverage:         covToPayload(m.termInsurance),
+      konkani_card_coverage: covToPayload(m.konkaniCard),
     })),
     documents: members.map((m, i) => ({
       member_name:       m.name     || null,
       member_relation:   m.relation || null,
       sort_order:        i,
-      aadhaar_coverage:  m.aadhaar        ? ["self"] : [],
-      pan_coverage:      m.pan            ? ["self"] : [],
-      voter_id_coverage: m.voterId        ? ["self"] : [],
-      land_doc_coverage: m.landDocuments  ? ["self"] : [],
-      dl_coverage:       m.drivingLicense ? ["self"] : [],
+      aadhaar_coverage:  covToPayload(m.aadhaar),
+      pan_coverage:      covToPayload(m.pan),
+      voter_id_coverage: covToPayload(m.voterId),
+      land_doc_coverage: covToPayload(m.landDocuments),
+      dl_coverage:       covToPayload(m.drivingLicense),
     })),
   });
 
-  // ✅ Debounced auto-save — only fires after user has actually interacted.
-  // dataLoaded guard stops it running during the initial hydration render.
-  // userInteracted guard stops it running on back-navigation before any change.
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -406,7 +451,7 @@ export default function Page() {
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Insurance Coverage</CardTitle>
-          <CardDescription>Members are auto-loaded from Family Information. Click a cell to toggle Yes / —</CardDescription>
+          <CardDescription>Members are auto-loaded from Family Information. Toggle Yes / No for each member.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="border rounded-xl overflow-hidden">
@@ -414,23 +459,31 @@ export default function Page() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/50">
-                    <TableHead className="min-w-[140px]">Member</TableHead>
-                    <TableHead className="min-w-[100px]">Relation</TableHead>
-                    <TableHead className="text-center min-w-[120px]">Health Insurance</TableHead>
-                    <TableHead className="text-center min-w-[120px]">Life Insurance</TableHead>
-                    <TableHead className="text-center min-w-[120px]">Term Insurance</TableHead>
-                    <TableHead className="text-center min-w-[120px]">Konkani Card</TableHead>
+                    <TableHead className="min-w-[140px] text-center">Member</TableHead>
+                    <TableHead className="min-w-[100px] text-center">Relation</TableHead>
+                    <TableHead className="text-center min-w-[160px]">Health Insurance</TableHead>
+                    <TableHead className="text-center min-w-[160px]">Life Insurance</TableHead>
+                    <TableHead className="text-center min-w-[160px]">Term Insurance</TableHead>
+                    <TableHead className="text-center min-w-[160px]">Konkani Card</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {members.map(m => (
                     <TableRow key={m.id} className="hover:bg-muted/20 transition-colors">
-                      <TableCell className="font-medium">{m.name}</TableCell>
-                      <TableCell className="text-muted-foreground text-sm">{m.relation}</TableCell>
-                      <TableCell><ToggleCell checked={m.healthInsurance} onChange={() => toggleMember(m.id, "healthInsurance")} /></TableCell>
-                      <TableCell><ToggleCell checked={m.lifeInsurance}   onChange={() => toggleMember(m.id, "lifeInsurance")} /></TableCell>
-                      <TableCell><ToggleCell checked={m.termInsurance}   onChange={() => toggleMember(m.id, "termInsurance")} /></TableCell>
-                      <TableCell><ToggleCell checked={m.konkaniCard}     onChange={() => toggleMember(m.id, "konkaniCard")} /></TableCell>
+                      <TableCell className="font-medium text-center">{m.name}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm text-center">{m.relation}</TableCell>
+                      <TableCell className="text-center py-4">
+                        <ToggleCell checked={m.healthInsurance} onChange={val => setMemberField(m.id, "healthInsurance", val)} />
+                      </TableCell>
+                      <TableCell className="text-center py-4">
+                        <ToggleCell checked={m.lifeInsurance} onChange={val => setMemberField(m.id, "lifeInsurance", val)} />
+                      </TableCell>
+                      <TableCell className="text-center py-4">
+                        <ToggleCell checked={m.termInsurance} onChange={val => setMemberField(m.id, "termInsurance", val)} />
+                      </TableCell>
+                      <TableCell className="text-center py-4">
+                        <ToggleCell checked={m.konkaniCard} onChange={val => setMemberField(m.id, "konkaniCard", val)} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -444,7 +497,7 @@ export default function Page() {
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Document Information</CardTitle>
-          <CardDescription>Select which documents each member has. Click a cell to toggle Yes / —</CardDescription>
+          <CardDescription>Select which documents each member has. Toggle Yes / No for each.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="border rounded-xl overflow-hidden">
@@ -452,25 +505,35 @@ export default function Page() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/50">
-                    <TableHead className="min-w-[140px]">Member</TableHead>
-                    <TableHead className="min-w-[100px]">Relation</TableHead>
-                    <TableHead className="text-center min-w-[90px]">Aadhaar</TableHead>
-                    <TableHead className="text-center min-w-[70px]">PAN</TableHead>
-                    <TableHead className="text-center min-w-[90px]">Voter ID</TableHead>
-                    <TableHead className="text-center min-w-[100px]">Land Docs</TableHead>
-                    <TableHead className="text-center min-w-[70px]">DL</TableHead>
+                    <TableHead className="min-w-[140px] text-center">Member</TableHead>
+                    <TableHead className="min-w-[100px] text-center">Relation</TableHead>
+                    <TableHead className="text-center min-w-[160px]">Aadhaar</TableHead>
+                    <TableHead className="text-center min-w-[140px]">PAN</TableHead>
+                    <TableHead className="text-center min-w-[160px]">Voter ID</TableHead>
+                    <TableHead className="text-center min-w-[160px]">Land Docs</TableHead>
+                    <TableHead className="text-center min-w-[140px]">DL</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {members.map(m => (
                     <TableRow key={m.id} className="hover:bg-muted/20 transition-colors">
-                      <TableCell className="font-medium">{m.name}</TableCell>
-                      <TableCell className="text-muted-foreground text-sm">{m.relation}</TableCell>
-                      <TableCell><ToggleCell checked={m.aadhaar}        onChange={() => toggleMember(m.id, "aadhaar")} /></TableCell>
-                      <TableCell><ToggleCell checked={m.pan}            onChange={() => toggleMember(m.id, "pan")} /></TableCell>
-                      <TableCell><ToggleCell checked={m.voterId}        onChange={() => toggleMember(m.id, "voterId")} /></TableCell>
-                      <TableCell><ToggleCell checked={m.landDocuments}  onChange={() => toggleMember(m.id, "landDocuments")} /></TableCell>
-                      <TableCell><ToggleCell checked={m.drivingLicense} onChange={() => toggleMember(m.id, "drivingLicense")} /></TableCell>
+                      <TableCell className="font-medium text-center">{m.name}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm text-center">{m.relation}</TableCell>
+                      <TableCell className="text-center py-4">
+                        <ToggleCell checked={m.aadhaar} onChange={val => setMemberField(m.id, "aadhaar", val)} />
+                      </TableCell>
+                      <TableCell className="text-center py-4">
+                        <ToggleCell checked={m.pan} onChange={val => setMemberField(m.id, "pan", val)} />
+                      </TableCell>
+                      <TableCell className="text-center py-4">
+                        <ToggleCell checked={m.voterId} onChange={val => setMemberField(m.id, "voterId", val)} />
+                      </TableCell>
+                      <TableCell className="text-center py-4">
+                        <ToggleCell checked={m.landDocuments} onChange={val => setMemberField(m.id, "landDocuments", val)} />
+                      </TableCell>
+                      <TableCell className="text-center py-4">
+                        <ToggleCell checked={m.drivingLicense} onChange={val => setMemberField(m.id, "drivingLicense", val)} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -480,6 +543,7 @@ export default function Page() {
         </CardContent>
       </Card>
 
+      {/* Navigation */}
       <div className="flex justify-between items-center pt-4 border-t border-border">
         <Button variant="outline" onClick={() => router.push("/dashboard/profile/education-profession")} className="gap-2">
           <ArrowLeft className="h-4 w-4" /> Previous Step
@@ -489,6 +553,7 @@ export default function Page() {
         </Button>
       </div>
 
+      {/* Reset Dialog */}
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>

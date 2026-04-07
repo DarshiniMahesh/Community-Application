@@ -73,14 +73,16 @@ export default function Page() {
           middleName:        s.middle_name || "",
           lastName:          s.last_name || "",
           gender:            s.gender || "",
-          dateOfBirth:       s.date_of_birth?.split("T")[0] || "",
+          dateOfBirth: s.date_of_birth 
+          ? s.date_of_birth.split("T")[0]
+          : "",
           surnameInUse:      s.surname_in_use || "",
           surnameAsPerGotra: s.surname_as_per_gotra || "",
           fathersName:       s.fathers_name || "",
           mothersName:       s.mothers_name || "",
-          maritalStatus:     s.is_married ? "Married" : (s.marital_status || ""),
-          hasDisability:     s.has_disability || "",
-          isPartOfSangha:    s.is_part_of_sangha || "",
+          maritalStatus:     s.is_married ? "Married" : "Single",
+          hasDisability:     s.has_disability ? "yes" : "no",
+          isPartOfSangha: s.is_part_of_sangha ? "yes" : "no",
           sanghaName:        s.sangha_name || "",
           sanghaRole:        s.sangha_role || "",
           sanghaTenure:      s.sangha_tenure || "",
@@ -104,8 +106,8 @@ export default function Page() {
     fathers_name:         formData.fathersName || undefined,
     mothers_name:         formData.mothersName || undefined,
     is_married:           formData.maritalStatus === "Married",
-    has_disability:       formData.hasDisability || undefined,
-    is_part_of_sangha:    formData.isPartOfSangha || undefined,
+    has_disability:       formData.hasDisability === "yes",
+    is_part_of_sangha:    formData.isPartOfSangha === "yes",
     sangha_name:          formData.isPartOfSangha === "yes" ? formData.sanghaName || undefined : undefined,
     sangha_role:          formData.isPartOfSangha === "yes" ? formData.sanghaRole || undefined : undefined,
     sangha_tenure:        formData.isPartOfSangha === "yes" ? formData.sanghaTenure || undefined : undefined,
@@ -300,10 +302,10 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      <Card className="shadow-sm border-l-4 border-l-blue-400">
+      <Card className="shadow-sm border-l-4 border-l-orange-400">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-blue-500" />
+            <Shield className="h-5 w-5 text-orange-500" />
             <CardTitle>Disability Status</CardTitle>
           </div>
         </CardHeader>
@@ -325,10 +327,10 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      <Card className="shadow-sm border-l-4 border-l-green-400">
+      <Card className="shadow-sm border-l-4 border-l-orange-400">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-green-600" />
+            <Users className="h-5 w-5 text-orange-500" />
             <CardTitle>Sangha Membership</CardTitle>
           </div>
         </CardHeader>

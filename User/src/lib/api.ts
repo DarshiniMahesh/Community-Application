@@ -8,24 +8,26 @@ const getHeaders = () => {
   };
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const api = {
-  post: async (path: string, body: object) => {
+  post: async (path: string, body: object): Promise<any> => {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify(body),
     });
-    const data = await res.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
     if (!res.ok) throw new Error(data.message || "Something went wrong");
     return data;
   },
-
-  get: async (path: string) => {
+  get: async (path: string): Promise<any> => {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "GET",
       headers: getHeaders(),
     });
-    const data = await res.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
     if (!res.ok) throw new Error(data.message || "Something went wrong");
     return data;
   },

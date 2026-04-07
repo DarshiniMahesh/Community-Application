@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ArrowRight, Plus, Trash2, User, X, RotateCcw, BookOpen } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, Trash2, X, RotateCcw, GraduationCap, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
@@ -26,29 +26,28 @@ const steps = [
   { id: "7", name: "Review",    href: "/dashboard/profile/review-submit" },
 ];
 
-const educationLevels = [
-  "Below Primary","Primary School","High School (10th)","Higher Secondary (12th)",
-  "Diploma","Bachelor's Degree","Master's Degree","Doctorate (PhD)",
-  "Professional Degree (MBBS / LLB / CA etc.)","Not Applicable",
+const degreeTypes = [
+  "High School",
+  "Pre-University",
+  "Diploma & Associate Degree",
+  "Undergraduate / Bachelor's",
+  "Postgraduate / Master's",
+  "Doctorate",
+  "Specialised Professional Degree",
 ];
+
 const professionTypes = [
-  { label: "Working for Private Firm",     value: "private" },
-  { label: "Working for Government / PSU", value: "government" },
-  { label: "IAS / IPS / IFS Service",      value: "ias_ips_ifs" },
-  { label: "Self Employed / Business",     value: "self_employed" },
-  { label: "Farmer",                       value: "farmer" },
-  { label: "Training",                     value: "training" },
-  { label: "Other",                        value: "other" },
+  { label: "Self Employed or Business",        value: "self_employed" },
+  { label: "Science, Technology, Engineering & Mathematics", value: "stem" },
+  { label: "Healthcare & Medicine",            value: "healthcare" },
+  { label: "Business & Management",            value: "business" },
+  { label: "Law & Governance",                 value: "law" },
+  { label: "Education & Research",             value: "education" },
+  { label: "Arts, Media & Communication",      value: "arts_media" },
+  { label: "Trades & Vocational Professions",  value: "trades" },
+  { label: "Agriculture & Others",             value: "agriculture" },
 ];
-const selfEmployedOptions = [
-  { label: "Own a Small Firm", value: "self_small_firm" },
-  { label: "Own a Company",    value: "self_company" },
-  { label: "Own a Shop",       value: "self_shop" },
-  { label: "Freelancer",       value: "freelancer" },
-  { label: "Farmer",           value: "farmer" },
-  { label: "Other",            value: "other" },
-  { label: "Training",         value: "training" },
-];
+
 const languageOptions = [
   "RSB Konkani","GSB Konkani","Kannada","Tulu","Marathi","Hindi",
   "Malayalam","Gujarati","English","Tamil","Telugu","Other",
@@ -56,29 +55,58 @@ const languageOptions = [
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface EducationEntry {
+  id: string;
+  degreeName: string;
+  degreeType: string;
+  university: string;
+  startDate: string;
+  endDate: string;
+  certificate: string;
+}
+
 interface MemberData {
-  id: string; name: string; relation: string;
-  highestEducation:  string;
-  certifications:    string[];
-  isCurrentlyStudying: boolean;   // ✅ NEW field
-  profession:        string;
-  selfEmployedType:  string;
-  selfEmployedOther: string;
-  industry:          string;
-  briefProfile:      string;
-  languages:         string[];
-  otherLanguages:    string[];
+  id: string;
+  name: string;
+  relation: string;
+  educations: EducationEntry[];
+  // Status flow
+  isCurrentlyStudying: boolean;       // null = not answered yet
+  isCurrentlyWorking: boolean | null; // only asked if isCurrentlyStudying = true
+  // Profession (single)
+  profession: string;
+  industry: string;
+  briefProfile: string;
+  // Languages
+  languages: string[];
+  otherLanguages: string[];
   otherLanguageInput: string;
+}
+
+function blankEducation(): EducationEntry {
+  return {
+    id: Date.now().toString() + Math.random(),
+    degreeName: "",
+    degreeType: "",
+    university: "",
+    startDate: "",
+    endDate: "",
+    certificate: "",
+  };
 }
 
 function blankMember(id: string, name = "", relation = ""): MemberData {
   return {
     id, name, relation,
-    highestEducation: "", certifications: [""],
+    educations: [blankEducation()],
     isCurrentlyStudying: false,
-    profession: "", selfEmployedType: "", selfEmployedOther: "",
-    industry: "", briefProfile: "",
-    languages: [], otherLanguages: [], otherLanguageInput: "",
+    isCurrentlyWorking: null,
+    profession: "",
+    industry: "",
+    briefProfile: "",
+    languages: [],
+    otherLanguages: [],
+    otherLanguageInput: "",
   };
 }
 
@@ -86,12 +114,12 @@ function blankMember(id: string, name = "", relation = ""): MemberData {
 
 export default function Page() {
   const router = useRouter();
-  const [members, setMembers]               = useState<MemberData[]>([blankMember("self", "", "Self")]);
-  const [errors, setErrors]                 = useState<Record<string, Record<string, string>>>({});
-  const [loading, setLoading]               = useState(false);
+  const [members, setMembers]                 = useState<MemberData[]>([blankMember("self", "", "Self")]);
+  const [errors, setErrors]                   = useState<Record<string, Record<string, string>>>({});
+  const [loading, setLoading]                 = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
-  const [resetting, setResetting]           = useState(false);
-  const [canReset, setCanReset]             = useState(false);
+  const [resetting, setResetting]             = useState(false);
+  const [canReset, setCanReset]               = useState(false);
   const [expectedMembers, setExpectedMembers] = useState<{ id: string; name: string; relation: string }[]>([]);
 
   useEffect(() => {
@@ -111,29 +139,38 @@ export default function Page() {
       ];
       setExpectedMembers(expected);
 
-      // Check if coming back from review to a specific member
-      const openIdx = sessionStorage.getItem("openMemberIndex");
-      if (openIdx) sessionStorage.removeItem("openMemberIndex");
-
       if (data.step5?.length > 0) {
         const mapped: MemberData[] = data.step5.map((m: Record<string, unknown>, i: number) => {
           const base = expected[i] || { id: String(i), name: (m.member_name as string) || "", relation: (m.member_relation as string) || "" };
           const rawLangs = (m.languages as { language: string; language_other?: string }[]) || [];
           const otherEntry = rawLangs.find(l => l.language === "Other");
-          const otherLangs = otherEntry?.language_other?.split(",").map(s => s.trim()).filter(Boolean) || [];
+          const otherLangs = otherEntry?.language_other?.split(",").map((s: string) => s.trim()).filter(Boolean) || [];
+
+          // Map educations from DB
+          const rawEdus = (m.educations as Record<string, string>[]) || [];
+          const educations: EducationEntry[] = rawEdus.length > 0
+            ? rawEdus.map(e => ({
+                id: e.id || Date.now().toString() + Math.random(),
+                degreeName:  e.degree_name  || "",
+                degreeType:  e.degree_type  || "",
+                university:  e.university   || "",
+                startDate:   e.start_date   || "",
+                endDate:     e.end_date     || "",
+                certificate: e.certificate  || "",
+              }))
+            : [blankEducation()];
+
           return {
             id: base.id, name: base.name, relation: base.relation,
-            highestEducation:    (m.highest_education    as string)  || "",
-            certifications:      (m.certifications       as string[])?.length ? m.certifications as string[] : [""],
-            // ✅ Load isCurrentlyStudying from DB
+            educations,
             isCurrentlyStudying: !!(m.is_currently_studying as boolean),
-            profession:          (m.profession_type      as string)  || "",
-            selfEmployedType:    (m.self_employed_type   as string)  || "",
-            selfEmployedOther:   (m.self_employed_other  as string)  || "",
-            industry:            (m.industry             as string)  || "",
-            briefProfile:        (m.brief_profile        as string)  || "",
+            isCurrentlyWorking:  m.is_currently_working != null ? !!(m.is_currently_working as boolean) : null,
+            profession:  (m.profession_type as string) || "",
+            industry:    (m.industry        as string) || "",
+            briefProfile:(m.brief_profile   as string) || "",
             languages:    rawLangs.filter(l => l.language !== "Other").map(l => l.language),
-            otherLanguages: otherLangs, otherLanguageInput: "",
+            otherLanguages: otherLangs,
+            otherLanguageInput: "",
           };
         });
         if (mapped.length < expected.length) {
@@ -150,74 +187,112 @@ export default function Page() {
 
   // ── Updaters ──────────────────────────────────────────────────────────────
 
-  const update = (id: string, field: keyof MemberData, value: unknown) => {
+  const updateMember = (id: string, field: keyof MemberData, value: unknown) => {
     setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: value } : m));
     setErrors(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [field as string]: "" } }));
   };
 
-  /** Toggle Currently Studying — when enabled, clear profession-related fields */
-  const toggleCurrentlyStudying = (id: string) => {
+  const updateEducation = (memberId: string, eduId: string, field: keyof EducationEntry, value: string) => {
     setMembers(prev => prev.map(m => {
-      if (m.id !== id) return m;
-      const nowStudying = !m.isCurrentlyStudying;
+      if (m.id !== memberId) return m;
       return {
         ...m,
-        isCurrentlyStudying: nowStudying,
-        // ✅ Clear profession fields when studying is checked
-        ...(nowStudying ? {
-          profession: "", selfEmployedType: "", selfEmployedOther: "",
-          industry: "", briefProfile: "",
-        } : {}),
+        educations: m.educations.map(e => e.id === eduId ? { ...e, [field]: value } : e),
       };
     }));
-    setErrors(prev => ({
-      ...prev,
-      [id]: { ...(prev[id] || {}), profession: "", selfEmployedType: "", selfEmployedOther: "" },
+  };
+
+  const addEducation = (memberId: string) => {
+    setMembers(prev => prev.map(m => {
+      if (m.id !== memberId) return m;
+      return { ...m, educations: [...m.educations, blankEducation()] };
+    }));
+  };
+
+  const removeEducation = (memberId: string, eduId: string) => {
+    setMembers(prev => prev.map(m => {
+      if (m.id !== memberId) return m;
+      if (m.educations.length <= 1) return m;
+      return { ...m, educations: m.educations.filter(e => e.id !== eduId) };
+    }));
+  };
+
+  const setCurrentlyStudying = (id: string, val: boolean) => {
+    setMembers(prev => prev.map(m => {
+      if (m.id !== id) return m;
+      return {
+        ...m,
+        isCurrentlyStudying: val,
+        // reset downstream
+        isCurrentlyWorking: null,
+        ...(!val ? {} : {}),
+      };
+    }));
+  };
+
+  const setCurrentlyWorking = (id: string, val: boolean) => {
+    setMembers(prev => prev.map(m => {
+      if (m.id !== id) return m;
+      return {
+        ...m,
+        isCurrentlyWorking: val,
+        // if not working, clear profession
+        ...(!val ? { profession: "", industry: "", briefProfile: "" } : {}),
+      };
     }));
   };
 
   const toggleLanguage = (id: string, lang: string) => {
     const m = members.find(x => x.id === id)!;
-    update(id, "languages", m.languages.includes(lang) ? m.languages.filter(l => l !== lang) : [...m.languages, lang]);
+    updateMember(id, "languages", m.languages.includes(lang) ? m.languages.filter(l => l !== lang) : [...m.languages, lang]);
   };
 
   const addOtherLanguage = (id: string) => {
     const m = members.find(x => x.id === id)!;
     const val = m.otherLanguageInput.trim();
     if (val && !m.otherLanguages.includes(val)) {
-      update(id, "otherLanguages", [...m.otherLanguages, val]);
-      update(id, "otherLanguageInput", "");
+      updateMember(id, "otherLanguages", [...m.otherLanguages, val]);
+      updateMember(id, "otherLanguageInput", "");
     }
   };
   const removeOtherLanguage = (id: string, lang: string) => {
     const m = members.find(x => x.id === id)!;
-    update(id, "otherLanguages", m.otherLanguages.filter(l => l !== lang));
+    updateMember(id, "otherLanguages", m.otherLanguages.filter(l => l !== lang));
   };
 
-  const addCert    = (id: string) => { const m = members.find(x => x.id === id)!; update(id, "certifications", [...m.certifications, ""]); };
-  const editCert   = (id: string, i: number, v: string) => { const m = members.find(x => x.id === id)!; const c = [...m.certifications]; c[i] = v; update(id, "certifications", c); };
-  const removeCert = (id: string, i: number) => { const m = members.find(x => x.id === id)!; if (m.certifications.length <= 1) return; update(id, "certifications", m.certifications.filter((_, ci) => ci !== i)); };
+  // Should profession be shown?
+  const showProfession = (m: MemberData): boolean => {
+    if (!m.isCurrentlyStudying) return true;           // not studying → always show profession
+    return m.isCurrentlyWorking === true;              // studying + working → show
+  };
 
-  /** A member is "complete" if they have education AND either studying or profession filled */
-  const isComplete = (m: MemberData) => !!m.highestEducation && (m.isCurrentlyStudying || !!m.profession);
+  const isComplete = (m: MemberData) =>
+    m.educations.some(e => e.degreeType) &&
+    (m.isCurrentlyStudying
+      ? (m.isCurrentlyWorking === false || !!m.profession)
+      : !!m.profession);
 
   // ── Payload ───────────────────────────────────────────────────────────────
 
   const buildPayload = () => ({
     members: members.map(m => ({
-      member_name:          m.name     || null,
-      member_relation:      m.relation || null,
-      highest_education:    m.highestEducation || null,
-      brief_profile:        m.briefProfile     || null,
-      // ✅ Save is_currently_studying to DB
+      member_name:           m.name     || null,
+      member_relation:       m.relation || null,
       is_currently_studying: m.isCurrentlyStudying,
-      // If studying, profession fields are null
-      profession_type:      m.isCurrentlyStudying ? null : (m.profession || null),
-      profession_other:     (!m.isCurrentlyStudying && m.profession === "other") ? m.briefProfile : null,
-      self_employed_type:   (!m.isCurrentlyStudying && m.profession === "self_employed") ? m.selfEmployedType : null,
-      self_employed_other:  (!m.isCurrentlyStudying && m.selfEmployedType === "other") ? m.selfEmployedOther : null,
-      industry:             m.isCurrentlyStudying ? null : (m.industry || null),
-      certifications:       m.certifications.filter(c => c.trim()),
+      is_currently_working:  m.isCurrentlyStudying ? m.isCurrentlyWorking : null,
+      profession_type:       showProfession(m) ? (m.profession || null) : null,
+      industry:              showProfession(m) ? (m.industry   || null) : null,
+      brief_profile:         showProfession(m) ? (m.briefProfile || null) : null,
+      educations: m.educations
+        .filter(e => e.degreeType || e.degreeName)
+        .map(e => ({
+          degree_name:  e.degreeName  || null,
+          degree_type:  e.degreeType  || null,
+          university:   e.university  || null,
+          start_date:   e.startDate   || null,
+          end_date:     e.endDate     || null,
+          certificate:  e.certificate || null,
+        })),
       languages: [
         ...m.languages.filter(l => l !== "Other").map(l => ({ language: l, language_other: null })),
         ...(m.otherLanguages.length > 0 ? [{ language: "Other", language_other: m.otherLanguages.join(", ") }] : []),
@@ -234,13 +309,10 @@ export default function Page() {
     let valid = true;
     members.forEach(m => {
       const e: Record<string, string> = {};
-      if (!m.highestEducation) { e.highestEducation = "Required"; valid = false; }
-      // Profession only required if NOT currently studying
-      if (!m.isCurrentlyStudying) {
-        if (!m.profession) { e.profession = "Required"; valid = false; }
-        if (m.profession === "self_employed" && !m.selfEmployedType) { e.selfEmployedType = "Please select type"; valid = false; }
-        if (m.selfEmployedType === "other" && !m.selfEmployedOther.trim()) { e.selfEmployedOther = "Please specify"; valid = false; }
-      }
+      const hasAnyEdu = m.educations.some(edu => edu.degreeType.trim());
+      if (!hasAnyEdu) { e.education = "At least one education entry with degree type is required"; valid = false; }
+      if (showProfession(m) && !m.profession) { e.profession = "Required"; valid = false; }
+      if (m.isCurrentlyStudying && m.isCurrentlyWorking === null) { e.isCurrentlyWorking = "Please answer this question"; valid = false; }
       if (m.languages.includes("Other") && m.otherLanguages.length === 0) { e.otherLanguages = "Please add at least one language"; valid = false; }
       newErrors[m.id] = e;
     });
@@ -280,6 +352,8 @@ export default function Page() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-10">
+
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <Button variant="ghost" onClick={() => router.push("/dashboard/profile")} className="gap-2 mb-4">
@@ -301,16 +375,7 @@ export default function Page() {
 
       <Stepper steps={steps} currentStep={4} />
 
-      <div className="flex items-start gap-3 p-4 rounded-xl bg-orange-50 border border-orange-200">
-        <User className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
-        <div>
-          <p className="text-sm font-semibold text-foreground">Members are auto-loaded from Family Information</p>
-          <p className="text-sm text-muted-foreground">
-            Highest Education is required for every member. If currently studying, profession details are not needed.
-          </p>
-        </div>
-      </div>
-
+      {/* Members Accordion */}
       <Accordion type="multiple" defaultValue={members.map(m => m.id)} className="space-y-3">
         {members.map((member, index) => (
           <AccordionItem
@@ -326,12 +391,7 @@ export default function Page() {
                   <p className="font-semibold text-foreground">{member.name || `Member ${index + 1}`}</p>
                   <p className="text-xs text-muted-foreground">{member.relation || "Relation not set"}</p>
                 </div>
-                <div className="flex items-center gap-2 mr-2">
-                  {member.isCurrentlyStudying && (
-                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 gap-1 text-xs">
-                      <BookOpen className="h-3 w-3" />Currently Studying
-                    </Badge>
-                  )}
+                <div className="mr-2">
                   <Badge
                     variant="outline"
                     className={isComplete(member)
@@ -345,101 +405,207 @@ export default function Page() {
               </div>
             </AccordionTrigger>
 
-            <AccordionContent className="px-5 pb-6 pt-4 border-t border-border space-y-6">
-              {/* Member identity */}
+            <AccordionContent className="px-5 pb-6 pt-4 border-t border-border space-y-8">
+
+              {/* Member identity row */}
               <div className="grid md:grid-cols-2 gap-4 p-3 bg-muted/30 rounded-lg">
                 <div><Label className="text-xs text-muted-foreground">Member Name</Label><p className="font-medium text-sm mt-0.5">{member.name || "—"}</p></div>
                 <div><Label className="text-xs text-muted-foreground">Relation</Label><p className="font-medium text-sm mt-0.5">{member.relation || "—"}</p></div>
               </div>
 
-              {/* ── EDUCATION ── */}
+              {/* ══ EDUCATION ══ */}
               <div className="space-y-4">
-                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Education</p>
-
-                <div className="space-y-2">
-                  <Label>Highest Education <span className="text-destructive">*</span></Label>
-                  <Select value={member.highestEducation} onValueChange={v => update(member.id, "highestEducation", v)}>
-                    <SelectTrigger className={errors[member.id]?.highestEducation ? "border-destructive" : ""}>
-                      <SelectValue placeholder="Select highest qualification" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {educationLevels.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  {errors[member.id]?.highestEducation && (
-                    <p className="text-xs text-destructive">{errors[member.id].highestEducation}</p>
-                  )}
+                <div className="flex items-center justify-between border-b pb-2">
+                  <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                    <GraduationCap className="h-4 w-4" /> Education
+                  </p>
                 </div>
 
-                {/* ✅ Currently Studying checkbox */}
-                <div
-                  onClick={() => toggleCurrentlyStudying(member.id)}
-                  className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all select-none ${
-                    member.isCurrentlyStudying
-                      ? "border-blue-400 bg-blue-50"
-                      : "border-border hover:border-blue-300 hover:bg-blue-50/40"
-                  }`}
-                >
-                  <Checkbox
-                    id={`studying-${member.id}`}
-                    checked={member.isCurrentlyStudying}
-                    onCheckedChange={() => toggleCurrentlyStudying(member.id)}
-                    className={member.isCurrentlyStudying ? "border-blue-500 data-[state=checked]:bg-blue-500" : ""}
-                  />
-                  <div className="flex items-center gap-2">
-                    <BookOpen className={`h-4 w-4 ${member.isCurrentlyStudying ? "text-blue-600" : "text-muted-foreground"}`} />
-                    <div>
-                      <Label
-                        htmlFor={`studying-${member.id}`}
-                        className={`font-medium cursor-pointer text-sm ${member.isCurrentlyStudying ? "text-blue-700" : "text-foreground"}`}
-                      >
-                        Currently Studying / Pursuing
-                      </Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Check this if this member is currently a student — profession details won&apos;t be required
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                {errors[member.id]?.education && (
+                  <p className="text-xs text-destructive">{errors[member.id].education}</p>
+                )}
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Certifications</Label>
-                    <Button type="button" variant="outline" size="sm" onClick={() => addCert(member.id)} className="gap-1 h-7 text-xs">
-                      <Plus className="h-3 w-3" /> Add
-                    </Button>
-                  </div>
-                  {member.certifications.map((cert, ci) => (
-                    <div key={ci} className="flex gap-2">
-                      <Input
-                        placeholder={`Certification ${ci + 1}`}
-                        value={cert}
-                        onChange={e => editCert(member.id, ci, e.target.value)}
-                      />
-                      {member.certifications.length > 1 && (
-                        <Button aria-label="Remove certification" type="button" variant="ghost" size="icon" onClick={() => removeCert(member.id, ci)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                <div className="space-y-4">
+                  {member.educations.map((edu, eduIdx) => (
+                    <div key={edu.id} className="border border-border rounded-xl p-5 bg-muted/20 space-y-4">
+
+                      {/* Degree Name */}
+                      <div className="space-y-1.5">
+                        <Label className="text-sm font-medium">Degree Name</Label>
+                        <Input
+                          placeholder="e.g. Bachelor of Engineering"
+                          value={edu.degreeName}
+                          onChange={e => updateEducation(member.id, edu.id, "degreeName", e.target.value)}
+                        />
+                      </div>
+
+                      {/* Type of Degree */}
+                      <div className="space-y-1.5">
+                        <Label className="text-sm font-medium">Type of Degree <span className="text-destructive">*</span></Label>
+                        <Select value={edu.degreeType} onValueChange={v => updateEducation(member.id, edu.id, "degreeType", v)}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select degree type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {degreeTypes.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* University */}
+                      <div className="space-y-1.5">
+                        <Label className="text-sm font-medium">University / School / Institution</Label>
+                        <Input
+                          placeholder="e.g. Maharaja Institute of Technology Mysore"
+                          value={edu.university}
+                          onChange={e => updateEducation(member.id, edu.id, "university", e.target.value)}
+                        />
+                      </div>
+
+                      {/* Start + End Date */}
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-sm font-medium">Start Date</Label>
+                          <Input
+                            type="date"
+                            value={edu.startDate}
+                            onChange={e => updateEducation(member.id, edu.id, "startDate", e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-sm font-medium">End Date</Label>
+                          <Input
+                            type="date"
+                            value={edu.endDate}
+                            onChange={e => updateEducation(member.id, edu.id, "endDate", e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Certificate */}
+                      <div className="space-y-1.5">
+                        <Label className="text-sm font-medium">Certificate Name</Label>
+                        <Input
+                          placeholder="e.g. B.E. in Computer Science"
+                          value={edu.certificate}
+                          onChange={e => updateEducation(member.id, edu.id, "certificate", e.target.value)}
+                        />
+                      </div>
+
+                      {/* Remove */}
+                      {member.educations.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeEducation(member.id, edu.id)}
+                          className="flex items-center gap-1.5 text-sm text-destructive hover:underline mt-1"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Remove
+                        </button>
                       )}
                     </div>
                   ))}
                 </div>
+
+                {/* Add Education */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addEducation(member.id)}
+                  className="gap-2 w-full border-dashed"
+                >
+                  <Plus className="h-4 w-4" /> Add Education
+                </Button>
               </div>
 
-              {/* ── PROFESSION — hidden when currently studying ── */}
-              {!member.isCurrentlyStudying && (
-                <div className="space-y-4">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Profession</p>
+              {/* ══ STATUS QUESTIONS ══ */}
+              <div className="space-y-4">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Status</p>
 
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Type of Profession <span className="text-destructive">*</span></Label>
+                {/* Q1: Currently Studying? */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Are you currently studying?</Label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentlyStudying(member.id, true)}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 text-sm font-medium transition-all ${
+                        member.isCurrentlyStudying
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:border-primary/50 text-muted-foreground"
+                      }`}
+                    >
+                      {member.isCurrentlyStudying && <CheckCircle2 className="h-4 w-4" />}
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentlyStudying(member.id, false)}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 text-sm font-medium transition-all ${
+                        !member.isCurrentlyStudying
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:border-primary/50 text-muted-foreground"
+                      }`}
+                    >
+                      {!member.isCurrentlyStudying && <CheckCircle2 className="h-4 w-4" />}
+                      No
+                    </button>
+                  </div>
+                </div>
+
+                {/* Q2: Currently Working? — only if studying = Yes */}
+                {member.isCurrentlyStudying && (
+                  <div className="space-y-2 pl-4 border-l-2 border-primary/30">
+                    <Label className="text-sm font-medium">Are you currently working / have a profession?</Label>
+                    {errors[member.id]?.isCurrentlyWorking && (
+                      <p className="text-xs text-destructive">{errors[member.id].isCurrentlyWorking}</p>
+                    )}
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setCurrentlyWorking(member.id, true)}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 text-sm font-medium transition-all ${
+                          member.isCurrentlyWorking === true
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border hover:border-primary/50 text-muted-foreground"
+                        }`}
+                      >
+                        {member.isCurrentlyWorking === true && <CheckCircle2 className="h-4 w-4" />}
+                        Yes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentlyWorking(member.id, false)}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 text-sm font-medium transition-all ${
+                          member.isCurrentlyWorking === false
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border hover:border-primary/50 text-muted-foreground"
+                        }`}
+                      >
+                        {member.isCurrentlyWorking === false && <CheckCircle2 className="h-4 w-4" />}
+                        No
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ══ PROFESSION — shown based on flow ══ */}
+              {showProfession(member) && (
+                <div className="space-y-4">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Profession</p>
+
+                  <div className="space-y-4 border border-border rounded-xl p-5 bg-muted/20">
+
+                    {/* Type of Profession */}
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Type of Profession <span className="text-destructive">*</span></Label>
                       <Select
                         value={member.profession}
-                        onValueChange={v => { update(member.id, "profession", v); update(member.id, "selfEmployedType", ""); }}
+                        onValueChange={v => updateMember(member.id, "profession", v)}
                       >
                         <SelectTrigger className={errors[member.id]?.profession ? "border-destructive" : ""}>
-                          <SelectValue placeholder="Select profession" />
+                          <SelectValue placeholder="Select profession type" />
                         </SelectTrigger>
                         <SelectContent>
                           {professionTypes.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
@@ -449,74 +615,43 @@ export default function Page() {
                         <p className="text-xs text-destructive">{errors[member.id].profession}</p>
                       )}
                     </div>
-                    <div className="space-y-2">
-                      <Label>Industry / Field</Label>
+
+                    {/* Industry / Field */}
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Industry / Field</Label>
                       <Input
-                        placeholder="E.g. Software, Banking"
+                        placeholder="e.g. Software, Banking, Teaching"
                         value={member.industry}
-                        onChange={e => update(member.id, "industry", e.target.value)}
+                        onChange={e => updateMember(member.id, "industry", e.target.value)}
+                      />
+                    </div>
+
+                    {/* Brief Profile */}
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">
+                        Brief Profile <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
+                      </Label>
+                      <Input
+                        placeholder="Short note about work or achievements"
+                        value={member.briefProfile}
+                        onChange={e => updateMember(member.id, "briefProfile", e.target.value)}
                       />
                     </div>
                   </div>
-
-                  {member.profession === "self_employed" && (
-                    <div className="space-y-3">
-                      <div className="space-y-2">
-                        <Label>Type of Business <span className="text-destructive">*</span></Label>
-                        <Select
-                          value={member.selfEmployedType}
-                          onValueChange={v => { update(member.id, "selfEmployedType", v); update(member.id, "selfEmployedOther", ""); }}
-                        >
-                          <SelectTrigger className={errors[member.id]?.selfEmployedType ? "border-destructive" : ""}>
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {selfEmployedOptions.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                        {errors[member.id]?.selfEmployedType && (
-                          <p className="text-xs text-destructive">{errors[member.id].selfEmployedType}</p>
-                        )}
-                      </div>
-                      {member.selfEmployedType === "other" && (
-                        <div className="space-y-2">
-                          <Label>Please specify <span className="text-destructive">*</span></Label>
-                          <Input
-                            placeholder="Describe your business"
-                            value={member.selfEmployedOther}
-                            onChange={e => update(member.id, "selfEmployedOther", e.target.value)}
-                            className={errors[member.id]?.selfEmployedOther ? "border-destructive" : ""}
-                          />
-                          {errors[member.id]?.selfEmployedOther && (
-                            <p className="text-xs text-destructive">{errors[member.id].selfEmployedOther}</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label>Brief Profile <span className="text-xs text-muted-foreground font-normal">(Optional)</span></Label>
-                    <Input
-                      placeholder="Short note about work or achievements"
-                      value={member.briefProfile}
-                      onChange={e => update(member.id, "briefProfile", e.target.value)}
-                    />
-                  </div>
                 </div>
               )}
 
-              {/* ✅ Visual indicator when studying is checked */}
-              {member.isCurrentlyStudying && (
+              {/* Studying + not working = no profession needed indicator */}
+              {member.isCurrentlyStudying && member.isCurrentlyWorking === false && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-700">
-                  <BookOpen className="h-4 w-4 flex-shrink-0" />
-                  <span>Profession details are not required while currently studying.</span>
+                  <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                  <span>No profession details needed — currently studying and not working.</span>
                 </div>
               )}
 
-              {/* ── LANGUAGES ── */}
+              {/* ══ LANGUAGES ══ */}
               <div className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-1.5">Languages Known</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Languages Known</p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {languageOptions.map(lang => (
                     <div key={lang} className="flex items-center gap-2">
@@ -550,7 +685,7 @@ export default function Page() {
                       <Input
                         placeholder="Type language name and press Enter"
                         value={member.otherLanguageInput}
-                        onChange={e => update(member.id, "otherLanguageInput", e.target.value)}
+                        onChange={e => updateMember(member.id, "otherLanguageInput", e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addOtherLanguage(member.id); } }}
                         className="flex-1"
                       />
@@ -562,11 +697,13 @@ export default function Page() {
                   </div>
                 )}
               </div>
+
             </AccordionContent>
           </AccordionItem>
         ))}
       </Accordion>
 
+      {/* Navigation */}
       <div className="flex justify-between items-center pt-4 border-t border-border">
         <Button variant="outline" onClick={() => router.push("/dashboard/profile/location-information")} className="gap-2">
           <ArrowLeft className="h-4 w-4" /> Previous Step
@@ -576,6 +713,7 @@ export default function Page() {
         </Button>
       </div>
 
+      {/* Reset Dialog */}
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -586,10 +724,7 @@ export default function Page() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleReset} disabled={resetting}
-              className="bg-destructive hover:bg-destructive/90"
-            >
+            <AlertDialogAction onClick={handleReset} disabled={resetting} className="bg-destructive hover:bg-destructive/90">
               {resetting ? "Resetting..." : "Yes, Reset"}
             </AlertDialogAction>
           </AlertDialogFooter>
