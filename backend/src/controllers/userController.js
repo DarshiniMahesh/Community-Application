@@ -80,8 +80,15 @@ const getFullProfile = async (req, res) => {
       pool.query('SELECT * FROM member_documents   WHERE profile_id=$1 ORDER BY sort_order', [pid]),
     ]);
 
+    // ── FIX: Deduplicate step5 rows ──────────────────────────────────────────
+    // If the DB has multiple rows with member_relation='Self' (caused by a
+    // prior frontend bug that sent duplicate Self entries), keep only the first
+    // one (lowest sort_order). For non-Self members, keep all rows but also
+    // deduplicate by (member_name, member_relation) — keep lowest sort_order.
+    const deduplicatedStep5Rows = deduplicateMembers(s5raw.rows);
+
     const step5 = await Promise.all(
-      s5raw.rows.map(async (edu) => {
+      deduplicatedStep5Rows.map(async (edu) => {
         const [certs, langs] = await Promise.all([
           pool.query(
             'SELECT certification FROM member_certifications WHERE member_education_id=$1 ORDER BY sort_order',
@@ -100,7 +107,9 @@ const getFullProfile = async (req, res) => {
       })
     );
 
-    const normalizedInsurance = s6ins.rows.map(row => ({
+    // ── FIX: Deduplicate insurance rows ──────────────────────────────────────
+    const deduplicatedInsurance = deduplicateMembers(s6ins.rows);
+    const normalizedInsurance = deduplicatedInsurance.map(row => ({
       ...row,
       health_coverage:       parsePgArray(row.health_coverage),
       life_coverage:         parsePgArray(row.life_coverage),
@@ -108,7 +117,9 @@ const getFullProfile = async (req, res) => {
       konkani_card_coverage: parsePgArray(row.konkani_card_coverage),
     }));
 
-    const normalizedDocuments = s6doc.rows.map(row => ({
+    // ── FIX: Deduplicate document rows ───────────────────────────────────────
+    const deduplicatedDocuments = deduplicateMembers(s6doc.rows);
+    const normalizedDocuments = deduplicatedDocuments.map(row => ({
       ...row,
       aadhaar_coverage:     parsePgArray(row.aadhaar_coverage),
       pan_coverage:         parsePgArray(row.pan_coverage),
@@ -403,7 +414,13 @@ const saveStep5 = async (req, res) => {
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
-    const { members = [] } = req.body;
+    let { members = [] } = req.body;
+
+    // ── FIX: Deduplicate incoming members before saving ──────────────────────
+    // The frontend may (historically or due to bugs) send two entries with
+    // member_relation='Self'. We keep only the first Self entry and deduplicate
+    // all others by (member_name, member_relation).
+    members = deduplicateMembersPayload(members);
 
     const existing = await pool.query(
       'SELECT id FROM member_education WHERE profile_id=$1', [pid]
@@ -423,19 +440,24 @@ const saveStep5 = async (req, res) => {
             highest_education, brief_profile,
             profession_type, profession_other,
             self_employed_type, self_employed_other, industry,
-            is_currently_studying)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            is_currently_studying, is_currently_working)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          RETURNING id`,
         [
           pid,
-          m.member_name || null, m.member_relation || null, i,
-          m.highest_education || null, m.brief_profile || null,
-          m.is_currently_studying ? null : (m.profession_type || null),
-          m.is_currently_studying ? null : (m.profession_other || null),
-          m.is_currently_studying ? null : (m.self_employed_type || null),
-          m.is_currently_studying ? null : (m.self_employed_other || null),
-          m.is_currently_studying ? null : (m.industry || null),
-          m.is_currently_studying || false,
+          m.member_name || null,
+          m.member_relation || null,
+          i,
+          m.highest_education || null,
+          m.brief_profile || null,
+          // Only store profession fields when relevant
+          (m.is_currently_studying && !m.is_currently_working) ? null : (m.profession_type || null),
+          (m.is_currently_studying && !m.is_currently_working) ? null : (m.profession_other || null),
+          (m.is_currently_studying && !m.is_currently_working) ? null : (m.self_employed_type || null),
+          (m.is_currently_studying && !m.is_currently_working) ? null : (m.self_employed_other || null),
+          (m.is_currently_studying && !m.is_currently_working) ? null : (m.industry || null),
+          m.is_currently_studying != null ? m.is_currently_studying : false,
+          m.is_currently_working  != null ? m.is_currently_working  : null,
         ]
       );
 
@@ -483,7 +505,11 @@ const saveStep6 = async (req, res) => {
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
-    const { economic = {}, insurance = [], documents = [] } = req.body;
+    let { economic = {}, insurance = [], documents = [] } = req.body;
+
+    // ── FIX: Deduplicate incoming insurance/document members ─────────────────
+    insurance = deduplicateMembersPayload(insurance);
+    documents = deduplicateMembersPayload(documents);
 
     const ecoExists = await pool.query(
       'SELECT id FROM economic_details WHERE profile_id=$1', [pid]
@@ -542,10 +568,10 @@ const saveStep6 = async (req, res) => {
         [
           pid,
           ins.member_name || null, ins.member_relation || null, i,
-          ins.health_coverage || [],
-          ins.life_coverage   || [],
-          ins.term_coverage   || [],
-          ins.konkani_card_coverage || [],
+          ins.health_coverage        || [],
+          ins.life_coverage          || [],
+          ins.term_coverage          || [],
+          ins.konkani_card_coverage  || [],
         ]
       );
     }
@@ -867,6 +893,7 @@ const getUserActivityLogs = async (req, res) => {
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────
+
 function calcStep1Pct(data) {
   const required = ['first_name', 'last_name', 'gender'];
   const optional = ['date_of_birth', 'fathers_name', 'mothers_name', 'surname_in_use'];
@@ -878,6 +905,47 @@ function calcStep1Pct(data) {
 function calcStep2Pct(data) {
   const fields = ['gotra', 'pravara', 'upanama_general', 'upanama_proper', 'kuladevata', 'demi_god_challenge'];
   return Math.round((fields.filter(f => data[f]).length / fields.length) * 100);
+}
+
+/**
+ * FIX: Deduplicates a list of DB rows that have member_relation and member_name fields.
+ *
+ * Rules:
+ *  - Only ONE row with member_relation = 'Self' is kept (the one with the lowest sort_order).
+ *  - For non-Self rows, deduplication is by (member_name, member_relation) — keep the
+ *    first occurrence (lowest sort_order, since the query uses ORDER BY sort_order).
+ *
+ * This fixes the case where old buggy saves wrote 2 Self rows to the DB.
+ */
+function deduplicateMembers(rows) {
+  const seen = new Set();
+  const result = [];
+
+  for (const row of rows) {
+    const relation = (row.member_relation || '').trim();
+    const name     = (row.member_name     || '').trim();
+
+    // Build a deduplication key
+    const key = relation === 'Self'
+      ? 'Self'                          // All Self rows share one key → only first kept
+      : `${relation}::${name}`;         // Non-Self rows keyed by relation+name
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(row);
+    }
+    // Duplicate → skip
+  }
+
+  return result;
+}
+
+/**
+ * FIX: Same deduplication logic for incoming request payloads (step5/step6 saves).
+ * Payloads use member_relation and member_name fields (same as DB rows).
+ */
+function deduplicateMembersPayload(members) {
+  return deduplicateMembers(members);
 }
 
 module.exports = {

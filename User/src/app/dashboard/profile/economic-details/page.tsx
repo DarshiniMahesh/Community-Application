@@ -61,6 +61,29 @@ function blankMember(id: string, name = "", relation = ""): MemberCoverage {
 }
 
 /**
+ * FIX: Shared helper — build deduplicated expected members from step1 + step3 only.
+ * Never derives members from step5/step6 to avoid duplication.
+ */
+function buildExpectedMembers(
+  data: Record<string, unknown>
+): { id: string; name: string; relation: string }[] {
+  const s1 = data.step1 as Record<string, string> | null;
+  const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "You";
+  const familyMembers = (
+  ((data.step3 as Record<string, unknown>)?.members as Record<string, string>[]) || []
+      ).filter((fm) => fm.relation !== "Self");
+
+  return [
+    { id: "self", name: userName, relation: "Self" },
+    ...familyMembers.map((fm, i) => ({
+      id: `fm_${i}`,
+      name: fm.name || `Member ${i + 1}`,
+      relation: fm.relation || "",
+    })),
+  ];
+}
+
+/**
  * Converts API coverage arrays to boolean | null:
  * - If the field doesn't exist on the API response object → null (never saved)
  * - If the field exists and has items → true (Yes)
@@ -132,30 +155,22 @@ export default function Page() {
   const userInteracted = useRef(false);
 
   useEffect(() => {
-    api.get("/users/profile").then(meta => {
+    api.get("/users/profile").then((meta: unknown) => {
       const s = (meta as Record<string, string>).status;
       setCanReset(s === "draft" || s === "changes_requested" || s === "approved");
     }).catch(() => {});
 
-    api.get("/users/profile/full").then((data) => {
-      const s1 = data.step1;
-      const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "You";
-      const familyMems: Record<string, string>[] = data.step3?.members || [];
+    api.get("/users/profile/full").then((data: unknown) => {
+      const fullData = data as Record<string, unknown>;
 
-      const bases = [
-        { id: "self", name: userName, relation: "Self" },
-        ...familyMems.map((fm, i) => ({
-          id: String(i),
-          name: fm.name || `Member ${i + 1}`,
-          relation: fm.relation || "",
-        })),
-      ];
+      // FIX: Build expected list from step1 + step3 only — prevents duplicate Self rows
+      const bases = buildExpectedMembers(fullData);
       setAllBases(bases);
 
-      const eco = data.step6?.economic;
+      const eco = (fullData.step6 as Record<string, unknown> | null)?.economic as Record<string, unknown> | undefined;
       if (eco) {
-        if (eco.self_income)   setSelfIncome(INCOME_SLAB_REVERSE[eco.self_income] || "");
-        if (eco.family_income) setFamilyIncome(INCOME_SLAB_REVERSE[eco.family_income] || "");
+        if (eco.self_income)   setSelfIncome(INCOME_SLAB_REVERSE[eco.self_income as string] || "");
+        if (eco.family_income) setFamilyIncome(INCOME_SLAB_REVERSE[eco.family_income as string] || "");
         const fac: string[] = [];
         if (eco.fac_rented_house)      fac.push("Staying in Rented House");
         if (eco.fac_own_house)         fac.push("Own a House");
@@ -171,23 +186,44 @@ export default function Page() {
         setSelectedInvestments(inv);
       }
 
-      const insurance = (data.step6?.insurance || []) as Record<string, unknown>[];
-      const documents  = (data.step6?.documents  || []) as Record<string, unknown>[];
+      const insurance = ((fullData.step6 as Record<string, unknown> | null)?.insurance || []) as Record<string, unknown>[];
+      const documents  = ((fullData.step6 as Record<string, unknown> | null)?.documents  || []) as Record<string, unknown>[];
 
+      // FIX: Map insurance/documents by matching relation="Self" for self,
+      // and by name+relation for family members — using the canonical bases list only.
       setMembers(bases.map((base) => {
-        const ins: Record<string, unknown> = base.relation === "Self"
-          ? (insurance.find(i => (i.member_relation as string) === "Self") ?? {})
-          : (insurance.find(i =>
-              (i.member_name     as string) === base.name &&
-              (i.member_relation as string) === base.relation
-            ) ?? {});
+        let ins: Record<string, unknown> = {};
+        let doc: Record<string, unknown> = {};
 
-        const doc: Record<string, unknown> = base.relation === "Self"
-          ? (documents.find(d => (d.member_relation as string) === "Self") ?? {})
-          : (documents.find(d =>
-              (d.member_name     as string) === base.name &&
-              (d.member_relation as string) === base.relation
-            ) ?? {});
+        if (base.relation === "Self") {
+          ins = (insurance.find(i => (i.member_relation as string) === "Self") ?? {}) as Record<string, unknown>;
+          doc = (documents.find(d => (d.member_relation as string) === "Self") ?? {}) as Record<string, unknown>;
+        } else {
+          ins = (insurance.find(i =>
+            (i.member_name     as string) === base.name &&
+            (i.member_relation as string) === base.relation
+          ) ?? {}) as Record<string, unknown>;
+
+          // Fallback: match by relation only if name is blank
+          if (!Object.keys(ins).length && base.relation) {
+            ins = (insurance.find(i =>
+              (i.member_relation as string) === base.relation &&
+              (i.member_relation as string) !== "Self"
+            ) ?? {}) as Record<string, unknown>;
+          }
+
+          doc = (documents.find(d =>
+            (d.member_name     as string) === base.name &&
+            (d.member_relation as string) === base.relation
+          ) ?? {}) as Record<string, unknown>;
+
+          if (!Object.keys(doc).length && base.relation) {
+            doc = (documents.find(d =>
+              (d.member_relation as string) === base.relation &&
+              (d.member_relation as string) !== "Self"
+            ) ?? {}) as Record<string, unknown>;
+          }
+        }
 
         return {
           ...blankMember(base.id, base.name, base.relation),
@@ -413,7 +449,10 @@ export default function Page() {
                     : "border-border hover:border-primary/40"
                 }`}
               >
-                <Checkbox checked={selectedFacilities.includes(f)} onCheckedChange={() => toggleFacility(f)} />
+                <Checkbox
+                  checked={selectedFacilities.includes(f)}
+                  onCheckedChange={() => toggleFacility(f)}
+                />
                 <Label className="font-normal cursor-pointer text-sm">{f}</Label>
               </div>
             ))}
@@ -439,7 +478,10 @@ export default function Page() {
                     : "border-border hover:border-primary/40"
                 }`}
               >
-                <Checkbox checked={selectedInvestments.includes(inv)} onCheckedChange={() => toggleInvestment(inv)} />
+                <Checkbox
+                  checked={selectedInvestments.includes(inv)}
+                  onCheckedChange={() => toggleInvestment(inv)}
+                />
                 <Label className="font-normal cursor-pointer text-sm">{inv}</Label>
               </div>
             ))}
@@ -545,7 +587,11 @@ export default function Page() {
 
       {/* Navigation */}
       <div className="flex justify-between items-center pt-4 border-t border-border">
-        <Button variant="outline" onClick={() => router.push("/dashboard/profile/education-profession")} className="gap-2">
+        <Button
+          variant="outline"
+          onClick={() => router.push("/dashboard/profile/education-profession")}
+          className="gap-2"
+        >
           <ArrowLeft className="h-4 w-4" /> Previous Step
         </Button>
         <Button onClick={handleNext} disabled={loading} className="gap-2">
@@ -565,7 +611,8 @@ export default function Page() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleReset} disabled={resetting}
+              onClick={handleReset}
+              disabled={resetting}
               className="bg-destructive hover:bg-destructive/90"
             >
               {resetting ? "Resetting..." : "Yes, Reset"}

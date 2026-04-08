@@ -42,7 +42,10 @@ export default function Page() {
   const status = (profile?.status as ProfileStatus) || "draft";
   const isLocked = ["submitted", "under_review"].includes(status);
   const canReset = status === "draft" || status === "changes_requested" || status === "approved";
-  const completionPct = (profile?.overall_completion_pct as number) || 0;
+  const completionPct =
+  typeof profile?.overall_completion_pct === "number"
+    ? profile.overall_completion_pct
+    : 0;
   const completedCount = profileSections.filter(s => s.stepKey && profile?.[s.stepKey]).length;
   const nextStep = profileSections.find(s => s.stepKey && !profile?.[s.stepKey])?.href || "/dashboard/profile/review-submit";
 

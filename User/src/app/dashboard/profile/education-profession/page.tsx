@@ -37,15 +37,15 @@ const degreeTypes = [
 ];
 
 const professionTypes = [
-  { label: "Self Employed or Business",        value: "self_employed" },
-  { label: "Science, Technology, Engineering & Mathematics", value: "stem" },
-  { label: "Healthcare & Medicine",            value: "healthcare" },
-  { label: "Business & Management",            value: "business" },
-  { label: "Law & Governance",                 value: "law" },
-  { label: "Education & Research",             value: "education" },
-  { label: "Arts, Media & Communication",      value: "arts_media" },
-  { label: "Trades & Vocational Professions",  value: "trades" },
-  { label: "Agriculture & Others",             value: "agriculture" },
+  { label: "Self Employed or Business",                              value: "self_employed" },
+  { label: "Science, Technology, Engineering & Mathematics",         value: "stem" },
+  { label: "Healthcare & Medicine",                                  value: "healthcare" },
+  { label: "Business & Management",                                  value: "business" },
+  { label: "Law & Governance",                                       value: "law" },
+  { label: "Education & Research",                                   value: "education" },
+  { label: "Arts, Media & Communication",                            value: "arts_media" },
+  { label: "Trades & Vocational Professions",                        value: "trades" },
+  { label: "Agriculture & Others",                                   value: "agriculture" },
 ];
 
 const languageOptions = [
@@ -70,9 +70,9 @@ interface MemberData {
   name: string;
   relation: string;
   educations: EducationEntry[];
-  // Status flow
-  isCurrentlyStudying: boolean;       // null = not answered yet
-  isCurrentlyWorking: boolean | null; // only asked if isCurrentlyStudying = true
+  // null means "not answered yet"; false means "No"; true means "Yes"
+  isCurrentlyStudying: boolean | null;
+  isCurrentlyWorking: boolean | null;
   // Profession (single)
   profession: string;
   industry: string;
@@ -99,7 +99,7 @@ function blankMember(id: string, name = "", relation = ""): MemberData {
   return {
     id, name, relation,
     educations: [blankEducation()],
-    isCurrentlyStudying: false,
+    isCurrentlyStudying: null,   // FIX: use null (unanswered) instead of false
     isCurrentlyWorking: null,
     profession: "",
     industry: "",
@@ -108,6 +108,32 @@ function blankMember(id: string, name = "", relation = ""): MemberData {
     otherLanguages: [],
     otherLanguageInput: "",
   };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * FIX: Build a deduplicated expected members list.
+ * The API may return a step5 array that already includes a "Self" entry
+ * at index 0. We always derive the canonical list from step1 + step3 only.
+ */
+function buildExpectedMembers(
+  data: Record<string, unknown>
+): { id: string; name: string; relation: string }[] {
+  const s1 = data.step1 as Record<string, string> | null;
+  const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "You";
+  const familyMembers = (
+  ((data.step3 as Record<string, unknown>)?.members as Record<string, string>[]) || []
+      ).filter((fm) => fm.relation !== "Self");
+
+  return [
+    { id: "self", name: userName, relation: "Self" },
+    ...familyMembers.map((fm, i) => ({
+      id: `fm_${i}`,
+      name: fm.name || "",
+      relation: fm.relation || "",
+    })),
+  ];
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -123,30 +149,49 @@ export default function Page() {
   const [expectedMembers, setExpectedMembers] = useState<{ id: string; name: string; relation: string }[]>([]);
 
   useEffect(() => {
-    api.get("/users/profile").then(meta => {
+    api.get("/users/profile").then((meta: unknown) => {
       const s = (meta as Record<string, string>).status;
       setCanReset(s === "draft" || s === "changes_requested" || s === "approved");
     }).catch(() => {});
 
-    api.get("/users/profile/full").then((data) => {
-      const s1 = data.step1;
-      const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "You";
-      const familyMembers: Record<string, string>[] = data.step3?.members || [];
+    api.get("/users/profile/full").then((data: unknown) => {
+      const fullData = data as Record<string, unknown>;
 
-      const expected = [
-        { id: "self", name: userName, relation: "Self" },
-        ...familyMembers.map((fm, i) => ({ id: String(i), name: fm.name || "", relation: fm.relation || "" })),
-      ];
+      // FIX: Build expected list cleanly from step1 + step3 only (never from step5)
+      const expected = buildExpectedMembers(fullData);
       setExpectedMembers(expected);
 
-      if (data.step5?.length > 0) {
-        const mapped: MemberData[] = data.step5.map((m: Record<string, unknown>, i: number) => {
-          const base = expected[i] || { id: String(i), name: (m.member_name as string) || "", relation: (m.member_relation as string) || "" };
+      const step5Raw = fullData.step5;
+      const step5 = Array.isArray(step5Raw) ? step5Raw as Record<string, unknown>[] : [];
+
+      if (step5.length > 0) {
+        // FIX: Match step5 entries to expected members by index but cap at expected.length
+        // This prevents extra rows if backend returns more entries than expected members
+        const mapped: MemberData[] = expected.map((base, i) => {
+          // Try to find a matching step5 entry by relation first, then by index
+          let m: Record<string, unknown> | undefined;
+          if (base.relation === "Self") {
+            m = step5.find(s => (s.member_relation as string) === "Self");
+          } else {
+            // Match by name + relation for non-self members
+            m = step5.find(
+              s =>
+                (s.member_name as string) === base.name &&
+                (s.member_relation as string) === base.relation
+            );
+            // fallback: match by index offset (skip the self entry in step5)
+            if (!m) {
+              const nonSelfStep5 = step5.filter(s => (s.member_relation as string) !== "Self");
+              m = nonSelfStep5[i - 1]; // i-1 because index 0 is Self
+            }
+          }
+
+          if (!m) return blankMember(base.id, base.name, base.relation);
+
           const rawLangs = (m.languages as { language: string; language_other?: string }[]) || [];
           const otherEntry = rawLangs.find(l => l.language === "Other");
           const otherLangs = otherEntry?.language_other?.split(",").map((s: string) => s.trim()).filter(Boolean) || [];
 
-          // Map educations from DB
           const rawEdus = (m.educations as Record<string, string>[]) || [];
           const educations: EducationEntry[] = rawEdus.length > 0
             ? rawEdus.map(e => ({
@@ -160,24 +205,35 @@ export default function Page() {
               }))
             : [blankEducation()];
 
+          // FIX: Preserve null for isCurrentlyStudying if not set in DB
+          const isStudyingRaw = m.is_currently_studying;
+          const isStudying: boolean | null =
+            isStudyingRaw === true ? true :
+            isStudyingRaw === false ? false :
+            null;
+
+          const isWorkingRaw = m.is_currently_working;
+          const isWorking: boolean | null =
+            isWorkingRaw === true ? true :
+            isWorkingRaw === false ? false :
+            null;
+
           return {
-            id: base.id, name: base.name, relation: base.relation,
+            id: base.id,
+            name: base.name,
+            relation: base.relation,
             educations,
-            isCurrentlyStudying: !!(m.is_currently_studying as boolean),
-            isCurrentlyWorking:  m.is_currently_working != null ? !!(m.is_currently_working as boolean) : null,
-            profession:  (m.profession_type as string) || "",
-            industry:    (m.industry        as string) || "",
-            briefProfile:(m.brief_profile   as string) || "",
+            isCurrentlyStudying: isStudying,
+            isCurrentlyWorking:  isWorking,
+            profession:   (m.profession_type as string) || "",
+            industry:     (m.industry        as string) || "",
+            briefProfile: (m.brief_profile   as string) || "",
             languages:    rawLangs.filter(l => l.language !== "Other").map(l => l.language),
             otherLanguages: otherLangs,
             otherLanguageInput: "",
           };
         });
-        if (mapped.length < expected.length) {
-          for (let i = mapped.length; i < expected.length; i++) {
-            mapped.push(blankMember(expected[i].id, expected[i].name, expected[i].relation));
-          }
-        }
+
         setMembers(mapped);
       } else {
         setMembers(expected.map(m => blankMember(m.id, m.name, m.relation)));
@@ -223,11 +279,13 @@ export default function Page() {
       return {
         ...m,
         isCurrentlyStudying: val,
-        // reset downstream
-        isCurrentlyWorking: null,
-        ...(!val ? {} : {}),
+        isCurrentlyWorking: null,   // always reset downstream when studying changes
+        profession: "",
+        industry: "",
+        briefProfile: "",
       };
     }));
+    setErrors(prev => ({ ...prev, [id]: { ...(prev[id] || {}), isCurrentlyWorking: "" } }));
   };
 
   const setCurrentlyWorking = (id: string, val: boolean) => {
@@ -236,10 +294,10 @@ export default function Page() {
       return {
         ...m,
         isCurrentlyWorking: val,
-        // if not working, clear profession
         ...(!val ? { profession: "", industry: "", briefProfile: "" } : {}),
       };
     }));
+    setErrors(prev => ({ ...prev, [id]: { ...(prev[id] || {}), isCurrentlyWorking: "" } }));
   };
 
   const toggleLanguage = (id: string, lang: string) => {
@@ -255,22 +313,38 @@ export default function Page() {
       updateMember(id, "otherLanguageInput", "");
     }
   };
+
   const removeOtherLanguage = (id: string, lang: string) => {
     const m = members.find(x => x.id === id)!;
     updateMember(id, "otherLanguages", m.otherLanguages.filter(l => l !== lang));
   };
 
-  // Should profession be shown?
+  /**
+   * FIX: Clearer profession visibility logic:
+   * - isCurrentlyStudying = null  → not answered yet → show profession (unanswered = not a student)
+   * - isCurrentlyStudying = false → not studying      → show profession
+   * - isCurrentlyStudying = true  → studying          → only show if also working = true
+   */
   const showProfession = (m: MemberData): boolean => {
-    if (!m.isCurrentlyStudying) return true;           // not studying → always show profession
-    return m.isCurrentlyWorking === true;              // studying + working → show
+    if (m.isCurrentlyStudying !== true) return true;  // not studying (or unanswered) → show
+    return m.isCurrentlyWorking === true;              // studying + also working → show
   };
 
-  const isComplete = (m: MemberData) =>
-    m.educations.some(e => e.degreeType) &&
-    (m.isCurrentlyStudying
-      ? (m.isCurrentlyWorking === false || !!m.profession)
-      : !!m.profession);
+  /**
+   * FIX: isComplete checks for actual completion consistently with validate():
+   * - Education: at least one entry with a degreeType
+   * - Status: isCurrentlyStudying must not be null
+   * - If studying + working null → incomplete
+   * - Profession: required if showProfession AND profession is empty
+   */
+  const isComplete = (m: MemberData): boolean => {
+    const hasEdu = m.educations.some(e => e.degreeType.trim() !== "");
+    if (!hasEdu) return false;
+    if (m.isCurrentlyStudying === null) return false;
+    if (m.isCurrentlyStudying === true && m.isCurrentlyWorking === null) return false;
+    if (showProfession(m) && !m.profession) return false;
+    return true;
+  };
 
   // ── Payload ───────────────────────────────────────────────────────────────
 
@@ -279,7 +353,7 @@ export default function Page() {
       member_name:           m.name     || null,
       member_relation:       m.relation || null,
       is_currently_studying: m.isCurrentlyStudying,
-      is_currently_working:  m.isCurrentlyStudying ? m.isCurrentlyWorking : null,
+      is_currently_working:  m.isCurrentlyStudying === true ? m.isCurrentlyWorking : null,
       profession_type:       showProfession(m) ? (m.profession || null) : null,
       industry:              showProfession(m) ? (m.industry   || null) : null,
       brief_profile:         showProfession(m) ? (m.briefProfile || null) : null,
@@ -295,7 +369,9 @@ export default function Page() {
         })),
       languages: [
         ...m.languages.filter(l => l !== "Other").map(l => ({ language: l, language_other: null })),
-        ...(m.otherLanguages.length > 0 ? [{ language: "Other", language_other: m.otherLanguages.join(", ") }] : []),
+        ...(m.otherLanguages.length > 0
+          ? [{ language: "Other", language_other: m.otherLanguages.join(", ") }]
+          : []),
       ],
     })),
   });
@@ -307,21 +383,49 @@ export default function Page() {
   const validate = () => {
     const newErrors: Record<string, Record<string, string>> = {};
     let valid = true;
+
     members.forEach(m => {
       const e: Record<string, string> = {};
-      const hasAnyEdu = m.educations.some(edu => edu.degreeType.trim());
-      if (!hasAnyEdu) { e.education = "At least one education entry with degree type is required"; valid = false; }
-      if (showProfession(m) && !m.profession) { e.profession = "Required"; valid = false; }
-      if (m.isCurrentlyStudying && m.isCurrentlyWorking === null) { e.isCurrentlyWorking = "Please answer this question"; valid = false; }
-      if (m.languages.includes("Other") && m.otherLanguages.length === 0) { e.otherLanguages = "Please add at least one language"; valid = false; }
+
+      const hasAnyEdu = m.educations.some(edu => edu.degreeType.trim() !== "");
+      if (!hasAnyEdu) {
+        e.education = "At least one education entry with degree type is required";
+        valid = false;
+      }
+
+      // FIX: Require an explicit answer to "currently studying?"
+      if (m.isCurrentlyStudying === null) {
+        e.isCurrentlyStudying = "Please answer this question";
+        valid = false;
+      }
+
+      if (m.isCurrentlyStudying === true && m.isCurrentlyWorking === null) {
+        e.isCurrentlyWorking = "Please answer this question";
+        valid = false;
+      }
+
+      if (showProfession(m) && !m.profession) {
+        e.profession = "Required";
+        valid = false;
+      }
+
+      if (m.languages.includes("Other") && m.otherLanguages.length === 0) {
+        e.otherLanguages = "Please add at least one language";
+        valid = false;
+      }
+
       newErrors[m.id] = e;
     });
+
     setErrors(newErrors);
     return valid;
   };
 
   const handleNext = async () => {
-    if (!validate()) { toast.error("Please complete required fields for all members"); return; }
+    if (!validate()) {
+      toast.error("Please complete required fields for all members");
+      return;
+    }
     setLoading(true);
     try {
       await api.post("/users/profile/step5", buildPayload());
@@ -409,8 +513,14 @@ export default function Page() {
 
               {/* Member identity row */}
               <div className="grid md:grid-cols-2 gap-4 p-3 bg-muted/30 rounded-lg">
-                <div><Label className="text-xs text-muted-foreground">Member Name</Label><p className="font-medium text-sm mt-0.5">{member.name || "—"}</p></div>
-                <div><Label className="text-xs text-muted-foreground">Relation</Label><p className="font-medium text-sm mt-0.5">{member.relation || "—"}</p></div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Member Name</Label>
+                  <p className="font-medium text-sm mt-0.5">{member.name || "—"}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Relation</Label>
+                  <p className="font-medium text-sm mt-0.5">{member.relation || "—"}</p>
+                </div>
               </div>
 
               {/* ══ EDUCATION ══ */}
@@ -426,7 +536,7 @@ export default function Page() {
                 )}
 
                 <div className="space-y-4">
-                  {member.educations.map((edu, eduIdx) => (
+                  {member.educations.map((edu) => (
                     <div key={edu.id} className="border border-border rounded-xl p-5 bg-muted/20 space-y-4">
 
                       {/* Degree Name */}
@@ -441,8 +551,13 @@ export default function Page() {
 
                       {/* Type of Degree */}
                       <div className="space-y-1.5">
-                        <Label className="text-sm font-medium">Type of Degree <span className="text-destructive">*</span></Label>
-                        <Select value={edu.degreeType} onValueChange={v => updateEducation(member.id, edu.id, "degreeType", v)}>
+                        <Label className="text-sm font-medium">
+                          Type of Degree <span className="text-destructive">*</span>
+                        </Label>
+                        <Select
+                          value={edu.degreeType}
+                          onValueChange={v => updateEducation(member.id, edu.id, "degreeType", v)}
+                        >
                           <SelectTrigger>
                             <SelectValue placeholder="Select degree type" />
                           </SelectTrigger>
@@ -492,7 +607,7 @@ export default function Page() {
                         />
                       </div>
 
-                      {/* Remove */}
+                      {/* Remove button */}
                       {member.educations.length > 1 && (
                         <button
                           type="button"
@@ -524,39 +639,46 @@ export default function Page() {
 
                 {/* Q1: Currently Studying? */}
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Are you currently studying?</Label>
+                  <Label className="text-sm font-medium">
+                    Are you currently studying? <span className="text-destructive">*</span>
+                  </Label>
+                  {errors[member.id]?.isCurrentlyStudying && (
+                    <p className="text-xs text-destructive">{errors[member.id].isCurrentlyStudying}</p>
+                  )}
                   <div className="flex gap-3">
                     <button
                       type="button"
                       onClick={() => setCurrentlyStudying(member.id, true)}
                       className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 text-sm font-medium transition-all ${
-                        member.isCurrentlyStudying
+                        member.isCurrentlyStudying === true
                           ? "border-primary bg-primary/10 text-primary"
                           : "border-border hover:border-primary/50 text-muted-foreground"
                       }`}
                     >
-                      {member.isCurrentlyStudying && <CheckCircle2 className="h-4 w-4" />}
+                      {member.isCurrentlyStudying === true && <CheckCircle2 className="h-4 w-4" />}
                       Yes
                     </button>
                     <button
                       type="button"
                       onClick={() => setCurrentlyStudying(member.id, false)}
                       className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 text-sm font-medium transition-all ${
-                        !member.isCurrentlyStudying
+                        member.isCurrentlyStudying === false
                           ? "border-primary bg-primary/10 text-primary"
                           : "border-border hover:border-primary/50 text-muted-foreground"
                       }`}
                     >
-                      {!member.isCurrentlyStudying && <CheckCircle2 className="h-4 w-4" />}
+                      {member.isCurrentlyStudying === false && <CheckCircle2 className="h-4 w-4" />}
                       No
                     </button>
                   </div>
                 </div>
 
                 {/* Q2: Currently Working? — only if studying = Yes */}
-                {member.isCurrentlyStudying && (
+                {member.isCurrentlyStudying === true && (
                   <div className="space-y-2 pl-4 border-l-2 border-primary/30">
-                    <Label className="text-sm font-medium">Are you currently working / have a profession?</Label>
+                    <Label className="text-sm font-medium">
+                      Are you currently working / have a profession? <span className="text-destructive">*</span>
+                    </Label>
                     {errors[member.id]?.isCurrentlyWorking && (
                       <p className="text-xs text-destructive">{errors[member.id].isCurrentlyWorking}</p>
                     )}
@@ -599,7 +721,9 @@ export default function Page() {
 
                     {/* Type of Profession */}
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Type of Profession <span className="text-destructive">*</span></Label>
+                      <Label className="text-sm font-medium">
+                        Type of Profession <span className="text-destructive">*</span>
+                      </Label>
                       <Select
                         value={member.profession}
                         onValueChange={v => updateMember(member.id, "profession", v)}
@@ -608,7 +732,9 @@ export default function Page() {
                           <SelectValue placeholder="Select profession type" />
                         </SelectTrigger>
                         <SelectContent>
-                          {professionTypes.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                          {professionTypes.map(p => (
+                            <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       {errors[member.id]?.profession && (
@@ -629,7 +755,8 @@ export default function Page() {
                     {/* Brief Profile */}
                     <div className="space-y-1.5">
                       <Label className="text-sm font-medium">
-                        Brief Profile <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
+                        Brief Profile{" "}
+                        <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
                       </Label>
                       <Input
                         placeholder="Short note about work or achievements"
@@ -642,7 +769,7 @@ export default function Page() {
               )}
 
               {/* Studying + not working = no profession needed indicator */}
-              {member.isCurrentlyStudying && member.isCurrentlyWorking === false && (
+              {member.isCurrentlyStudying === true && member.isCurrentlyWorking === false && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-700">
                   <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
                   <span>No profession details needed — currently studying and not working.</span>
@@ -660,19 +787,28 @@ export default function Page() {
                         checked={member.languages.includes(lang)}
                         onCheckedChange={() => toggleLanguage(member.id, lang)}
                       />
-                      <Label htmlFor={`${member.id}-${lang}`} className="font-normal cursor-pointer text-sm">{lang}</Label>
+                      <Label
+                        htmlFor={`${member.id}-${lang}`}
+                        className="font-normal cursor-pointer text-sm"
+                      >
+                        {lang}
+                      </Label>
                     </div>
                   ))}
                 </div>
+
                 {member.languages.includes("Other") && (
                   <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
-                    <Label className="text-sm">Add other languages <span className="text-destructive">*</span></Label>
+                    <Label className="text-sm">
+                      Add other languages <span className="text-destructive">*</span>
+                    </Label>
                     <div className="flex flex-wrap gap-2 mb-2">
                       {member.otherLanguages.map(lang => (
                         <Badge key={lang} variant="secondary" className="gap-1 px-2 py-1">
                           {lang}
                           <button
-                            type="button" aria-label={`Remove ${lang}`}
+                            type="button"
+                            aria-label={`Remove ${lang}`}
                             onClick={() => removeOtherLanguage(member.id, lang)}
                             className="ml-1 hover:text-destructive"
                           >
@@ -686,10 +822,22 @@ export default function Page() {
                         placeholder="Type language name and press Enter"
                         value={member.otherLanguageInput}
                         onChange={e => updateMember(member.id, "otherLanguageInput", e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addOtherLanguage(member.id); } }}
+                        onKeyDown={e => {
+                          if (e.key === "Enter" || e.key === ",") {
+                            e.preventDefault();
+                            addOtherLanguage(member.id);
+                          }
+                        }}
                         className="flex-1"
                       />
-                      <Button type="button" variant="outline" size="sm" onClick={() => addOtherLanguage(member.id)}>Add</Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => addOtherLanguage(member.id)}
+                      >
+                        Add
+                      </Button>
                     </div>
                     {errors[member.id]?.otherLanguages && (
                       <p className="text-xs text-destructive">{errors[member.id].otherLanguages}</p>
@@ -705,7 +853,11 @@ export default function Page() {
 
       {/* Navigation */}
       <div className="flex justify-between items-center pt-4 border-t border-border">
-        <Button variant="outline" onClick={() => router.push("/dashboard/profile/location-information")} className="gap-2">
+        <Button
+          variant="outline"
+          onClick={() => router.push("/dashboard/profile/location-information")}
+          className="gap-2"
+        >
           <ArrowLeft className="h-4 w-4" /> Previous Step
         </Button>
         <Button onClick={handleNext} disabled={loading} className="gap-2">
@@ -724,7 +876,11 @@ export default function Page() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleReset} disabled={resetting} className="bg-destructive hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={handleReset}
+              disabled={resetting}
+              className="bg-destructive hover:bg-destructive/90"
+            >
               {resetting ? "Resetting..." : "Yes, Reset"}
             </AlertDialogAction>
           </AlertDialogFooter>

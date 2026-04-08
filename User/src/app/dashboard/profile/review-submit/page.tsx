@@ -39,14 +39,18 @@ function formatIncome(raw?: string | null): string | null {
   return raw.replace(/_/g, " – ").replace(/l$/, " Lakh");
 }
 
-function Field({ label, value }: { label: string; value?: string | null | boolean }) {
+function getLangLabel(l: { language: string; language_other?: string }): string {
+  return l.language === "Other"
+    ? String(l.language_other ?? "")
+    : String(l.language ?? "");
+}
+
+function Field({ label, value }: { label: string; value?: string | null }) {
   if (value === undefined || value === null || value === "") return null;
   return (
     <div className="space-y-0.5">
       <Label className="text-xs text-muted-foreground">{label}</Label>
-      <p className="text-sm font-medium text-foreground">
-        {typeof value === "boolean" ? (value ? "Yes" : "No") : value}
-      </p>
+      <p className="text-sm font-medium text-foreground">{value}</p>
     </div>
   );
 }
@@ -154,6 +158,68 @@ interface Sangha {
   location: string;
 }
 
+function EduBlock({ edu }: { edu: Record<string, unknown> }) {
+  const profType     = typeof edu.profession_type === "string" ? edu.profession_type : "";
+  const industry     = typeof edu.industry === "string" ? edu.industry : "";
+  const briefProfile = typeof edu.brief_profile === "string" ? edu.brief_profile : "";
+  const educations   = (edu.educations as Record<string, string>[]) ?? [];
+  const languages    = (edu.languages as { language: string; language_other?: string }[]) ?? [];
+  const isStudying   = edu.is_currently_studying === true || edu.is_currently_studying === "true";
+
+  const workingValue: string | null =
+    typeof edu.is_currently_working === "boolean"
+      ? edu.is_currently_working ? "Yes" : "No"
+      : typeof edu.is_currently_working === "string" && edu.is_currently_working !== ""
+        ? edu.is_currently_working === "true" ? "Yes" : "No"
+        : null;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <Field label="Currently Studying" value={isStudying ? "Yes" : "No"} />
+        {isStudying && workingValue && (
+          <Field label="Currently Working" value={workingValue} />
+        )}
+        {profType && <Field label="Profession" value={formatProfession(profType)} />}
+        {industry && <Field label="Industry / Field" value={industry} />}
+        {briefProfile && <Field label="Brief Profile" value={briefProfile} />}
+      </div>
+
+      {educations.filter(e => e.degree_type).length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Education</Label>
+          <div className="space-y-2">
+            {educations.filter(e => e.degree_type).map((e, i) => (
+              <div key={i} className="flex flex-wrap gap-x-6 gap-y-1 p-3 rounded-lg bg-muted/30 border border-border text-sm">
+                <span className="font-medium">{e.degree_type}</span>
+                {e.degree_name && <span className="text-muted-foreground">{e.degree_name}</span>}
+                {e.university && <span className="text-muted-foreground">{e.university}</span>}
+                {e.start_date && e.end_date && (
+                  <span className="text-muted-foreground text-xs">{formatDate(e.start_date)} – {formatDate(e.end_date)}</span>
+                )}
+                {e.certificate && <span className="text-muted-foreground text-xs">Cert: {e.certificate}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {languages.length > 0 && (
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Languages Known</Label>
+          <div className="flex flex-wrap gap-1">
+            {languages.map((l, i) => (
+              <Badge key={i} variant="secondary" className="text-xs">
+                {getLangLabel(l)}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Page() {
   const router = useRouter();
   const [confirmed, setConfirmed]               = useState(false);
@@ -180,9 +246,9 @@ export default function Page() {
       .finally(() => setLoading(false));
   }, []);
 
-  const status      = profileMeta?.status as string;
+  const status      = typeof profileMeta?.status === "string" ? profileMeta.status : "";
   const isLocked    = ["submitted", "under_review"].includes(status);
-  const submittedAt = profileMeta?.submitted_at as string | null;
+  const submittedAt = typeof profileMeta?.submitted_at === "string" ? profileMeta.submitted_at : null;
 
   const handleSubmit = () => {
     const newErrors: Record<string, string> = {};
@@ -221,9 +287,7 @@ export default function Page() {
   const s6doc = ((profileData?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || []);
 
   const s3typed = profileData?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
-  let familyType = s3typed?.family_info?.family_type || "";
   let familyMembers: Record<string, string>[] = s3typed?.members || [];
-
   const s3raw = profileData?.step3;
   if (Array.isArray(s3raw) && familyMembers.length === 0) {
     familyMembers = s3raw as Record<string, string>[];
@@ -237,19 +301,18 @@ export default function Page() {
   const demiGodsList: string[] = Array.isArray(s2DemiGodsRaw)
     ? s2DemiGodsRaw as string[]
     : typeof s2DemiGodsRaw === "string"
-      ? (s2DemiGodsRaw as string).split(",").map(d => d.trim()).filter(Boolean)
+      ? s2DemiGodsRaw.split(",").map(d => d.trim()).filter(Boolean)
       : [];
-  const demiGodOther = s2?.demi_god_other as string | null;
+  const demiGodOther = typeof s2?.demi_god_other === "string" ? s2.demi_god_other : null;
   const allDemiGods = [
     ...demiGodsList.filter(d => d !== "Other"),
     ...(demiGodOther ? demiGodOther.split(",").map(t => t.trim()).filter(Boolean) : []),
   ];
 
   const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "";
-
-  const userIns = findMemberRow(s6ins, userName, "Self") ?? s6ins.find(r => (r.member_relation as string) === "Self");
-  const userDoc = findMemberRow(s6doc, userName, "Self") ?? s6doc.find(r => (r.member_relation as string) === "Self");
-  const userEdu = s5?.[0] ?? null;
+  const userIns  = findMemberRow(s6ins, userName, "Self") ?? s6ins.find(r => (r.member_relation as string) === "Self");
+  const userDoc  = findMemberRow(s6doc, userName, "Self") ?? s6doc.find(r => (r.member_relation as string) === "Self");
+  const userEdu  = s5?.[0] ?? null;
 
   const fac: string[] = [];
   if (s6eco?.fac_rented_house)      fac.push("Staying in Rented House");
@@ -263,8 +326,6 @@ export default function Page() {
   if (s6eco?.inv_mutual_funds_sip) inv.push("Mutual Funds / SIP");
   if (s6eco?.inv_shares_demat)     inv.push("Trading in Shares / Demat Account");
   if (s6eco?.inv_others)           inv.push("Investment - Others");
-
-  void familyType;
 
   return (
     <>
@@ -302,12 +363,14 @@ export default function Page() {
           </Card>
         )}
 
+        {/* ── Your Information ── */}
         <Card className="shadow-sm border-l-4 border-l-primary">
           <CardHeader>
             <CardTitle className="text-lg">Your Information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
 
+            {/* Personal */}
             <div>
               <SectionHeader title="Personal Details" href="/dashboard/profile/personal-details" isLocked={isLocked} />
               {s1 ? (
@@ -320,7 +383,7 @@ export default function Page() {
                   <Field label="Mother's Name"  value={s1.mothers_name} />
                   <Field label="Surname in Use" value={s1.surname_in_use} />
                   <Field label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
-                  <Field label="Disability"     value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
+                  <Field label="Disability" value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
                   {(s1.is_part_of_sangha === "yes" || s1.is_part_of_sangha === "true") && (
                     <>
                       <Field label="Sangha Name"   value={s1.sangha_name} />
@@ -334,26 +397,31 @@ export default function Page() {
 
             <Separator />
 
+            {/* Religious */}
             <div>
               <SectionHeader title="Religious Details" href="/dashboard/profile/religious-details" isLocked={isLocked} />
               {s2 ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <Field label="Surname in Use"       value={s2.surname_in_use as string} />
-                    <Field label="Surname as per Gotra" value={s2.surname_as_per_gotra as string} />
-                    <Field label="Family Priest"        value={s2.priest_name as string} />
-                    <Field label="Priest Location"      value={s2.priest_location as string} />
-                    <Field label="Gotra"                value={s2.gotra as string} />
-                    <Field label="Pravara"              value={s2.pravara as string} />
-                    <Field label="Upanama (General)"    value={s2.upanama_general as string} />
-                    <Field label="Upanama (Proper)"     value={s2.upanama_proper as string} />
-                    <Field label="Kuladevata"           value={((s2.kuladevata_other as string) || (s2.kuladevata as string)) ?? null} />
+                    <Field label="Surname in Use"       value={typeof s2.surname_in_use === "string" ? s2.surname_in_use : null} />
+                    <Field label="Surname as per Gotra" value={typeof s2.surname_as_per_gotra === "string" ? s2.surname_as_per_gotra : null} />
+                    <Field label="Family Priest"        value={typeof s2.priest_name === "string" ? s2.priest_name : null} />
+                    <Field label="Priest Location"      value={typeof s2.priest_location === "string" ? s2.priest_location : null} />
+                    <Field label="Gotra"                value={typeof s2.gotra === "string" ? s2.gotra : null} />
+                    <Field label="Pravara"              value={typeof s2.pravara === "string" ? s2.pravara : null} />
+                    <Field label="Upanama (General)"    value={typeof s2.upanama_general === "string" ? s2.upanama_general : null} />
+                    <Field label="Upanama (Proper)"     value={typeof s2.upanama_proper === "string" ? s2.upanama_proper : null} />
+                    <Field label="Kuladevata"           value={
+                      typeof s2.kuladevata_other === "string" && s2.kuladevata_other
+                        ? s2.kuladevata_other
+                        : typeof s2.kuladevata === "string" ? s2.kuladevata : null
+                    } />
                     <Field
                       label="Ancestral Tracing Challenge"
                       value={s2.ancestral_challenge === "yes" ? "Yes" : s2.ancestral_challenge === "no" ? "No" : null}
                     />
                     {s2.ancestral_challenge === "yes" && (
-                      <Field label="Common Relative Known Names" value={s2.ancestral_challenge_notes as string} />
+                      <Field label="Common Relative Known Names" value={typeof s2.ancestral_challenge_notes === "string" ? s2.ancestral_challenge_notes : null} />
                     )}
                   </div>
                   {allDemiGods.length > 0 && (
@@ -372,6 +440,7 @@ export default function Page() {
 
             <Separator />
 
+            {/* Family */}
             <div>
               <SectionHeader title="Family Information" href="/dashboard/profile/family-information" isLocked={isLocked} />
               {familyMembers.length > 0 ? (
@@ -379,7 +448,13 @@ export default function Page() {
                   {s3typed?.family_info?.family_type && (
                     <Field
                       label="Family Type"
-                      value={s3typed.family_info.family_type === "nuclear" ? "Nuclear Family" : s3typed.family_info.family_type === "joint" ? "Joint Family" : s3typed.family_info.family_type}
+                      value={
+                        s3typed.family_info.family_type === "nuclear"
+                          ? "Nuclear Family"
+                          : s3typed.family_info.family_type === "joint"
+                            ? "Joint Family"
+                            : s3typed.family_info.family_type
+                      }
                     />
                   )}
                   <div className="overflow-x-auto">
@@ -411,6 +486,7 @@ export default function Page() {
 
             <Separator />
 
+            {/* Location */}
             <div>
               <SectionHeader title="Location" href="/dashboard/profile/location-information" isLocked={isLocked} />
               {currentAddr ? (
@@ -437,69 +513,18 @@ export default function Page() {
 
             <Separator />
 
+            {/* Education – user */}
             <div>
               <SectionHeader title="Education &amp; Profession" href="/dashboard/profile/education-profession" isLocked={isLocked} />
-              {userEdu ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <Field
-                      label="Currently Studying"
-                      value={userEdu.is_currently_studying ? "Yes" : "No"}
-                    />
-                    {userEdu.is_currently_studying && (
-                      <Field
-                        label="Currently Working"
-                        value={userEdu.is_currently_working === true ? "Yes" : userEdu.is_currently_working === false ? "No" : null}
-                      />
-                    )}
-                    {(userEdu.profession_type as string) && (
-                      <Field label="Profession" value={formatProfession(userEdu.profession_type as string)} />
-                    )}
-                    {(userEdu.industry as string) && (
-                      <Field label="Industry / Field" value={userEdu.industry as string} />
-                    )}
-                    {(userEdu.brief_profile as string) && (
-                      <Field label="Brief Profile" value={userEdu.brief_profile as string} />
-                    )}
-                  </div>
-
-                  {(userEdu.educations as Record<string, string>[])?.filter(e => e.degree_type).length > 0 && (
-                    <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Education</Label>
-                      <div className="space-y-2">
-                        {(userEdu.educations as Record<string, string>[]).filter(e => e.degree_type).map((edu, i) => (
-                          <div key={i} className="flex flex-wrap gap-x-6 gap-y-1 p-3 rounded-lg bg-muted/30 border border-border text-sm">
-                            <span className="font-medium">{edu.degree_type}</span>
-                            {edu.degree_name && <span className="text-muted-foreground">{edu.degree_name}</span>}
-                            {edu.university && <span className="text-muted-foreground">{edu.university}</span>}
-                            {edu.start_date && edu.end_date && (
-                              <span className="text-muted-foreground text-xs">{formatDate(edu.start_date)} – {formatDate(edu.end_date)}</span>
-                            )}
-                            {edu.certificate && <span className="text-muted-foreground text-xs">Cert: {edu.certificate}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {(userEdu.languages as { language: string; language_other?: string }[])?.length > 0 && (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Languages Known</Label>
-                      <div className="flex flex-wrap gap-1">
-                        {(userEdu.languages as { language: string; language_other?: string }[]).map((l, i) => (
-                          <Badge key={i} variant="secondary" className="text-xs">
-                            {l.language === "Other" ? (l.language_other ?? "") : l.language}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+              {userEdu
+                ? <EduBlock edu={userEdu} />
+                : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>
+              }
             </div>
 
             <Separator />
 
+            {/* Economic */}
             <div>
               <SectionHeader title="Economic Details" href="/dashboard/profile/economic-details" isLocked={isLocked} />
               {s6eco ? (
@@ -507,11 +532,11 @@ export default function Page() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-3 rounded-xl bg-muted/40 border border-border space-y-1">
                       <Label className="text-xs text-muted-foreground">Self Income</Label>
-                      <p className="text-sm font-semibold">{formatIncome(s6eco.self_income as string) || "—"}</p>
+                      <p className="text-sm font-semibold">{formatIncome(typeof s6eco.self_income === "string" ? s6eco.self_income : null) || "—"}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-muted/40 border border-border space-y-1">
                       <Label className="text-xs text-muted-foreground">Family Income</Label>
-                      <p className="text-sm font-semibold">{formatIncome(s6eco.family_income as string) || "—"}</p>
+                      <p className="text-sm font-semibold">{formatIncome(typeof s6eco.family_income === "string" ? s6eco.family_income : null) || "—"}</p>
                     </div>
                   </div>
 
@@ -549,11 +574,11 @@ export default function Page() {
                     <div>
                       <Label className="text-xs text-muted-foreground mb-2 block">Documents</Label>
                       <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
-                        <CoverageRow label="Aadhaar"    value={hasCoverage(userDoc, "aadhaar_coverage")} />
-                        <CoverageRow label="PAN"        value={hasCoverage(userDoc, "pan_coverage")} />
-                        <CoverageRow label="Voter ID"   value={hasCoverage(userDoc, "voter_id_coverage")} />
-                        <CoverageRow label="Land Docs"  value={hasCoverage(userDoc, "land_doc_coverage")} />
-                        <CoverageRow label="DL"         value={hasCoverage(userDoc, "dl_coverage")} />
+                        <CoverageRow label="Aadhaar"   value={hasCoverage(userDoc, "aadhaar_coverage")} />
+                        <CoverageRow label="PAN"       value={hasCoverage(userDoc, "pan_coverage")} />
+                        <CoverageRow label="Voter ID"  value={hasCoverage(userDoc, "voter_id_coverage")} />
+                        <CoverageRow label="Land Docs" value={hasCoverage(userDoc, "land_doc_coverage")} />
+                        <CoverageRow label="DL"        value={hasCoverage(userDoc, "dl_coverage")} />
                       </div>
                     </div>
                   )}
@@ -564,6 +589,7 @@ export default function Page() {
           </CardContent>
         </Card>
 
+        {/* ── Family Members ── */}
         {familyMembers.filter(m => m.relation !== "Self").length > 0 && (
           <Card className="shadow-sm">
             <CardHeader>
@@ -588,6 +614,7 @@ export default function Page() {
                       </div>
                     </div>
 
+                    {/* Member basic details */}
                     <div>
                       <SectionHeader title="Member Details" href="/dashboard/profile/family-information" isLocked={isLocked} />
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -600,66 +627,15 @@ export default function Page() {
                       </div>
                     </div>
 
+                    {/* Member education */}
                     {memberEdu && (
                       <div>
                         <SectionHeader title="Education &amp; Profession" href="/dashboard/profile/education-profession" isLocked={isLocked} memberIndex={idx + 1} />
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                            <Field
-                              label="Currently Studying"
-                              value={memberEdu.is_currently_studying ? "Yes" : "No"}
-                            />
-                            {memberEdu.is_currently_studying && (
-                              <Field
-                                label="Currently Working"
-                                value={memberEdu.is_currently_working === true ? "Yes" : memberEdu.is_currently_working === false ? "No" : null}
-                              />
-                            )}
-                            {(memberEdu.profession_type as string) && (
-                              <Field label="Profession" value={formatProfession(memberEdu.profession_type as string)} />
-                            )}
-                            {(memberEdu.industry as string) && (
-                              <Field label="Industry / Field" value={memberEdu.industry as string} />
-                            )}
-                            {(memberEdu.brief_profile as string) && (
-                              <Field label="Brief Profile" value={memberEdu.brief_profile as string} />
-                            )}
-                          </div>
-
-                          {(memberEdu.educations as Record<string, string>[])?.filter(e => e.degree_type).length > 0 && (
-                            <div className="space-y-2">
-                              <Label className="text-xs text-muted-foreground">Education</Label>
-                              <div className="space-y-2">
-                                {(memberEdu.educations as Record<string, string>[]).filter(e => e.degree_type).map((edu, ei) => (
-                                  <div key={ei} className="flex flex-wrap gap-x-6 gap-y-1 p-3 rounded-lg bg-muted/30 border border-border text-sm">
-                                    <span className="font-medium">{edu.degree_type}</span>
-                                    {edu.degree_name && <span className="text-muted-foreground">{edu.degree_name}</span>}
-                                    {edu.university && <span className="text-muted-foreground">{edu.university}</span>}
-                                    {edu.start_date && edu.end_date && (
-                                      <span className="text-muted-foreground text-xs">{formatDate(edu.start_date)} – {formatDate(edu.end_date)}</span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {(memberEdu.languages as { language: string; language_other?: string }[])?.length > 0 && (
-                            <div className="space-y-1.5">
-                              <Label className="text-xs text-muted-foreground">Languages Known</Label>
-                              <div className="flex flex-wrap gap-1">
-                                {(memberEdu.languages as { language: string; language_other?: string }[]).map((l, li) => (
-                                  <Badge key={li} variant="secondary" className="text-xs">
-                                    {l.language === "Other" ? (l.language_other ?? "") : l.language}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                        <EduBlock edu={memberEdu} />
                       </div>
                     )}
 
+                    {/* Member insurance + docs */}
                     {(memberIns || memberDoc) && (
                       <div>
                         <SectionHeader title="Insurance &amp; Documents" href="/dashboard/profile/economic-details" isLocked={isLocked} memberIndex={idx + 1} />
@@ -697,6 +673,7 @@ export default function Page() {
           </Card>
         )}
 
+        {/* ── Submit section ── */}
         {!isLocked && (
           <>
             <Card className="shadow-sm">
