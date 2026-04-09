@@ -31,7 +31,7 @@ export default function SanghaBlockPage() {
     const fetchUsers = async () => {
       setLoading(true);
       try {
-        const data = await api.get('/api/sangha/members');
+        const data = await api.get('/sangha/members');
         const list = Array.isArray(data) ? data : [];
         setAllUsers(list.map((u: any) => ({
           id:         u.id,
