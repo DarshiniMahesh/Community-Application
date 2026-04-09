@@ -312,7 +312,10 @@ export default function Page() {
   const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "";
   const userIns  = findMemberRow(s6ins, userName, "Self") ?? s6ins.find(r => (r.member_relation as string) === "Self");
   const userDoc  = findMemberRow(s6doc, userName, "Self") ?? s6doc.find(r => (r.member_relation as string) === "Self");
-  const userEdu  = s5?.[0] ?? null;
+  const userEdu =
+  s5?.find(e => (e.member_relation as string) === "Self") ??
+  s5?.[0] ??
+  null;
 
   const fac: string[] = [];
   if (s6eco?.fac_rented_house)      fac.push("Staying in Rented House");
@@ -355,10 +358,13 @@ export default function Page() {
               </div>
               {submittedAt && (
                 <div className="flex items-center gap-2 mt-3 text-xs text-blue-600 border-t border-blue-200 pt-3">
-                  <Calendar className="h-3.5 w-3.5" />
-                  Submitted on: {new Date(submittedAt).toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short" })}
-                </div>
-              )}
+                <Calendar className="h-3.5 w-3.5" />
+                Submitted on: {new Date(submittedAt).toLocaleString("en-IN", {
+                dateStyle: "long",
+                timeStyle: "short",
+              })}
+            </div>
+            )}
             </CardContent>
           </Card>
         )}

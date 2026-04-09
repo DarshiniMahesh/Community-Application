@@ -80,16 +80,12 @@ const getFullProfile = async (req, res) => {
       pool.query('SELECT * FROM member_documents   WHERE profile_id=$1 ORDER BY sort_order', [pid]),
     ]);
 
-    // ── FIX: Deduplicate step5 rows ──────────────────────────────────────────
-    // If the DB has multiple rows with member_relation='Self' (caused by a
-    // prior frontend bug that sent duplicate Self entries), keep only the first
-    // one (lowest sort_order). For non-Self members, keep all rows but also
-    // deduplicate by (member_name, member_relation) — keep lowest sort_order.
     const deduplicatedStep5Rows = deduplicateMembers(s5raw.rows);
 
     const step5 = await Promise.all(
       deduplicatedStep5Rows.map(async (edu) => {
-        const [certs, langs] = await Promise.all([
+        // FIX: fetch educations (degree entries) alongside certs and languages
+        const [certs, langs, edus] = await Promise.all([
           pool.query(
             'SELECT certification FROM member_certifications WHERE member_education_id=$1 ORDER BY sort_order',
             [edu.id]
@@ -98,16 +94,20 @@ const getFullProfile = async (req, res) => {
             'SELECT language, language_other FROM member_languages WHERE member_education_id=$1',
             [edu.id]
           ),
+          pool.query(
+            'SELECT * FROM member_educations WHERE member_education_id=$1 ORDER BY sort_order',
+            [edu.id]
+          ),
         ]);
         return {
           ...edu,
           certifications: certs.rows.map(r => r.certification),
           languages:      langs.rows,
+          educations:     edus.rows,   // FIX: include education degree rows
         };
       })
     );
 
-    // ── FIX: Deduplicate insurance rows ──────────────────────────────────────
     const deduplicatedInsurance = deduplicateMembers(s6ins.rows);
     const normalizedInsurance = deduplicatedInsurance.map(row => ({
       ...row,
@@ -117,7 +117,6 @@ const getFullProfile = async (req, res) => {
       konkani_card_coverage: parsePgArray(row.konkani_card_coverage),
     }));
 
-    // ── FIX: Deduplicate document rows ───────────────────────────────────────
     const deduplicatedDocuments = deduplicateMembers(s6doc.rows);
     const normalizedDocuments = deduplicatedDocuments.map(row => ({
       ...row,
@@ -126,7 +125,6 @@ const getFullProfile = async (req, res) => {
       voter_id_coverage:    parsePgArray(row.voter_id_coverage),
       land_doc_coverage:    parsePgArray(row.land_doc_coverage),
       dl_coverage:          parsePgArray(row.dl_coverage),
-      all_records_coverage: parsePgArray(row.all_records_coverage),
     }));
 
     res.json({
@@ -251,7 +249,8 @@ const saveStep2 = async (req, res) => {
       kuladevata, kuladevata_other,
       surname_in_use, surname_as_per_gotra,
       priest_name, priest_location,
-      demi_god_challenge, demi_god, demi_god_notes,
+      demi_god_challenge, demi_gods, demi_god_other,
+      ancestral_challenge, ancestral_challenge_notes,
     } = req.body;
 
     const exists = await pool.query(
@@ -266,9 +265,10 @@ const saveStep2 = async (req, res) => {
            kuladevata=$5, kuladevata_other=$6,
            surname_in_use=$7, surname_as_per_gotra=$8,
            priest_name=$9, priest_location=$10,
-           demi_god_challenge=$11, demi_god=$12, demi_god_notes=$13,
+           demi_god_challenge=$11, demi_gods=$12, demi_god_other=$13,
+           ancestral_challenge=$14, ancestral_challenge_notes=$15,
            updated_at=NOW()
-         WHERE profile_id=$14`,
+         WHERE profile_id=$16`,
         [
           gotra || null, pravara || null,
           upanama_general || null, upanama_proper || null,
@@ -276,8 +276,10 @@ const saveStep2 = async (req, res) => {
           surname_in_use || null, surname_as_per_gotra || null,
           priest_name || null, priest_location || null,
           demi_god_challenge || null,
-          demi_god_challenge === 'yes' ? null : (demi_god || null),
-          demi_god_challenge === 'yes' ? (demi_god_notes || null) : null,
+          demi_god_challenge === 'yes' ? null : (demi_gods || null),
+          demi_god_challenge === 'yes' ? (demi_god_other || null) : null,
+          ancestral_challenge || null,
+          ancestral_challenge === 'yes' ? (ancestral_challenge_notes || null) : null,
           pid,
         ]
       );
@@ -289,8 +291,9 @@ const saveStep2 = async (req, res) => {
             kuladevata, kuladevata_other,
             surname_in_use, surname_as_per_gotra,
             priest_name, priest_location,
-            demi_god_challenge, demi_god, demi_god_notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+            demi_god_challenge, demi_gods, demi_god_other,
+            ancestral_challenge, ancestral_challenge_notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [
           pid,
           gotra || null, pravara || null,
@@ -299,8 +302,10 @@ const saveStep2 = async (req, res) => {
           surname_in_use || null, surname_as_per_gotra || null,
           priest_name || null, priest_location || null,
           demi_god_challenge || null,
-          demi_god_challenge === 'yes' ? null : (demi_god || null),
-          demi_god_challenge === 'yes' ? (demi_god_notes || null) : null,
+          demi_god_challenge === 'yes' ? null : (demi_gods || null),
+          demi_god_challenge === 'yes' ? (demi_god_other || null) : null,
+          ancestral_challenge || null,
+          ancestral_challenge === 'yes' ? (ancestral_challenge_notes || null) : null,
         ]
       );
     }
@@ -374,31 +379,57 @@ const saveStep4 = async (req, res) => {
     const pid = profile.id;
 
     const { addresses = [] } = req.body;
+    await pool.query(
+      `DELETE FROM addresses
+      WHERE profile_id = $1
+      AND address_type LIKE 'old_%'`,
+      [pid]
+    );
 
     for (const addr of addresses) {
       await pool.query(
         `INSERT INTO addresses
-           (profile_id, address_type, flat_no, building, street, area,
-            city, state, pincode, latitude, longitude)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-         ON CONFLICT (profile_id, address_type) DO UPDATE SET
-           flat_no=$3, building=$4, street=$5, area=$6,
-           city=$7, state=$8, pincode=$9,
-           latitude=$10, longitude=$11, updated_at=NOW()`,
+          (profile_id, address_type,
+            flat_no, building, street, area,
+            landmark, taluk, district,
+            city, state, pincode, country,
+            latitude, longitude)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+          ON CONFLICT (profile_id, address_type) DO UPDATE SET
+          flat_no=$3,
+          building=$4,
+          street=$5,
+          area=$6,
+          landmark=$7,
+          taluk=$8,
+          district=$9,
+          city=$10,
+          state=$11,
+          pincode=$12,
+          country=$13,
+          latitude=$14,
+          longitude=$15,
+          updated_at=NOW()`,
         [
           pid, addr.address_type,
-          addr.flat_no || null, addr.building || null,
-          addr.street || null, addr.area || null,
-          addr.city || null, addr.state || null,
+          addr.flat_no || null,
+          addr.building || null,
+          addr.street || null,
+          addr.area || null,
+          addr.landmark || null,
+          addr.taluk || null,
+          addr.district || null,
+          addr.city || null,
+          addr.state || null,
           addr.pincode || null,
+          addr.country || null,
           addr.latitude  != null ? Number(addr.latitude)  : null,
           addr.longitude != null ? Number(addr.longitude) : null,
         ]
       );
     }
 
-    const current = addresses.find(a => a.address_type === 'current');
-    const pct = (current?.city && current?.state) ? 100 : 50;
+    const pct = addresses.length > 0 ? 100 : 0;
     await updateProfilePct(pid, 'step4_location', pct, pct === 100);
     res.json({ message: 'Step 4 saved', completion: pct });
   } catch (err) {
@@ -416,10 +447,6 @@ const saveStep5 = async (req, res) => {
 
     let { members = [] } = req.body;
 
-    // ── FIX: Deduplicate incoming members before saving ──────────────────────
-    // The frontend may (historically or due to bugs) send two entries with
-    // member_relation='Self'. We keep only the first Self entry and deduplicate
-    // all others by (member_name, member_relation).
     members = deduplicateMembersPayload(members);
 
     const existing = await pool.query(
@@ -428,6 +455,8 @@ const saveStep5 = async (req, res) => {
     for (const row of existing.rows) {
       await pool.query('DELETE FROM member_certifications WHERE member_education_id=$1', [row.id]);
       await pool.query('DELETE FROM member_languages      WHERE member_education_id=$1', [row.id]);
+      // FIX: also delete education degree rows when cleaning up
+      await pool.query('DELETE FROM member_educations     WHERE member_education_id=$1', [row.id]);
     }
     await pool.query('DELETE FROM member_education WHERE profile_id=$1', [pid]);
 
@@ -450,7 +479,6 @@ const saveStep5 = async (req, res) => {
           i,
           m.highest_education || null,
           m.brief_profile || null,
-          // Only store profession fields when relevant
           (m.is_currently_studying && !m.is_currently_working) ? null : (m.profession_type || null),
           (m.is_currently_studying && !m.is_currently_working) ? null : (m.profession_other || null),
           (m.is_currently_studying && !m.is_currently_working) ? null : (m.self_employed_type || null),
@@ -462,6 +490,31 @@ const saveStep5 = async (req, res) => {
       );
 
       const eduId = eduRes.rows[0].id;
+
+      // FIX: save individual degree/education entries from the educations array
+      if (Array.isArray(m.educations)) {
+        for (let j = 0; j < m.educations.length; j++) {
+          const e = m.educations[j];
+          if (e.degree_type || e.degree_name) {
+            await pool.query(
+              `INSERT INTO member_educations
+                 (member_education_id, degree_name, degree_type, university,
+                  start_date, end_date, certificate, sort_order)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+              [
+                eduId,
+                e.degree_name  || null,
+                e.degree_type  || null,
+                e.university   || null,
+                e.start_date   || null,
+                e.end_date     || null,
+                e.certificate  || null,
+                j,
+              ]
+            );
+          }
+        }
+      }
 
       if (Array.isArray(m.certifications)) {
         for (let j = 0; j < m.certifications.length; j++) {
@@ -489,7 +542,13 @@ const saveStep5 = async (req, res) => {
       }
     }
 
-    const pct = members.length > 0 && members[0]?.highest_education ? 100 : 0;
+    const hasEducation = members.some(
+    m =>
+    Array.isArray(m.educations) &&
+    m.educations.some(e => e.degree_type || e.degree_name)
+    );
+
+    const pct = hasEducation ? 100 : 0;
     await updateProfilePct(pid, 'step5_education', pct, pct === 100);
     res.json({ message: 'Step 5 saved', completion: pct });
   } catch (err) {
@@ -507,7 +566,6 @@ const saveStep6 = async (req, res) => {
 
     let { economic = {}, insurance = [], documents = [] } = req.body;
 
-    // ── FIX: Deduplicate incoming insurance/document members ─────────────────
     insurance = deduplicateMembersPayload(insurance);
     documents = deduplicateMembersPayload(documents);
 
@@ -581,21 +639,21 @@ const saveStep6 = async (req, res) => {
       const doc = documents[i];
       await pool.query(
         `INSERT INTO member_documents
-           (profile_id, member_name, member_relation, sort_order,
-            aadhaar_coverage, pan_coverage,
-            voter_id_coverage, land_doc_coverage, dl_coverage,
-            all_records_coverage)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          (profile_id, member_name, member_relation, sort_order,
+          aadhaar_coverage, pan_coverage,
+          voter_id_coverage, land_doc_coverage, dl_coverage)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
-          pid,
-          doc.member_name || null, doc.member_relation || null, i,
-          doc.aadhaar_coverage     || [],
-          doc.pan_coverage         || [],
-          doc.voter_id_coverage    || [],
-          doc.land_doc_coverage    || [],
-          doc.dl_coverage          || [],
-          doc.all_records_coverage || [],
-        ]
+        pid,
+        doc.member_name || null,
+        doc.member_relation || null,
+        i,
+        doc.aadhaar_coverage  || [],
+        doc.pan_coverage      || [],
+        doc.voter_id_coverage || [],
+        doc.land_doc_coverage || [],
+        doc.dl_coverage       || [],
+      ]
       );
     }
 
@@ -676,6 +734,8 @@ const resetProfile = async (req, res) => {
     for (const row of edus.rows) {
       await pool.query('DELETE FROM member_certifications WHERE member_education_id=$1', [row.id]);
       await pool.query('DELETE FROM member_languages      WHERE member_education_id=$1', [row.id]);
+      // FIX: also clean up education degree rows on full reset
+      await pool.query('DELETE FROM member_educations     WHERE member_education_id=$1', [row.id]);
     }
     await pool.query('DELETE FROM member_education  WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM economic_details  WHERE profile_id=$1', [pid]);
@@ -782,6 +842,8 @@ const resetStep5 = async (req, res) => {
     for (const row of edus.rows) {
       await pool.query('DELETE FROM member_certifications WHERE member_education_id=$1', [row.id]);
       await pool.query('DELETE FROM member_languages      WHERE member_education_id=$1', [row.id]);
+      // FIX: also clean up education degree rows on step5 reset
+      await pool.query('DELETE FROM member_educations     WHERE member_education_id=$1', [row.id]);
     }
     await pool.query('DELETE FROM member_education WHERE profile_id=$1', [pid]);
     await pool.query(
@@ -907,16 +969,6 @@ function calcStep2Pct(data) {
   return Math.round((fields.filter(f => data[f]).length / fields.length) * 100);
 }
 
-/**
- * FIX: Deduplicates a list of DB rows that have member_relation and member_name fields.
- *
- * Rules:
- *  - Only ONE row with member_relation = 'Self' is kept (the one with the lowest sort_order).
- *  - For non-Self rows, deduplication is by (member_name, member_relation) — keep the
- *    first occurrence (lowest sort_order, since the query uses ORDER BY sort_order).
- *
- * This fixes the case where old buggy saves wrote 2 Self rows to the DB.
- */
 function deduplicateMembers(rows) {
   const seen = new Set();
   const result = [];
@@ -925,25 +977,19 @@ function deduplicateMembers(rows) {
     const relation = (row.member_relation || '').trim();
     const name     = (row.member_name     || '').trim();
 
-    // Build a deduplication key
     const key = relation === 'Self'
-      ? 'Self'                          // All Self rows share one key → only first kept
-      : `${relation}::${name}`;         // Non-Self rows keyed by relation+name
+      ? 'Self'
+      : `${relation}::${name}`;
 
     if (!seen.has(key)) {
       seen.add(key);
       result.push(row);
     }
-    // Duplicate → skip
   }
 
   return result;
 }
 
-/**
- * FIX: Same deduplication logic for incoming request payloads (step5/step6 saves).
- * Payloads use member_relation and member_name fields (same as DB rows).
- */
 function deduplicateMembersPayload(members) {
   return deduplicateMembers(members);
 }

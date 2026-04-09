@@ -70,14 +70,11 @@ interface MemberData {
   name: string;
   relation: string;
   educations: EducationEntry[];
-  // null means "not answered yet"; false means "No"; true means "Yes"
   isCurrentlyStudying: boolean | null;
   isCurrentlyWorking: boolean | null;
-  // Profession (single)
   profession: string;
   industry: string;
   briefProfile: string;
-  // Languages
   languages: string[];
   otherLanguages: string[];
   otherLanguageInput: string;
@@ -97,9 +94,11 @@ function blankEducation(): EducationEntry {
 
 function blankMember(id: string, name = "", relation = ""): MemberData {
   return {
-    id, name, relation,
+    id,
+    name,
+    relation,
     educations: [blankEducation()],
-    isCurrentlyStudying: null,   // FIX: use null (unanswered) instead of false
+    isCurrentlyStudying: null,
     isCurrentlyWorking: null,
     profession: "",
     industry: "",
@@ -112,19 +111,16 @@ function blankMember(id: string, name = "", relation = ""): MemberData {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * FIX: Build a deduplicated expected members list.
- * The API may return a step5 array that already includes a "Self" entry
- * at index 0. We always derive the canonical list from step1 + step3 only.
- */
 function buildExpectedMembers(
   data: Record<string, unknown>
 ): { id: string; name: string; relation: string }[] {
   const s1 = data.step1 as Record<string, string> | null;
   const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "You";
+
+  // FIX: null-safe relation check — skip any member whose relation is "Self" or missing
   const familyMembers = (
-  ((data.step3 as Record<string, unknown>)?.members as Record<string, string>[]) || []
-      ).filter((fm) => fm.relation !== "Self");
+    ((data.step3 as Record<string, unknown>)?.members as Record<string, string>[]) || []
+  ).filter((fm) => fm?.relation && fm.relation !== "Self");
 
   return [
     { id: "self", name: userName, relation: "Self" },
@@ -157,7 +153,6 @@ export default function Page() {
     api.get("/users/profile/full").then((data: unknown) => {
       const fullData = data as Record<string, unknown>;
 
-      // FIX: Build expected list cleanly from step1 + step3 only (never from step5)
       const expected = buildExpectedMembers(fullData);
       setExpectedMembers(expected);
 
@@ -165,21 +160,19 @@ export default function Page() {
       const step5 = Array.isArray(step5Raw) ? step5Raw as Record<string, unknown>[] : [];
 
       if (step5.length > 0) {
-        // FIX: Match step5 entries to expected members by index but cap at expected.length
-        // This prevents extra rows if backend returns more entries than expected members
         const mapped: MemberData[] = expected.map((base, i) => {
-          // Try to find a matching step5 entry by relation first, then by index
           let m: Record<string, unknown> | undefined;
+
           if (base.relation === "Self") {
             m = step5.find(s => (s.member_relation as string) === "Self");
           } else {
-            // Match by name + relation for non-self members
+            // Match by name + relation first
             m = step5.find(
               s =>
                 (s.member_name as string) === base.name &&
                 (s.member_relation as string) === base.relation
             );
-            // fallback: match by index offset (skip the self entry in step5)
+            // Fallback: match by index offset (skip the Self entry in step5)
             if (!m) {
               const nonSelfStep5 = step5.filter(s => (s.member_relation as string) !== "Self");
               m = nonSelfStep5[i - 1]; // i-1 because index 0 is Self
@@ -190,7 +183,10 @@ export default function Page() {
 
           const rawLangs = (m.languages as { language: string; language_other?: string }[]) || [];
           const otherEntry = rawLangs.find(l => l.language === "Other");
-          const otherLangs = otherEntry?.language_other?.split(",").map((s: string) => s.trim()).filter(Boolean) || [];
+          const otherLangs = otherEntry?.language_other
+            ?.split(",")
+            .map((s: string) => s.trim())
+            .filter(Boolean) || [];
 
           const rawEdus = (m.educations as Record<string, string>[]) || [];
           const educations: EducationEntry[] = rawEdus.length > 0
@@ -205,37 +201,41 @@ export default function Page() {
               }))
             : [blankEducation()];
 
-          // FIX: Preserve null for isCurrentlyStudying if not set in DB
+          // Preserve null when not set in DB — do NOT fall back to false
           const isStudyingRaw = m.is_currently_studying;
           const isStudying: boolean | null =
-            isStudyingRaw === true ? true :
+            isStudyingRaw === true  ? true  :
             isStudyingRaw === false ? false :
             null;
 
           const isWorkingRaw = m.is_currently_working;
           const isWorking: boolean | null =
-            isWorkingRaw === true ? true :
+            isWorkingRaw === true  ? true  :
             isWorkingRaw === false ? false :
             null;
 
           return {
-            id: base.id,
-            name: base.name,
-            relation: base.relation,
+            id:           base.id,
+            name:         base.name,
+            relation:     base.relation,
             educations,
             isCurrentlyStudying: isStudying,
             isCurrentlyWorking:  isWorking,
             profession:   (m.profession_type as string) || "",
             industry:     (m.industry        as string) || "",
             briefProfile: (m.brief_profile   as string) || "",
-            languages:    rawLangs.filter(l => l.language !== "Other").map(l => l.language),
-            otherLanguages: otherLangs,
+            // FIX: never fall back to a non-empty default — only use what the DB returned
+            languages:    rawLangs
+              .filter(l => l.language !== "Other")
+              .map(l => l.language),
+            otherLanguages:    otherLangs,
             otherLanguageInput: "",
           };
         });
 
         setMembers(mapped);
       } else {
+        // No step5 data at all → fully blank members, nothing pre-selected
         setMembers(expected.map(m => blankMember(m.id, m.name, m.relation)));
       }
     }).catch(() => {});
@@ -279,13 +279,17 @@ export default function Page() {
       return {
         ...m,
         isCurrentlyStudying: val,
-        isCurrentlyWorking: null,   // always reset downstream when studying changes
+        // Always reset downstream when studying answer changes
+        isCurrentlyWorking: null,
         profession: "",
         industry: "",
         briefProfile: "",
       };
     }));
-    setErrors(prev => ({ ...prev, [id]: { ...(prev[id] || {}), isCurrentlyWorking: "" } }));
+    setErrors(prev => ({
+      ...prev,
+      [id]: { ...(prev[id] || {}), isCurrentlyStudying: "", isCurrentlyWorking: "" },
+    }));
   };
 
   const setCurrentlyWorking = (id: string, val: boolean) => {
@@ -294,15 +298,25 @@ export default function Page() {
       return {
         ...m,
         isCurrentlyWorking: val,
+        // Clear profession fields only when switching to "not working"
         ...(!val ? { profession: "", industry: "", briefProfile: "" } : {}),
       };
     }));
-    setErrors(prev => ({ ...prev, [id]: { ...(prev[id] || {}), isCurrentlyWorking: "" } }));
+    setErrors(prev => ({
+      ...prev,
+      [id]: { ...(prev[id] || {}), isCurrentlyWorking: "" },
+    }));
   };
 
   const toggleLanguage = (id: string, lang: string) => {
     const m = members.find(x => x.id === id)!;
-    updateMember(id, "languages", m.languages.includes(lang) ? m.languages.filter(l => l !== lang) : [...m.languages, lang]);
+    updateMember(
+      id,
+      "languages",
+      m.languages.includes(lang)
+        ? m.languages.filter(l => l !== lang)
+        : [...m.languages, lang]
+    );
   };
 
   const addOtherLanguage = (id: string) => {
@@ -320,26 +334,21 @@ export default function Page() {
   };
 
   /**
-   * FIX: Clearer profession visibility logic:
-   * - isCurrentlyStudying = null  → not answered yet → show profession (unanswered = not a student)
-   * - isCurrentlyStudying = false → not studying      → show profession
-   * - isCurrentlyStudying = true  → studying          → only show if also working = true
+   * Profession visibility:
+   * - null (unanswered) or false (not studying) → show profession
+   * - true (studying) + working = true          → show profession
+   * - true (studying) + working = false/null    → hide profession
    */
   const showProfession = (m: MemberData): boolean => {
-    if (m.isCurrentlyStudying !== true) return true;  // not studying (or unanswered) → show
-    return m.isCurrentlyWorking === true;              // studying + also working → show
+    if (m.isCurrentlyStudying !== true) return true;
+    return m.isCurrentlyWorking === true;
   };
 
   /**
-   * FIX: isComplete checks for actual completion consistently with validate():
-   * - Education: at least one entry with a degreeType
-   * - Status: isCurrentlyStudying must not be null
-   * - If studying + working null → incomplete
-   * - Profession: required if showProfession AND profession is empty
+   * isComplete: used only for the badge — mirrors validate() logic.
    */
   const isComplete = (m: MemberData): boolean => {
-    const hasEdu = m.educations.some(e => e.degreeType.trim() !== "");
-    if (!hasEdu) return false;
+    if (!m.educations.some(e => e.degreeType.trim() !== "")) return false;
     if (m.isCurrentlyStudying === null) return false;
     if (m.isCurrentlyStudying === true && m.isCurrentlyWorking === null) return false;
     if (showProfession(m) && !m.profession) return false;
@@ -354,11 +363,11 @@ export default function Page() {
       member_relation:       m.relation || null,
       is_currently_studying: m.isCurrentlyStudying,
       is_currently_working:  m.isCurrentlyStudying === true ? m.isCurrentlyWorking : null,
-      profession_type:       showProfession(m) ? (m.profession || null) : null,
-      industry:              showProfession(m) ? (m.industry   || null) : null,
+      profession_type:       showProfession(m) ? (m.profession   || null) : null,
+      industry:              showProfession(m) ? (m.industry     || null) : null,
       brief_profile:         showProfession(m) ? (m.briefProfile || null) : null,
       educations: m.educations
-        .filter(e => e.degreeType || e.degreeName)
+      .filter(e => e.degreeType && e.degreeType.trim() !== "")
         .map(e => ({
           degree_name:  e.degreeName  || null,
           degree_type:  e.degreeType  || null,
@@ -368,7 +377,9 @@ export default function Page() {
           certificate:  e.certificate || null,
         })),
       languages: [
-        ...m.languages.filter(l => l !== "Other").map(l => ({ language: l, language_other: null })),
+        ...m.languages
+          .filter(l => l !== "Other")
+          .map(l => ({ language: l, language_other: null })),
         ...(m.otherLanguages.length > 0
           ? [{ language: "Other", language_other: m.otherLanguages.join(", ") }]
           : []),
@@ -376,7 +387,7 @@ export default function Page() {
     })),
   });
 
-  useAutoSave("/users/profile/step5", buildPayload, [members]);
+  useAutoSave("/users/profile/step5", buildPayload, [members], true);
 
   // ── Validation ────────────────────────────────────────────────────────────
 
@@ -387,13 +398,11 @@ export default function Page() {
     members.forEach(m => {
       const e: Record<string, string> = {};
 
-      const hasAnyEdu = m.educations.some(edu => edu.degreeType.trim() !== "");
-      if (!hasAnyEdu) {
+      if (!m.educations.some(edu => edu.degreeType.trim() !== "")) {
         e.education = "At least one education entry with degree type is required";
         valid = false;
       }
 
-      // FIX: Require an explicit answer to "currently studying?"
       if (m.isCurrentlyStudying === null) {
         e.isCurrentlyStudying = "Please answer this question";
         valid = false;
@@ -539,7 +548,6 @@ export default function Page() {
                   {member.educations.map((edu) => (
                     <div key={edu.id} className="border border-border rounded-xl p-5 bg-muted/20 space-y-4">
 
-                      {/* Degree Name */}
                       <div className="space-y-1.5">
                         <Label className="text-sm font-medium">Degree Name</Label>
                         <Input
@@ -549,13 +557,12 @@ export default function Page() {
                         />
                       </div>
 
-                      {/* Type of Degree */}
                       <div className="space-y-1.5">
                         <Label className="text-sm font-medium">
                           Type of Degree <span className="text-destructive">*</span>
                         </Label>
                         <Select
-                          value={edu.degreeType}
+                          value={edu.degreeType || ""}
                           onValueChange={v => updateEducation(member.id, edu.id, "degreeType", v)}
                         >
                           <SelectTrigger>
@@ -567,7 +574,6 @@ export default function Page() {
                         </Select>
                       </div>
 
-                      {/* University */}
                       <div className="space-y-1.5">
                         <Label className="text-sm font-medium">University / School / Institution</Label>
                         <Input
@@ -577,7 +583,6 @@ export default function Page() {
                         />
                       </div>
 
-                      {/* Start + End Date */}
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <Label className="text-sm font-medium">Start Date</Label>
@@ -597,7 +602,6 @@ export default function Page() {
                         </div>
                       </div>
 
-                      {/* Certificate */}
                       <div className="space-y-1.5">
                         <Label className="text-sm font-medium">Certificate Name</Label>
                         <Input
@@ -607,7 +611,6 @@ export default function Page() {
                         />
                       </div>
 
-                      {/* Remove button */}
                       {member.educations.length > 1 && (
                         <button
                           type="button"
@@ -621,7 +624,6 @@ export default function Page() {
                   ))}
                 </div>
 
-                {/* Add Education */}
                 <Button
                   type="button"
                   variant="outline"
@@ -673,7 +675,7 @@ export default function Page() {
                   </div>
                 </div>
 
-                {/* Q2: Currently Working? — only if studying = Yes */}
+                {/* Q2: Currently Working? — only shown when studying = Yes */}
                 {member.isCurrentlyStudying === true && (
                   <div className="space-y-2 pl-4 border-l-2 border-primary/30">
                     <Label className="text-sm font-medium">
@@ -712,20 +714,19 @@ export default function Page() {
                 )}
               </div>
 
-              {/* ══ PROFESSION — shown based on flow ══ */}
+              {/* ══ PROFESSION ══ */}
               {showProfession(member) && (
                 <div className="space-y-4">
                   <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Profession</p>
 
                   <div className="space-y-4 border border-border rounded-xl p-5 bg-muted/20">
 
-                    {/* Type of Profession */}
                     <div className="space-y-1.5">
                       <Label className="text-sm font-medium">
                         Type of Profession <span className="text-destructive">*</span>
                       </Label>
                       <Select
-                        value={member.profession}
+                        value={member.profession || ""}
                         onValueChange={v => updateMember(member.id, "profession", v)}
                       >
                         <SelectTrigger className={errors[member.id]?.profession ? "border-destructive" : ""}>
@@ -742,7 +743,6 @@ export default function Page() {
                       )}
                     </div>
 
-                    {/* Industry / Field */}
                     <div className="space-y-1.5">
                       <Label className="text-sm font-medium">Industry / Field</Label>
                       <Input
@@ -752,7 +752,6 @@ export default function Page() {
                       />
                     </div>
 
-                    {/* Brief Profile */}
                     <div className="space-y-1.5">
                       <Label className="text-sm font-medium">
                         Brief Profile{" "}
@@ -768,7 +767,7 @@ export default function Page() {
                 </div>
               )}
 
-              {/* Studying + not working = no profession needed indicator */}
+              {/* Studying + not working indicator */}
               {member.isCurrentlyStudying === true && member.isCurrentlyWorking === false && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-700">
                   <CheckCircle2 className="h-4 w-4 flex-shrink-0" />

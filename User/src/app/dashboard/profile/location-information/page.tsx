@@ -72,6 +72,9 @@ export default function Page() {
 
     api.get("/users/profile/full").then((data) => {
       const olds: OldAddress[] = [];
+      let loadedCurrent: Address | null = null;
+      let loadedHometown: Address | null = null;
+
       (data.step4 || []).forEach((a: Record<string, string>) => {
         const mapped: Address = {
           flatNo:   a.flat_no   || "",
@@ -85,16 +88,37 @@ export default function Page() {
           pincode:  a.pincode   || "",
           country:  a.country   || "India",
         };
-        if (a.address_type === "current")       setCurrentAddress(mapped);
-        else if (a.address_type === "hometown") setHometownAddress(mapped);
-        else olds.push({ ...mapped, id: a.address_type });
+        if (a.address_type === "current") {
+          setCurrentAddress(mapped);
+          loadedCurrent = mapped;
+        } else if (a.address_type === "hometown") {
+          setHometownAddress(mapped);
+          loadedHometown = mapped;
+        } else if (a.address_type.startsWith("old_")) {
+          // FIX 2: only push entries that are actually old addresses
+          olds.push({ ...mapped, id: a.address_type });
+        }
       });
+
       if (olds.length > 0) setOldAddresses(olds);
+
+      // FIX 1: restore checkbox by comparing current vs hometown field-by-field
+      if (loadedCurrent && loadedHometown) {
+        const keys: (keyof Address)[] = [
+          "flatNo", "building", "street", "landmark",
+          "area", "city", "taluk", "district", "pincode", "country",
+        ];
+        const areSame = keys.every(k => (loadedCurrent as Address)[k] === (loadedHometown as Address)[k]);
+        setSameAsCurrent(areSame);
+      }
     }).catch(() => {});
   }, []);
 
+  // FIX 3: hometown sync — unchanged, works correctly as-is
   useEffect(() => {
-    if (sameAsCurrent) setHometownAddress({ ...currentAddress });
+    if (sameAsCurrent) {
+      setHometownAddress({ ...currentAddress });
+    }
   }, [sameAsCurrent, currentAddress]);
 
   const buildPayload = () => {

@@ -132,7 +132,9 @@ export default function Page() {
   const s1    = data?.step1 as Record<string, string> | null;
   const s2    = data?.step2 as Record<string, unknown> | null;
   const s4    = data?.step4 as Record<string, string>[] | null;
-  const s5    = data?.step5 as Record<string, unknown>[] | null;
+  const s5 = Array.isArray(data?.step5)
+  ? data.step5 as Record<string, unknown>[]
+  : [];
   const s6eco = (data?.step6 as { economic?: Record<string, unknown> } | null)?.economic;
   const s6ins = ((data?.step6 as { insurance?: Record<string, unknown>[] } | null)?.insurance || []);
   const s6doc = ((data?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || []);
@@ -147,11 +149,16 @@ export default function Page() {
 
   const fullName     = s1 ? [s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ") : "Your Name";
   const initials     = s1 ? `${s1.first_name?.[0] || ""}${s1.last_name?.[0] || ""}`.toUpperCase() : "?";
-  const currentAddr  = s4?.find(a => a.address_type === "current");
-  const hometownAddr = s4?.find(a => a.address_type === "hometown");
-  const oldAddresses = s4?.filter(a => a.address_type?.startsWith("old_")) || [];
+  const currentAddr = (s4 || []).find(a => a.address_type === "current");
+  const hometownAddr = (s4 || []).find(a => a.address_type === "hometown");
+  const oldAddresses = (s4 || []).filter(a => a.address_type?.startsWith("old_"));
 
-  const userEduRow = s5?.[0] ?? null;
+  const userEduRow =
+  Array.isArray(s5) &&
+  Array.isArray((s5[0] as any)?.educations) &&
+  (s5[0] as any).educations.length > 0
+    ? s5[0]
+    : null;
 
   const demiGodsRaw = s2?.demi_gods;
   const demiGodsList: string[] = Array.isArray(demiGodsRaw)
@@ -311,7 +318,7 @@ export default function Page() {
       </Section>
 
       {/* ── Location ── */}
-      <Section title="Location" href="/dashboard/profile/location-information" filled={!!currentAddr} isLocked={isLocked}>
+      <Section title="Location" href="/dashboard/profile/location-information" filled={!!(currentAddr?.city && currentAddr?.district)} isLocked={isLocked}>
         {currentAddr ? (
           <div className="space-y-3">
             <InfoField icon={MapPin} label="Current Address" value={formatAddress(currentAddr)} />
@@ -326,7 +333,10 @@ export default function Page() {
       </Section>
 
       {/* ── Education & Profession ── */}
-      <Section title="Education & Profession" href="/dashboard/profile/education-profession" filled={!!userEduRow} isLocked={isLocked}>
+          <Section title="Education & Profession" href="/dashboard/profile/education-profession" filled={
+          Array.isArray(s5) &&
+          s5.some(e => Array.isArray((e as any).educations) && (e as any).educations.length > 0)
+          } isLocked={isLocked}>
         {(s5 ?? []).length > 0 ? (
           <div className="space-y-4">
             {(s5 ?? []).map((edu, i) => {

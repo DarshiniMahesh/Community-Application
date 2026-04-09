@@ -51,7 +51,17 @@ export default function Page() {
   const reviewComment = profile?.review_comment as string | null;
 
   const timeline = [];
-  if (submittedAt) timeline.push({ date: new Date(submittedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }), title: "Profile Submitted", description: "Your profile was successfully submitted for review.", icon: FileText });
+  if (submittedAt) {
+  timeline.push({
+    date: new Date(submittedAt).toLocaleString("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }),
+    title: "Profile Submitted",
+    description: "Your profile was successfully submitted for review.",
+    icon: FileText,
+  });
+}
   if (["under_review", "approved", "rejected", "changes_requested"].includes(status)) {
     timeline.push({ date: reviewedAt ? new Date(reviewedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "In progress", title: "Under Review", description: "Sangha administration is reviewing your profile.", icon: Clock });
   }
@@ -135,7 +145,12 @@ export default function Page() {
               <Calendar className="h-5 w-5 text-primary" />
               <div>
                 <p className="text-sm text-muted-foreground">Submitted On</p>
-                <p className="font-medium">{submittedAt ? new Date(submittedAt).toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short" }) : "Not yet submitted"}</p>
+                <p className="font-medium">  {submittedAt    ? new Date(submittedAt).toLocaleString("en-IN", {
+        dateStyle: "long",
+        timeStyle: "short",
+      })
+    : "Not yet submitted"}
+</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
