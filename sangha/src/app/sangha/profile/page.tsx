@@ -16,8 +16,11 @@ import { api, saveAuth } from "@/lib/api";
 interface SanghaProfile {
   sangha_name: string;
   logo_url?: string;
-  address_line: string;
+  address_line_1: string;
+  address_line_2: string;
+  address_line_3: string;
   pincode: string;
+  city: string;
   village_town: string;
   taluk: string;
   district: string;
@@ -34,8 +37,11 @@ interface SanghaProfile {
 const emptyProfile: SanghaProfile = {
   sangha_name: "",
   logo_url: "",
-  address_line: "",
+  address_line_1: "",
+  address_line_2: "",
+  address_line_3: "",
   pincode: "",
+  city: "",
   village_town: "",
   taluk: "",
   district: "",
@@ -144,7 +150,7 @@ export default function SanghaProfilePage() {
   const validate = () => {
     const e: Partial<Record<keyof SanghaProfile, string>> = {};
     if (!(formData.sangha_name ?? "").trim())  e.sangha_name  = "Sangha name is required";
-    if (!(formData.address_line ?? "").trim()) e.address_line = "Address is required";
+    if (!(formData.address_line_1 ?? "").trim()) e.address_line_1 = "Address line 1 is required";
     if (!formData.pincode || formData.pincode.length !== 6)
       e.pincode = "Valid 6-digit pincode required";
     if (!(formData.district ?? "").trim()) e.district = "District is required";
@@ -179,8 +185,11 @@ export default function SanghaProfilePage() {
       await api.put("/sangha/profile", {
         sangha_name:         formData.sangha_name,
         logo_url,
-        address_line:        formData.address_line,
+        address_line_1:      formData.address_line_1,
+        address_line_2:      formData.address_line_2,
+        address_line_3:      formData.address_line_3,
         pincode:             formData.pincode,
+        city:                formData.city,
         village_town:        formData.village_town,
         taluk:               formData.taluk,
         district:            formData.district,
@@ -214,8 +223,11 @@ export default function SanghaProfilePage() {
   };
 
   const fullAddress = [
-    profile.address_line,
+    profile.address_line_1,
+    profile.address_line_2,
+    profile.address_line_3,
     profile.village_town,
+    profile.city,
     profile.taluk,
     profile.district,
     profile.state,
@@ -430,7 +442,7 @@ export default function SanghaProfilePage() {
       </div>
     );
   }
-
+ //hellohelooo
   // ── Edit mode ────────────────────────────────────────────────
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-10">
@@ -499,19 +511,46 @@ export default function SanghaProfilePage() {
           <CardHeader><CardTitle>Address</CardTitle></CardHeader>
           <CardContent className="space-y-4">
 
-            <div className="space-y-1">
-              <Label htmlFor="address-line-input">Address Line</Label>
-              <Input
-                id="address-line-input"
-                placeholder="House / Building / Street"
-                value={formData.address_line}
-                onChange={set("address_line")}
-                className={errors.address_line ? "border-destructive" : ""}
-              />
-              {errors.address_line && (
-                <p className="text-xs text-destructive" role="alert">{errors.address_line}</p>
-              )}
-            </div>
+            <div className="grid grid-cols-2 gap-3">
+
+  <div className="space-y-1">
+    <Label>Address Line 1</Label>
+    <Input
+      placeholder="House / Building"
+      value={formData.address_line_1}
+      onChange={set("address_line_1")}
+      className={errors.address_line_1 ? "border-destructive" : ""}
+    />
+  </div>
+
+  <div className="space-y-1">
+    <Label>Address Line 2</Label>
+    <Input
+      placeholder="Street / Area"
+      value={formData.address_line_2}
+      onChange={set("address_line_2")}
+    />
+  </div>
+
+  <div className="space-y-1">
+    <Label>Address Line 3</Label>
+    <Input
+      placeholder="Landmark"
+      value={formData.address_line_3}
+      onChange={set("address_line_3")}
+    />
+  </div>
+
+  <div className="space-y-1">
+    <Label>City</Label>
+    <Input
+      placeholder="City"
+      value={formData.city}
+      onChange={set("city")}
+    />
+  </div>
+
+</div>
 
             <div className="space-y-1">
               <Label htmlFor="pincode-input">Pincode</Label>

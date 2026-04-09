@@ -47,6 +47,7 @@ function ReviewContent() {
                      : action === "reject"  ? "/sangha/reject"
                      : "/sangha/request-changes";
       await api.post(endpoint, { userId, comment: comment.trim() || undefined });
+
       toast.success(
         action === "approve" ? "User approved!"
         : action === "reject" ? "User rejected"
@@ -65,6 +66,7 @@ function ReviewContent() {
   if (!data)    return <p className="text-muted-foreground p-8">Could not load application.</p>;
 
   const { user, profile, step1, step2, step3, step4, step5, step6 } = data;
+  const isSanghaMemberClaim = step1?.is_part_of_sangha === "yes";
 
   const Row = ({ label, value }: { label: string; value?: string | null }) => (
     <div>
@@ -105,6 +107,14 @@ function ReviewContent() {
           </dl>
         </CardContent>
       </Card>
+      {isSanghaMemberClaim && (
+        <Card className="border-yellow-400 bg-yellow-50">
+          <CardHeader><CardTitle className="text-yellow-700">Sangha Membership claim</CardTitle></CardHeader>
+          <CardContent className="text-sm text-yellow-800 space-y-2">
+            <p><ul className="list-disc ml-5 space-y-1">
+              <li>verify in Sangha Members list</li>
+              <li>OR verify in physical register</li></ul>
+              <p className="font-medium">Approve only if verfied</p></p></CardContent></Card>)}
 
       {/* Religious */}
       {step2 && (

@@ -325,7 +325,13 @@ const getSanghaProfile = async (req, res) => {
   try {
     const { id: userId } = req.user;
     const result = await pool.query(
-      `SELECT s.*, u.email AS reg_email, u.phone AS reg_phone
+      `SELECT
+         s.*,
+         s.address_line  AS address_line_1,
+         s.address_line2 AS address_line_2,
+         s.address_line3 AS address_line_3,
+         u.email AS reg_email,
+         u.phone AS reg_phone
        FROM sanghas s
        JOIN users u ON u.id = s.sangha_auth_id
        WHERE s.sangha_auth_id = $1`,
@@ -348,33 +354,58 @@ const updateSanghaProfile = async (req, res) => {
   try {
     const { id: userId } = req.user;
     const {
-      sangha_name, description,
-      address_line, pincode, village_town, taluk, district, state,
-      sangha_contact_same, sangha_phone, sangha_email, logo_url,
+      sangha_name,
+      description,
+      address_line_1,
+      address_line_2,
+      address_line_3,
+      city,
+      pincode,
+      village_town,
+      taluk,
+      district,
+      state,
+      sangha_contact_same,
+      sangha_phone,
+      sangha_email,
+      logo_url,
     } = req.body;
 
     const result = await pool.query(
       `UPDATE sanghas
-       SET sangha_name=$1, description=$2,
-           address_line=$3, pincode=$4, village_town=$5,
-           taluk=$6, district=$7, state=$8,
-           sangha_contact_same=$9,
-           sangha_phone=$10, sangha_email=$11,
-           logo_url=$12, updated_at=NOW()
-       WHERE sangha_auth_id=$13 RETURNING *`,
+       SET sangha_name=$1,
+           description=$2,
+           address_line=$3,
+           address_line2=$4,
+           address_line3=$5,
+           city=$6,
+           pincode=$7,
+           village_town=$8,
+           taluk=$9,
+           district=$10,
+           state=$11,
+           sangha_contact_same=$12,
+           sangha_phone=$13,
+           sangha_email=$14,
+           logo_url=$15,
+           updated_at=NOW()
+       WHERE sangha_auth_id=$16 RETURNING *`,
       [
         sangha_name,
-        description || null,
-        address_line || null,
-        pincode || null,
-        village_town || null,
-        taluk || null,
-        district || null,
-        state || null,
+        description        || null,
+        address_line_1     || null,
+        address_line_2     || null,
+        address_line_3     || null,
+        city               || null,
+        pincode            || null,
+        village_town       || null,
+        taluk              || null,
+        district           || null,
+        state              || null,
         sangha_contact_same ?? true,
         sangha_contact_same ? null : (sangha_phone || null),
         sangha_contact_same ? null : (sangha_email || null),
-        logo_url || null,
+        logo_url           || null,
         userId,
       ]
     );
@@ -551,8 +582,13 @@ const getUserForReview = async (req, res) => {
     ]);
 
     res.json({
-      user: userRes.rows[0], profile,
-      step1: s1.rows[0] || null,
+      user: userRes.rows[0],
+      profile,
+      // FIX: ensure is_part_of_sangha is never null/undefined so UI logic works reliably
+      step1: s1.rows.length > 0 ? {
+        ...s1.rows[0],
+        is_part_of_sangha: s1.rows[0].is_part_of_sangha || 'no',
+      } : null,
       step2: s2.rows[0] || null,
       step3: { family_info: s3fi.rows[0] || null, members: s3mem.rows },
       step4: s4.rows,
@@ -703,7 +739,7 @@ const requestChanges = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// BLOCK USER (sangha can only block, not unblock/delete)
+// BLOCK USER
 // POST /sangha/block-user
 // ════════════════════════════════════════════════════════════
 const blockUser = async (req, res) => {
@@ -715,7 +751,6 @@ const blockUser = async (req, res) => {
     const sanghaId = await getSanghaId(sanghaUserId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
-    // Confirm user belongs to this sangha
     const profileCheck = await pool.query(
       `SELECT id FROM profiles WHERE user_id=$1 AND sangha_id=$2`,
       [userId, sanghaId]
