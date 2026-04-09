@@ -519,6 +519,7 @@ const getMembers = async (req, res) => {
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
        WHERE p.sangha_id = $1
        AND p.status = 'approved'
+       AND u.is_blocked = FALSE
        ORDER BY p.updated_at DESC`,
       [sanghaId]
     );
@@ -584,10 +585,14 @@ const getUserForReview = async (req, res) => {
     res.json({
       user: userRes.rows[0],
       profile,
-      // FIX: ensure is_part_of_sangha is never null/undefined so UI logic works reliably
       step1: s1.rows.length > 0 ? {
         ...s1.rows[0],
-        is_part_of_sangha: s1.rows[0].is_part_of_sangha || 'no',
+        is_part_of_sangha:
+          s1.rows[0].is_part_of_sangha === 'yes' || s1.rows[0].is_part_of_sangha === true
+            ? 'yes'
+            : 'no',
+        sangha_role:   s1.rows[0].sangha_role   || '',
+        sangha_tenure: s1.rows[0].sangha_tenure || '',
       } : null,
       step2: s2.rows[0] || null,
       step3: { family_info: s3fi.rows[0] || null, members: s3mem.rows },
@@ -638,49 +643,51 @@ const approveUser = async (req, res) => {
 
     if (personalRes.rows.length > 0) {
       const pd = personalRes.rows[0];
-      if (pd.is_part_of_sangha === 'yes' && sangha_id) {
+      if (
+        (pd.is_part_of_sangha === 'yes' || pd.is_part_of_sangha === true) &&
+        sangha_id
+      ) {
         const userRes = await pool.query(
           'SELECT email, phone FROM users WHERE id=$1', [userId]
         );
         const u = userRes.rows[0];
 
-        const alreadyExists = await pool.query(
-          `SELECT id FROM sangha_members
-           WHERE sangha_id=$1
-             AND (
-               ($2::text IS NOT NULL AND email = $2)
-               OR ($3::text IS NOT NULL AND phone = $3)
-             )`,
+        // ✅ FIX 3: DELETE old entry first, then INSERT fresh — no redundant alreadyExists check needed
+        await pool.query(
+          `DELETE FROM sangha_members
+           WHERE sangha_id = $1
+           AND (
+             ($2::text IS NOT NULL AND email = $2)
+             OR ($3::text IS NOT NULL AND phone = $3)
+           )`,
           [sangha_id, u?.email || null, u?.phone || null]
         );
 
-        if (alreadyExists.rows.length === 0) {
-          let memberType = pd.sangha_tenure || null;
-          if (memberType) {
-            const t = memberType.toLowerCase().replace(/[_\s]/g, '');
-            if (t === 'fulltime') memberType = 'Full Time';
-            if (t === 'parttime') memberType = 'Part Time';
-          }
-
-          await pool.query(
-            `INSERT INTO sangha_members
-               (sangha_id, first_name, middle_name, last_name,
-                gender, email, phone, dob, role, member_type)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-            [
-              sangha_id,
-              pd.first_name,
-              pd.middle_name   || null,
-              pd.last_name,
-              pd.gender        || null,
-              u?.email         || null,
-              u?.phone         || null,
-              pd.date_of_birth || null,
-              pd.sangha_role   || null,
-              memberType,
-            ]
-          );
+        let memberType = pd.sangha_tenure || null;
+        if (memberType) {
+          const t = memberType.toLowerCase().replace(/[_\s]/g, '');
+          if (t === 'fulltime') memberType = 'Full Time';
+          if (t === 'parttime') memberType = 'Part Time';
         }
+
+        await pool.query(
+          `INSERT INTO sangha_members
+             (sangha_id, first_name, middle_name, last_name,
+              gender, email, phone, dob, role, member_type)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [
+            sangha_id,
+            pd.first_name,
+            pd.middle_name   || null,
+            pd.last_name,
+            pd.gender        || null,
+            u?.email         || null,
+            u?.phone         || null,
+            pd.date_of_birth || null,
+            pd.sangha_role   || null,
+            memberType,
+          ]
+        );
       }
     }
 

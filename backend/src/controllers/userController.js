@@ -84,7 +84,6 @@ const getFullProfile = async (req, res) => {
 
     const step5 = await Promise.all(
       deduplicatedStep5Rows.map(async (edu) => {
-        // FIX: fetch educations (degree entries) alongside certs and languages
         const [certs, langs, edus] = await Promise.all([
           pool.query(
             'SELECT certification FROM member_certifications WHERE member_education_id=$1 ORDER BY sort_order',
@@ -103,7 +102,7 @@ const getFullProfile = async (req, res) => {
           ...edu,
           certifications: certs.rows.map(r => r.certification),
           languages:      langs.rows,
-          educations:     edus.rows,   // FIX: include education degree rows
+          educations:     edus.rows,
         };
       })
     );
@@ -170,6 +169,11 @@ const saveStep1 = async (req, res) => {
       return res.status(400).json({ message: 'first_name, last_name and gender are required' });
     }
 
+    // ✅ FIX 1: Require sangha_name when is_part_of_sangha is 'yes'
+    if (is_part_of_sangha === 'yes' && !sangha_name) {
+      return res.status(400).json({ message: 'Sangha name is required when selecting Yes' });
+    }
+
     const exists = await pool.query(
       'SELECT id FROM personal_details WHERE profile_id=$1', [pid]
     );
@@ -194,7 +198,8 @@ const saveStep1 = async (req, res) => {
           is_married || false, wife_name || null, wife_maiden_name || null, husbands_name || null,
           has_disability || null,
           is_part_of_sangha || null,
-          is_part_of_sangha === 'yes' ? sangha_name || null : null,
+          // ✅ FIX 2: Only save sangha_name if 'yes' AND value actually exists
+          is_part_of_sangha === 'yes' && sangha_name ? sangha_name : null,
           is_part_of_sangha === 'yes' ? sangha_role || null : null,
           is_part_of_sangha === 'yes' ? sangha_tenure || null : null,
           pid,
@@ -220,7 +225,8 @@ const saveStep1 = async (req, res) => {
           is_married || false, wife_name || null, wife_maiden_name || null, husbands_name || null,
           has_disability || null,
           is_part_of_sangha || null,
-          is_part_of_sangha === 'yes' ? sangha_name || null : null,
+          // ✅ FIX 2: Only save sangha_name if 'yes' AND value actually exists
+          is_part_of_sangha === 'yes' && sangha_name ? sangha_name : null,
           is_part_of_sangha === 'yes' ? sangha_role || null : null,
           is_part_of_sangha === 'yes' ? sangha_tenure || null : null,
         ]
@@ -455,7 +461,6 @@ const saveStep5 = async (req, res) => {
     for (const row of existing.rows) {
       await pool.query('DELETE FROM member_certifications WHERE member_education_id=$1', [row.id]);
       await pool.query('DELETE FROM member_languages      WHERE member_education_id=$1', [row.id]);
-      // FIX: also delete education degree rows when cleaning up
       await pool.query('DELETE FROM member_educations     WHERE member_education_id=$1', [row.id]);
     }
     await pool.query('DELETE FROM member_education WHERE profile_id=$1', [pid]);
@@ -490,29 +495,31 @@ const saveStep5 = async (req, res) => {
       );
 
       const eduId = eduRes.rows[0].id;
+      if (!eduId) continue;
 
-      // FIX: save individual degree/education entries from the educations array
-      if (Array.isArray(m.educations)) {
+      if (eduId && Array.isArray(m.educations) && m.educations.length > 0) {
         for (let j = 0; j < m.educations.length; j++) {
           const e = m.educations[j];
-          if (e.degree_type || e.degree_name) {
-            await pool.query(
-              `INSERT INTO member_educations
-                 (member_education_id, degree_name, degree_type, university,
-                  start_date, end_date, certificate, sort_order)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-              [
-                eduId,
-                e.degree_name  || null,
-                e.degree_type  || null,
-                e.university   || null,
-                e.start_date   || null,
-                e.end_date     || null,
-                e.certificate  || null,
-                j,
-              ]
-            );
-          }
+
+          if (!e) continue;
+          if (!e.degree_type && !e.degree_name) continue;
+
+          await pool.query(
+            `INSERT INTO member_educations
+               (member_education_id, degree_name, degree_type, university,
+                start_date, end_date, certificate, sort_order)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+            [
+              eduId,
+              e.degree_name  || null,
+              e.degree_type  || null,
+              e.university   || null,
+              e.start_date   || null,
+              e.end_date     || null,
+              e.certificate  || null,
+              j,
+            ]
+          );
         }
       }
 
@@ -543,9 +550,9 @@ const saveStep5 = async (req, res) => {
     }
 
     const hasEducation = members.some(
-    m =>
-    Array.isArray(m.educations) &&
-    m.educations.some(e => e.degree_type || e.degree_name)
+      m =>
+        Array.isArray(m.educations) &&
+        m.educations.some(e => e && (e.degree_type || e.degree_name))
     );
 
     const pct = hasEducation ? 100 : 0;
@@ -644,16 +651,16 @@ const saveStep6 = async (req, res) => {
           voter_id_coverage, land_doc_coverage, dl_coverage)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
-        pid,
-        doc.member_name || null,
-        doc.member_relation || null,
-        i,
-        doc.aadhaar_coverage  || [],
-        doc.pan_coverage      || [],
-        doc.voter_id_coverage || [],
-        doc.land_doc_coverage || [],
-        doc.dl_coverage       || [],
-      ]
+          pid,
+          doc.member_name || null,
+          doc.member_relation || null,
+          i,
+          doc.aadhaar_coverage  || [],
+          doc.pan_coverage      || [],
+          doc.voter_id_coverage || [],
+          doc.land_doc_coverage || [],
+          doc.dl_coverage       || [],
+        ]
       );
     }
 
@@ -734,7 +741,6 @@ const resetProfile = async (req, res) => {
     for (const row of edus.rows) {
       await pool.query('DELETE FROM member_certifications WHERE member_education_id=$1', [row.id]);
       await pool.query('DELETE FROM member_languages      WHERE member_education_id=$1', [row.id]);
-      // FIX: also clean up education degree rows on full reset
       await pool.query('DELETE FROM member_educations     WHERE member_education_id=$1', [row.id]);
     }
     await pool.query('DELETE FROM member_education  WHERE profile_id=$1', [pid]);
@@ -842,7 +848,6 @@ const resetStep5 = async (req, res) => {
     for (const row of edus.rows) {
       await pool.query('DELETE FROM member_certifications WHERE member_education_id=$1', [row.id]);
       await pool.query('DELETE FROM member_languages      WHERE member_education_id=$1', [row.id]);
-      // FIX: also clean up education degree rows on step5 reset
       await pool.query('DELETE FROM member_educations     WHERE member_education_id=$1', [row.id]);
     }
     await pool.query('DELETE FROM member_education WHERE profile_id=$1', [pid]);

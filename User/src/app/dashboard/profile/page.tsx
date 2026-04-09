@@ -65,6 +65,10 @@ function getLangLabel(l: { language: string; language_other?: string }): string 
     : String(l.language ?? "");
 }
 
+function isSanghaMember(val: unknown): boolean {
+  return val === "yes" || val === "true" || val === true;
+}
+
 function InfoField({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
   return (
     <div className="space-y-1">
@@ -129,12 +133,12 @@ export default function Page() {
 
   if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
 
-  const s1    = data?.step1 as Record<string, string> | null;
+  const s1    = data?.step1 as Record<string, any> | null;
   const s2    = data?.step2 as Record<string, unknown> | null;
   const s4    = data?.step4 as Record<string, string>[] | null;
   const s5 = Array.isArray(data?.step5)
-  ? data.step5 as Record<string, unknown>[]
-  : [];
+    ? data.step5 as Record<string, unknown>[]
+    : [];
   const s6eco = (data?.step6 as { economic?: Record<string, unknown> } | null)?.economic;
   const s6ins = ((data?.step6 as { insurance?: Record<string, unknown>[] } | null)?.insurance || []);
   const s6doc = ((data?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || []);
@@ -147,18 +151,11 @@ export default function Page() {
   const isLocked      = ["submitted", "under_review"].includes(status);
   const completionPct = typeof profile?.overall_completion_pct === "number" ? profile.overall_completion_pct : 0;
 
-  const fullName     = s1 ? [s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ") : "Your Name";
-  const initials     = s1 ? `${s1.first_name?.[0] || ""}${s1.last_name?.[0] || ""}`.toUpperCase() : "?";
-  const currentAddr = (s4 || []).find(a => a.address_type === "current");
+  const fullName  = s1 ? [s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ") : "Your Name";
+  const initials  = s1 ? `${s1.first_name?.[0] || ""}${s1.last_name?.[0] || ""}`.toUpperCase() : "?";
+  const currentAddr  = (s4 || []).find(a => a.address_type === "current");
   const hometownAddr = (s4 || []).find(a => a.address_type === "hometown");
   const oldAddresses = (s4 || []).filter(a => a.address_type?.startsWith("old_"));
-
-  const userEduRow =
-  Array.isArray(s5) &&
-  Array.isArray((s5[0] as any)?.educations) &&
-  (s5[0] as any).educations.length > 0
-    ? s5[0]
-    : null;
 
   const demiGodsRaw = s2?.demi_gods;
   const demiGodsList: string[] = Array.isArray(demiGodsRaw)
@@ -196,6 +193,7 @@ export default function Page() {
         )}
       </div>
 
+      {/* ── Avatar / completion bar ── */}
       <div className="bg-white rounded-2xl border border-border shadow-sm px-6 py-5 flex items-center gap-4">
         <div className="h-16 w-16 rounded-full bg-primary/10 border-2 border-primary/20 flex items-center justify-center flex-shrink-0">
           <span className="text-xl font-bold text-primary">{initials}</span>
@@ -219,22 +217,47 @@ export default function Page() {
       {/* ── Personal Details ── */}
       <Section title="Personal Details" href="/dashboard/profile/personal-details" filled={!!s1} isLocked={isLocked}>
         {s1 ? (
-          <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-            <InfoField icon={User}     label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
-            <InfoField icon={Calendar} label="Date of Birth"        value={formatDate(s1.date_of_birth)} />
-            <InfoField icon={User}     label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
-            <InfoField icon={Users}    label="Marital Status"       value={s1.is_married ? "Married" : "Single"} />
-            <InfoField icon={User}     label="Surname in Use"       value={s1.surname_in_use} />
-            <InfoField icon={User}     label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
-            {s1.fathers_name && <InfoField icon={User} label="Father's Name" value={s1.fathers_name} />}
-            {s1.mothers_name && <InfoField icon={User} label="Mother's Name" value={s1.mothers_name} />}
-            <InfoField icon={User} label="Disability" value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
-            {(s1.is_part_of_sangha === "yes" || s1.is_part_of_sangha === "true") && (
-              <>
-                <InfoField icon={Users} label="Sangha Name"   value={s1.sangha_name} />
-                <InfoField icon={Users} label="Sangha Role"   value={s1.sangha_role} />
-                <InfoField icon={Users} label="Sangha Tenure" value={formatTenure(s1.sangha_tenure)} />
-              </>
+          <div className="space-y-5">
+            {/* Main grid */}
+            <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+              <InfoField icon={User}     label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
+              <InfoField icon={Calendar} label="Date of Birth"        value={formatDate(s1.date_of_birth)} />
+              <InfoField icon={User}     label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
+              <InfoField icon={Users}    label="Marital Status"       value={s1.is_married ? "Married" : "Single"} />
+              <InfoField icon={User}     label="Surname in Use"       value={s1.surname_in_use} />
+              <InfoField icon={User}     label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
+              {s1.fathers_name && <InfoField icon={User} label="Father's Name" value={s1.fathers_name} />}
+              {s1.mothers_name && <InfoField icon={User} label="Mother's Name" value={s1.mothers_name} />}
+              <InfoField icon={User} label="Disability" value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
+            </div>
+
+            {/* ── Sangha Membership highlighted block ── */}
+            {isSanghaMember(s1.is_part_of_sangha) && (
+              <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-4 space-y-3">
+                <p className="text-sm font-semibold text-yellow-800 flex items-center gap-2">
+                  <Users className="h-4 w-4" /> Sangha Membership
+                </p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs text-yellow-600 font-medium mb-0.5">Sangha Name</p>
+                    <p className="text-sm font-semibold text-yellow-900">
+                      {s1.sangha_name || <span className="italic font-normal text-yellow-500">Not provided</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-yellow-600 font-medium mb-0.5">Role</p>
+                    <p className="text-sm font-semibold text-yellow-900">
+                      {s1.sangha_role || <span className="italic font-normal text-yellow-500">Not provided</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-yellow-600 font-medium mb-0.5">Tenure</p>
+                    <p className="text-sm font-semibold text-yellow-900">
+                      {formatTenure(s1.sangha_tenure) || <span className="italic font-normal text-yellow-500">Not provided</span>}
+                    </p>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
@@ -333,10 +356,10 @@ export default function Page() {
       </Section>
 
       {/* ── Education & Profession ── */}
-          <Section title="Education & Profession" href="/dashboard/profile/education-profession" filled={
-          Array.isArray(s5) &&
-          s5.some(e => Array.isArray((e as any).educations) && (e as any).educations.length > 0)
-          } isLocked={isLocked}>
+      <Section title="Education & Profession" href="/dashboard/profile/education-profession" filled={
+        Array.isArray(s5) &&
+        s5.some(e => Array.isArray((e as any).educations) && (e as any).educations.length > 0)
+      } isLocked={isLocked}>
         {(s5 ?? []).length > 0 ? (
           <div className="space-y-4">
             {(s5 ?? []).map((edu, i) => {

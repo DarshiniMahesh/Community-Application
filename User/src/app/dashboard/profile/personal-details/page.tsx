@@ -73,7 +73,7 @@ export default function Page() {
           middleName:        s.middle_name || "",
           lastName:          s.last_name || "",
           gender:            s.gender || "",
-          dateOfBirth: s.date_of_birth 
+          dateOfBirth: s.date_of_birth
           ? s.date_of_birth.split("T")[0]
           : "",
           surnameInUse:      s.surname_in_use || "",
@@ -82,7 +82,7 @@ export default function Page() {
           mothersName:       s.mothers_name || "",
           maritalStatus:     s.is_married ? "Married" : "Single",
           hasDisability:     s.has_disability ? "yes" : "no",
-          isPartOfSangha: s.is_part_of_sangha ? "yes" : "no",
+          isPartOfSangha:    s.is_part_of_sangha === "yes" ? "yes" : "no",
           sanghaName:        s.sangha_name || "",
           sanghaRole:        s.sangha_role || "",
           sanghaTenure:      s.sangha_tenure || "",
@@ -107,10 +107,10 @@ export default function Page() {
     mothers_name:         formData.mothersName || undefined,
     is_married:           formData.maritalStatus === "Married",
     has_disability:       formData.hasDisability === "yes",
-    is_part_of_sangha:    formData.isPartOfSangha === "yes",
-    sangha_name:          formData.isPartOfSangha === "yes" ? formData.sanghaName || undefined : undefined,
-    sangha_role:          formData.isPartOfSangha === "yes" ? formData.sanghaRole || undefined : undefined,
-    sangha_tenure:        formData.isPartOfSangha === "yes" ? formData.sanghaTenure || undefined : undefined,
+    is_part_of_sangha:    formData.isPartOfSangha === "yes" ? "yes" : "no",  // FIX 1: string not boolean
+    sangha_name:          formData.isPartOfSangha === "yes" ? formData.sanghaName || null : null,   // FIX 2
+    sangha_role:          formData.isPartOfSangha === "yes" ? formData.sanghaRole || null : null,   // FIX 3
+    sangha_tenure:        formData.isPartOfSangha === "yes" ? formData.sanghaTenure || null : null, // FIX 4
   });
 
   useAutoSave("/users/profile/step1", buildPayload, [formData]);
@@ -134,7 +134,9 @@ export default function Page() {
     if (!validate()) return;
     setLoading(true);
     try {
-      await api.post("/users/profile/step1", buildPayload());
+      const payload = buildPayload();
+      console.log("PAYLOAD:", payload); // DEBUG
+      await api.post("/users/profile/step1", payload);
       toast.success("Personal details saved!");
       router.push("/dashboard/profile/religious-details");
     } catch (err: unknown) {
