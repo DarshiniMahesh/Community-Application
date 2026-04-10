@@ -17,6 +17,10 @@ router.post('/profile/step4',       requireRole('user'), uc.saveStep4);
 router.post('/profile/step5',       requireRole('user'), uc.saveStep5);
 router.post('/profile/step6',       requireRole('user'), uc.saveStep6);
 
+// Sangha Membership (step7) — only accessible after profile approved
+router.get('/profile/sangha',       requireRole('user'), uc.getStep7);
+router.post('/profile/step7',       requireRole('user'), uc.saveStep7);
+
 // Submit
 router.post('/profile/submit',      requireRole('user'), uc.submitApplication);
 

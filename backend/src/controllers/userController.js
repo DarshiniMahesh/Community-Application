@@ -162,16 +162,10 @@ const saveStep1 = async (req, res) => {
       fathers_name, mothers_name, mothers_maiden_name,
       is_married, wife_name, wife_maiden_name, husbands_name,
       has_disability,
-      is_part_of_sangha, sangha_name, sangha_role, sangha_tenure,
     } = req.body;
 
     if (!first_name || !last_name || !gender) {
       return res.status(400).json({ message: 'first_name, last_name and gender are required' });
-    }
-
-    // ✅ FIX 1: Require sangha_name when is_part_of_sangha is 'yes'
-    if (is_part_of_sangha === 'yes' && !sangha_name) {
-      return res.status(400).json({ message: 'Sangha name is required when selecting Yes' });
     }
 
     const exists = await pool.query(
@@ -187,9 +181,8 @@ const saveStep1 = async (req, res) => {
            fathers_name=$8, mothers_name=$9, mothers_maiden_name=$10,
            is_married=$11, wife_name=$12, wife_maiden_name=$13, husbands_name=$14,
            has_disability=$15,
-           is_part_of_sangha=$16, sangha_name=$17, sangha_role=$18, sangha_tenure=$19,
            updated_at=NOW()
-         WHERE profile_id=$20`,
+         WHERE profile_id=$16`,
         [
           first_name, middle_name || null, last_name,
           gender, date_of_birth || null,
@@ -197,11 +190,6 @@ const saveStep1 = async (req, res) => {
           fathers_name || null, mothers_name || null, mothers_maiden_name || null,
           is_married || false, wife_name || null, wife_maiden_name || null, husbands_name || null,
           has_disability || null,
-          is_part_of_sangha || null,
-          // ✅ FIX 2: Only save sangha_name if 'yes' AND value actually exists
-          is_part_of_sangha === 'yes' && sangha_name ? sangha_name : null,
-          is_part_of_sangha === 'yes' ? sangha_role || null : null,
-          is_part_of_sangha === 'yes' ? sangha_tenure || null : null,
           pid,
         ]
       );
@@ -213,9 +201,8 @@ const saveStep1 = async (req, res) => {
             surname_in_use, surname_as_per_gotra,
             fathers_name, mothers_name, mothers_maiden_name,
             is_married, wife_name, wife_maiden_name, husbands_name,
-            has_disability,
-            is_part_of_sangha, sangha_name, sangha_role, sangha_tenure)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+            has_disability)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [
           pid,
           first_name, middle_name || null, last_name,
@@ -224,11 +211,6 @@ const saveStep1 = async (req, res) => {
           fathers_name || null, mothers_name || null, mothers_maiden_name || null,
           is_married || false, wife_name || null, wife_maiden_name || null, husbands_name || null,
           has_disability || null,
-          is_part_of_sangha || null,
-          // ✅ FIX 2: Only save sangha_name if 'yes' AND value actually exists
-          is_part_of_sangha === 'yes' && sangha_name ? sangha_name : null,
-          is_part_of_sangha === 'yes' ? sangha_role || null : null,
-          is_part_of_sangha === 'yes' ? sangha_tenure || null : null,
         ]
       );
     }
@@ -673,6 +655,118 @@ const saveStep6 = async (req, res) => {
   }
 };
 
+// ─── GET /users/profile/sangha ───────────────────────────────
+const getStep7 = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+
+    // Enforce: only approved profiles can access sangha membership
+    const profileCheck = await pool.query(
+      'SELECT id, status FROM profiles WHERE user_id=$1',
+      [userId]
+    );
+    if (profileCheck.rows.length === 0)
+      return res.status(404).json({ message: 'Profile not found' });
+
+    const { id: pid, status } = profileCheck.rows[0];
+
+    if (status !== 'approved') {
+      return res.status(403).json({ message: 'Sangha membership can only be accessed after profile is approved' });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         ms.id,
+         ms.sangha_id,
+         ms.role,
+         ms.tenure,
+         ms.status,
+         ms.sort_order,
+         s.sangha_name,
+         s.location
+       FROM member_sanghas ms
+       LEFT JOIN sanghas s ON s.id = ms.sangha_id
+       WHERE ms.profile_id = $1
+       ORDER BY ms.sort_order`,
+      [pid]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /users/profile/step7 ───────────────────────────────
+const saveStep7 = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+
+    // Only approved profiles can fill sangha membership
+    const profileCheck = await pool.query(
+      'SELECT id, status FROM profiles WHERE user_id=$1',
+      [userId]
+    );
+    if (profileCheck.rows.length === 0)
+      return res.status(404).json({ message: 'Profile not found' });
+
+    const { id: pid, status } = profileCheck.rows[0];
+
+    if (status !== 'approved') {
+      return res.status(403).json({ message: 'Sangha membership can only be filled after profile is approved' });
+    }
+
+    const { entries = [] } = req.body;
+
+    // Delete existing sangha memberships for this profile
+    await pool.query(
+      'DELETE FROM member_sanghas WHERE profile_id=$1',
+      [pid]
+    );
+
+    // Insert new entries
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+
+      if (!e.sangha_id) continue; // skip empty entries
+
+      await pool.query(
+        `INSERT INTO member_sanghas
+           (profile_id, sangha_id, sangha_name, role, tenure, status, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          pid,
+          e.sangha_id || null,
+          e.sangha_name || null,
+          e.role || null,
+          e.tenure || null,
+          'pending',
+          i,
+        ]
+      );
+    }
+
+    // Update profile completion for step7
+    await pool.query(
+      `UPDATE profiles SET
+         step7_sangha_pct = $1,
+         step7_completed  = $2
+       WHERE id = $3`,
+      [
+        entries.length > 0 ? 100 : 0,
+        entries.length > 0,
+        pid,
+      ]
+    );
+
+    res.json({ message: 'Step 7 saved', count: entries.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 // ─── POST /users/profile/submit ──────────────────────────────
 const submitApplication = async (req, res) => {
   try {
@@ -747,17 +841,20 @@ const resetProfile = async (req, res) => {
     await pool.query('DELETE FROM economic_details  WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM member_insurance  WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM member_documents  WHERE profile_id=$1', [pid]);
+    await pool.query('DELETE FROM member_sanghas    WHERE profile_id=$1', [pid]);
 
     await pool.query(
       `UPDATE profiles SET
          status='draft', submitted_at=NULL, reviewed_at=NULL,
          reviewed_by=NULL, review_comment=NULL, sangha_id=NULL,
-         step1_personal_pct=0, step2_religious_pct=0,
-         step3_family_pct=0,  step4_location_pct=0,
+         step1_personal_pct=0,  step2_religious_pct=0,
+         step3_family_pct=0,    step4_location_pct=0,
          step5_education_pct=0, step6_economic_pct=0,
+         step7_sangha_pct=0,
          step1_completed=FALSE, step2_completed=FALSE,
          step3_completed=FALSE, step4_completed=FALSE,
-         step5_completed=FALSE, step6_completed=FALSE
+         step5_completed=FALSE, step6_completed=FALSE,
+         step7_completed=FALSE
        WHERE id=$1`,
       [pid]
     );
@@ -1002,6 +1099,7 @@ function deduplicateMembersPayload(members) {
 module.exports = {
   getProfile, getFullProfile,
   saveStep1, saveStep2, saveStep3, saveStep4, saveStep5, saveStep6,
+  getStep7, saveStep7,
   submitApplication,
   resetProfile,
   resetStep1, resetStep2, resetStep3, resetStep4, resetStep5, resetStep6,

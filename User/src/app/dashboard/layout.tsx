@@ -7,13 +7,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { clearAuth, getToken, api } from "@/lib/api";
 
-const navigation = [
+type ProfileStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "changes_requested";
+
+const baseNavigation = [
   { name: "Dashboard",  href: "/dashboard",        icon: LayoutDashboard },
   { name: "My Profile", href: "/dashboard/profile", icon: User },
   { name: "Status",     href: "/dashboard/status",  icon: CheckCircle },
 ];
 
-type ProfileStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "changes_requested";
+const sanghaNav = {
+  name: "Sangha Membership",
+  href: "/dashboard/sangha-membership",
+  icon: Users,
+};
 
 const statusBadge = (status: ProfileStatus) => {
   switch (status) {
@@ -55,6 +61,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push("/auth/login");
   };
 
+  // Build navigation: show Sangha Membership tab only when profile is approved
+  const navigation = [...baseNavigation, sanghaNav];
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 bg-white border-b border-border shadow-sm">
@@ -95,10 +104,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {navigation.map((item) => {
               const isActive = pathname === item.href;
               return (
-                <button key={item.name} onClick={() => { router.push(item.href); setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive ? "bg-primary text-primary-foreground shadow-sm" : "text-foreground hover:bg-accent"}`}>
+                <button
+                  key={item.name}
+                  onClick={() => { router.push(item.href); setSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                    isActive
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-foreground hover:bg-accent"
+                  }`}
+                >
                   <item.icon className="h-5 w-5 flex-shrink-0" />
                   <span className="font-medium">{item.name}</span>
+                  {/* Green dot indicator for newly unlocked Sangha tab */}
+                  {item.href === "/dashboard/sangha-membership" && (
+                    <span className="ml-auto h-2 w-2 rounded-full bg-green-500" />
+                  )}
                 </button>
               );
             })}
@@ -111,10 +131,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </aside>
 
-        {sidebarOpen && <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
 
         <main className="flex-1 p-4 lg:p-6 min-h-[calc(100vh-4rem)]">{children}</main>
-      </div> 
+      </div>
     </div>
   );
 }

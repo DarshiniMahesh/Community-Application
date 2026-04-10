@@ -117,7 +117,6 @@ function buildExpectedMembers(
   const s1 = data.step1 as Record<string, string> | null;
   const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "You";
 
-  // FIX: null-safe relation check — skip any member whose relation is "Self" or missing
   const familyMembers = (
     ((data.step3 as Record<string, unknown>)?.members as Record<string, string>[]) || []
   ).filter((fm) => fm?.relation && fm.relation !== "Self");
@@ -166,16 +165,14 @@ export default function Page() {
           if (base.relation === "Self") {
             m = step5.find(s => (s.member_relation as string) === "Self");
           } else {
-            // Match by name + relation first
             m = step5.find(
               s =>
                 (s.member_name as string) === base.name &&
                 (s.member_relation as string) === base.relation
             );
-            // Fallback: match by index offset (skip the Self entry in step5)
             if (!m) {
               const nonSelfStep5 = step5.filter(s => (s.member_relation as string) !== "Self");
-              m = nonSelfStep5[i - 1]; // i-1 because index 0 is Self
+              m = nonSelfStep5[i - 1];
             }
           }
 
@@ -201,7 +198,6 @@ export default function Page() {
               }))
             : [blankEducation()];
 
-          // Preserve null when not set in DB — do NOT fall back to false
           const isStudyingRaw = m.is_currently_studying;
           const isStudying: boolean | null =
             isStudyingRaw === true  ? true  :
@@ -224,7 +220,6 @@ export default function Page() {
             profession:   (m.profession_type as string) || "",
             industry:     (m.industry        as string) || "",
             briefProfile: (m.brief_profile   as string) || "",
-            // FIX: never fall back to a non-empty default — only use what the DB returned
             languages:    rawLangs
               .filter(l => l.language !== "Other")
               .map(l => l.language),
@@ -235,7 +230,6 @@ export default function Page() {
 
         setMembers(mapped);
       } else {
-        // No step5 data at all → fully blank members, nothing pre-selected
         setMembers(expected.map(m => blankMember(m.id, m.name, m.relation)));
       }
     }).catch(() => {});
@@ -273,33 +267,28 @@ export default function Page() {
     }));
   };
 
+  // FIX: No longer resets isCurrentlyWorking, profession, industry, briefProfile
   const setCurrentlyStudying = (id: string, val: boolean) => {
     setMembers(prev => prev.map(m => {
       if (m.id !== id) return m;
       return {
         ...m,
         isCurrentlyStudying: val,
-        // Always reset downstream when studying answer changes
-        isCurrentlyWorking: null,
-        profession: "",
-        industry: "",
-        briefProfile: "",
       };
     }));
     setErrors(prev => ({
       ...prev,
-      [id]: { ...(prev[id] || {}), isCurrentlyStudying: "", isCurrentlyWorking: "" },
+      [id]: { ...(prev[id] || {}), isCurrentlyStudying: "" },
     }));
   };
 
+  // FIX: No longer resets profession, industry, briefProfile when switching to not working
   const setCurrentlyWorking = (id: string, val: boolean) => {
     setMembers(prev => prev.map(m => {
       if (m.id !== id) return m;
       return {
         ...m,
         isCurrentlyWorking: val,
-        // Clear profession fields only when switching to "not working"
-        ...(!val ? { profession: "", industry: "", briefProfile: "" } : {}),
       };
     }));
     setErrors(prev => ({
@@ -333,25 +322,18 @@ export default function Page() {
     updateMember(id, "otherLanguages", m.otherLanguages.filter(l => l !== lang));
   };
 
-  /**
-   * Profession visibility:
-   * - null (unanswered) or false (not studying) → show profession
-   * - true (studying) + working = true          → show profession
-   * - true (studying) + working = false/null    → hide profession
-   */
-  const showProfession = (m: MemberData): boolean => {
-    if (m.isCurrentlyStudying !== true) return true;
-    return m.isCurrentlyWorking === true;
+  // FIX: Profession is ALWAYS shown — no dependency on studying/working
+  const showProfession = (_m: MemberData): boolean => {
+    return true;
   };
 
-  /**
-   * isComplete: used only for the badge — mirrors validate() logic.
-   */
+  // FIX: isComplete now requires both studying AND working to be answered (independently),
+  // and profession is always required
   const isComplete = (m: MemberData): boolean => {
     if (!m.educations.some(e => e.degreeType.trim() !== "")) return false;
     if (m.isCurrentlyStudying === null) return false;
-    if (m.isCurrentlyStudying === true && m.isCurrentlyWorking === null) return false;
-    if (showProfession(m) && !m.profession) return false;
+    if (m.isCurrentlyWorking === null) return false;
+    if (!m.profession) return false;
     return true;
   };
 
@@ -362,12 +344,12 @@ export default function Page() {
       member_name:           m.name     || null,
       member_relation:       m.relation || null,
       is_currently_studying: m.isCurrentlyStudying,
-      is_currently_working:  m.isCurrentlyStudying === true ? m.isCurrentlyWorking : null,
-      profession_type:       showProfession(m) ? (m.profession   || null) : null,
-      industry:              showProfession(m) ? (m.industry     || null) : null,
-      brief_profile:         showProfession(m) ? (m.briefProfile || null) : null,
+      is_currently_working:  m.isCurrentlyWorking,
+      profession_type:       m.profession   || null,
+      industry:              m.industry     || null,
+      brief_profile:         m.briefProfile || null,
       educations: m.educations
-      .filter(e => e.degreeType && e.degreeType.trim() !== "")
+        .filter(e => e.degreeType && e.degreeType.trim() !== "")
         .map(e => ({
           degree_name:  e.degreeName  || null,
           degree_type:  e.degreeType  || null,
@@ -403,17 +385,19 @@ export default function Page() {
         valid = false;
       }
 
+      // FIX: Both studying and working are independently required
       if (m.isCurrentlyStudying === null) {
         e.isCurrentlyStudying = "Please answer this question";
         valid = false;
       }
 
-      if (m.isCurrentlyStudying === true && m.isCurrentlyWorking === null) {
+      if (m.isCurrentlyWorking === null) {
         e.isCurrentlyWorking = "Please answer this question";
         valid = false;
       }
 
-      if (showProfession(m) && !m.profession) {
+      // FIX: Profession always required
+      if (!m.profession) {
         e.profession = "Required";
         valid = false;
       }
@@ -639,7 +623,7 @@ export default function Page() {
               <div className="space-y-4">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Status</p>
 
-                {/* Q1: Currently Studying? */}
+                {/* Q1: Currently Studying? — always shown, fully independent */}
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">
                     Are you currently studying? <span className="text-destructive">*</span>
@@ -675,105 +659,93 @@ export default function Page() {
                   </div>
                 </div>
 
-                {/* Q2: Currently Working? — only shown when studying = Yes */}
-                {member.isCurrentlyStudying === true && (
-                  <div className="space-y-2 pl-4 border-l-2 border-primary/30">
-                    <Label className="text-sm font-medium">
-                      Are you currently working / have a profession? <span className="text-destructive">*</span>
-                    </Label>
-                    {errors[member.id]?.isCurrentlyWorking && (
-                      <p className="text-xs text-destructive">{errors[member.id].isCurrentlyWorking}</p>
-                    )}
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setCurrentlyWorking(member.id, true)}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 text-sm font-medium transition-all ${
-                          member.isCurrentlyWorking === true
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border hover:border-primary/50 text-muted-foreground"
-                        }`}
-                      >
-                        {member.isCurrentlyWorking === true && <CheckCircle2 className="h-4 w-4" />}
-                        Yes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCurrentlyWorking(member.id, false)}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 text-sm font-medium transition-all ${
-                          member.isCurrentlyWorking === false
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border hover:border-primary/50 text-muted-foreground"
-                        }`}
-                      >
-                        {member.isCurrentlyWorking === false && <CheckCircle2 className="h-4 w-4" />}
-                        No
-                      </button>
-                    </div>
+                {/* Q2: Currently Working? — FIX: always shown, fully independent */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    Are you currently working / have a profession? <span className="text-destructive">*</span>
+                  </Label>
+                  {errors[member.id]?.isCurrentlyWorking && (
+                    <p className="text-xs text-destructive">{errors[member.id].isCurrentlyWorking}</p>
+                  )}
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentlyWorking(member.id, true)}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 text-sm font-medium transition-all ${
+                        member.isCurrentlyWorking === true
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:border-primary/50 text-muted-foreground"
+                      }`}
+                    >
+                      {member.isCurrentlyWorking === true && <CheckCircle2 className="h-4 w-4" />}
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentlyWorking(member.id, false)}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 text-sm font-medium transition-all ${
+                        member.isCurrentlyWorking === false
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:border-primary/50 text-muted-foreground"
+                      }`}
+                    >
+                      {member.isCurrentlyWorking === false && <CheckCircle2 className="h-4 w-4" />}
+                      No
+                    </button>
                   </div>
-                )}
+                </div>
               </div>
 
-              {/* ══ PROFESSION ══ */}
-              {showProfession(member) && (
-                <div className="space-y-4">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Profession</p>
+              {/* ══ PROFESSION ══ — FIX: always shown, no condition */}
+              <div className="space-y-4">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Profession</p>
 
-                  <div className="space-y-4 border border-border rounded-xl p-5 bg-muted/20">
+                <div className="space-y-4 border border-border rounded-xl p-5 bg-muted/20">
 
-                    <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">
-                        Type of Profession <span className="text-destructive">*</span>
-                      </Label>
-                      <Select
-                        value={member.profession || ""}
-                        onValueChange={v => updateMember(member.id, "profession", v)}
-                      >
-                        <SelectTrigger className={errors[member.id]?.profession ? "border-destructive" : ""}>
-                          <SelectValue placeholder="Select profession type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {professionTypes.map(p => (
-                            <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {errors[member.id]?.profession && (
-                        <p className="text-xs text-destructive">{errors[member.id].profession}</p>
-                      )}
-                    </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">
+                      Type of Profession <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={member.profession || ""}
+                      onValueChange={v => updateMember(member.id, "profession", v)}
+                    >
+                      <SelectTrigger className={errors[member.id]?.profession ? "border-destructive" : ""}>
+                        <SelectValue placeholder="Select profession type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {professionTypes.map(p => (
+                          <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {errors[member.id]?.profession && (
+                      <p className="text-xs text-destructive">{errors[member.id].profession}</p>
+                    )}
+                  </div>
 
-                    <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Industry / Field</Label>
-                      <Input
-                        placeholder="e.g. Software, Banking, Teaching"
-                        value={member.industry}
-                        onChange={e => updateMember(member.id, "industry", e.target.value)}
-                      />
-                    </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Industry / Field</Label>
+                    <Input
+                      placeholder="e.g. Software, Banking, Teaching"
+                      value={member.industry}
+                      onChange={e => updateMember(member.id, "industry", e.target.value)}
+                    />
+                  </div>
 
-                    <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">
-                        Brief Profile{" "}
-                        <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
-                      </Label>
-                      <Input
-                        placeholder="Short note about work or achievements"
-                        value={member.briefProfile}
-                        onChange={e => updateMember(member.id, "briefProfile", e.target.value)}
-                      />
-                    </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">
+                      Brief Profile{" "}
+                      <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
+                    </Label>
+                    <Input
+                      placeholder="Short note about work or achievements"
+                      value={member.briefProfile}
+                      onChange={e => updateMember(member.id, "briefProfile", e.target.value)}
+                    />
                   </div>
                 </div>
-              )}
-
-              {/* Studying + not working indicator */}
-              {member.isCurrentlyStudying === true && member.isCurrentlyWorking === false && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-700">
-                  <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                  <span>No profession details needed — currently studying and not working.</span>
-                </div>
-              )}
+              </div>
 
               {/* ══ LANGUAGES ══ */}
               <div className="space-y-3">

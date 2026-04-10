@@ -8,9 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ArrowRight, User, Heart, Shield, Users, RotateCcw } from "lucide-react";
+import { ArrowLeft, ArrowRight, User, Heart, Shield, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
@@ -25,12 +24,6 @@ const steps = [
   { id: "7", name: "Review",    href: "/dashboard/profile/review-submit" },
 ];
 
-const sanghaRoles = [
-  "Common Member", "Treasurer", "Accountant", "Secretary",
-  "Auditor", "Hon. Secretary", "President", "Hon. President",
-  "Advisor", "Legal Advisor",
-];
-
 export default function Page() {
   const router = useRouter();
   const [loading, setLoading]               = useState(false);
@@ -38,7 +31,6 @@ export default function Page() {
   const [resetting, setResetting]           = useState(false);
   const [canReset, setCanReset]             = useState(false);
   const [userContact, setUserContact]       = useState({ email: "", phone: "" });
-  const [sanghaList, setSanghaList]         = useState<{ id: string; sangha_name: string; location: string }[]>([]);
 
   const [formData, setFormData] = useState({
     firstName: "", middleName: "", lastName: "",
@@ -47,10 +39,6 @@ export default function Page() {
     fathersName: "", mothersName: "",
     maritalStatus: "",
     hasDisability: "",
-    isPartOfSangha: "",
-    sanghaName: "",
-    sanghaRole: "",
-    sanghaTenure: "",
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -74,25 +62,17 @@ export default function Page() {
           lastName:          s.last_name || "",
           gender:            s.gender || "",
           dateOfBirth: s.date_of_birth
-          ? s.date_of_birth.split("T")[0]
-          : "",
+            ? s.date_of_birth.split("T")[0]
+            : "",
           surnameInUse:      s.surname_in_use || "",
           surnameAsPerGotra: s.surname_as_per_gotra || "",
           fathersName:       s.fathers_name || "",
           mothersName:       s.mothers_name || "",
           maritalStatus:     s.is_married ? "Married" : "Single",
           hasDisability:     s.has_disability ? "yes" : "no",
-          isPartOfSangha:    s.is_part_of_sangha === "yes" ? "yes" : "no",
-          sanghaName:        s.sangha_name || "",
-          sanghaRole:        s.sangha_role || "",
-          sanghaTenure:      s.sangha_tenure || "",
         });
       }
     }).catch(() => {});
-
-    api.get("/sangha/approved-list")
-      .then((res) => setSanghaList(res))
-      .catch(() => {});
   }, []);
 
   const buildPayload = () => ({
@@ -107,10 +87,6 @@ export default function Page() {
     mothers_name:         formData.mothersName || undefined,
     is_married:           formData.maritalStatus === "Married",
     has_disability:       formData.hasDisability === "yes",
-    is_part_of_sangha:    formData.isPartOfSangha === "yes" ? "yes" : "no",  // FIX 1: string not boolean
-    sangha_name:          formData.isPartOfSangha === "yes" ? formData.sanghaName || null : null,   // FIX 2
-    sangha_role:          formData.isPartOfSangha === "yes" ? formData.sanghaRole || null : null,   // FIX 3
-    sangha_tenure:        formData.isPartOfSangha === "yes" ? formData.sanghaTenure || null : null, // FIX 4
   });
 
   useAutoSave("/users/profile/step1", buildPayload, [formData]);
@@ -123,9 +99,6 @@ export default function Page() {
     if (!formData.dateOfBirth)       e.dateOfBirth    = "Date of birth is required";
     if (!formData.maritalStatus)     e.maritalStatus  = "Please select marital status";
     if (!formData.hasDisability)     e.hasDisability  = "Please select disability status";
-    if (!formData.isPartOfSangha)    e.isPartOfSangha = "Please answer Sangha membership";
-    if (formData.isPartOfSangha === "yes" && !formData.sanghaName.trim()) e.sanghaName = "Sangha name is required";
-    if (formData.isPartOfSangha === "yes" && !formData.sanghaRole)        e.sanghaRole = "Please select your role";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -135,7 +108,6 @@ export default function Page() {
     setLoading(true);
     try {
       const payload = buildPayload();
-      console.log("PAYLOAD:", payload); // DEBUG
       await api.post("/users/profile/step1", payload);
       toast.success("Personal details saved!");
       router.push("/dashboard/profile/religious-details");
@@ -157,7 +129,6 @@ export default function Page() {
         surnameInUse: "", surnameAsPerGotra: "",
         fathersName: "", mothersName: "",
         maritalStatus: "", hasDisability: "",
-        isPartOfSangha: "", sanghaName: "", sanghaRole: "", sanghaTenure: "",
       });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
@@ -326,84 +297,6 @@ export default function Page() {
             </RadioGroup>
             {errors.hasDisability && <p className="text-xs text-destructive">{errors.hasDisability}</p>}
           </div>
-        </CardContent>
-      </Card>
-
-      <Card className="shadow-sm border-l-4 border-l-orange-400">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-orange-500" />
-            <CardTitle>Sangha Membership</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-3">
-            <Label>Are you currently part of any Sangha? <span className="text-destructive">*</span></Label>
-            <RadioGroup value={formData.isPartOfSangha}
-              onValueChange={v => { setFormData(p => ({ ...p, isPartOfSangha: v, sanghaName: "", sanghaRole: "", sanghaTenure: "" })); setErrors(e => ({ ...e, isPartOfSangha: "" })); }}
-              className="flex gap-6">
-              {["No", "Yes"].map(opt => (
-                <div key={opt}
-                  className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 cursor-pointer transition-all ${formData.isPartOfSangha === opt.toLowerCase() ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
-                  onClick={() => { setFormData(p => ({ ...p, isPartOfSangha: opt.toLowerCase(), sanghaName: "", sanghaRole: "", sanghaTenure: "" })); setErrors(e => ({ ...e, isPartOfSangha: "" })); }}>
-                  <RadioGroupItem value={opt.toLowerCase()} id={`sangha-${opt}`} />
-                  <Label htmlFor={`sangha-${opt}`} className="font-normal cursor-pointer">{opt}</Label>
-                </div>
-              ))}
-            </RadioGroup>
-            {errors.isPartOfSangha && <p className="text-xs text-destructive">{errors.isPartOfSangha}</p>}
-          </div>
-
-          {formData.isPartOfSangha === "yes" && (
-            <div className="grid grid-cols-3 gap-4 pt-2">
-              <div className="space-y-2 w-full">
-                <Label>Sangha Name <span className="text-destructive">*</span></Label>
-                <Select value={formData.sanghaName} onValueChange={(v) => set("sanghaName", v)}>
-                  <SelectTrigger className={errors.sanghaName ? "border-destructive" : ""}>
-                    <SelectValue placeholder="Select a Sangha" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sanghaList.length === 0 ? (
-                      <SelectItem value="none" disabled>No approved Sanghas available</SelectItem>
-                    ) : (
-                      sanghaList.map((s) => (
-                        <SelectItem key={s.id} value={s.sangha_name}>
-                          {s.sangha_name} — {s.location}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                {errors.sanghaName && <p className="text-xs text-destructive">{errors.sanghaName}</p>}
-              </div>
-
-              <div className="space-y-2 w-full">
-                <Label>Your Role <span className="text-destructive">*</span></Label>
-                <Select value={formData.sanghaRole} onValueChange={v => set("sanghaRole", v)}>
-                  <SelectTrigger className={errors.sanghaRole ? "border-destructive" : ""}>
-                    <SelectValue placeholder="Select your role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sanghaRoles.map(role => <SelectItem key={role} value={role}>{role}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                {errors.sanghaRole && <p className="text-xs text-destructive">{errors.sanghaRole}</p>}
-              </div>
-
-              <div className="space-y-2 w-full">
-                <Label>Tenure</Label>
-                <Select value={formData.sanghaTenure} onValueChange={(v) => set("sanghaTenure", v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select tenure" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="part_time">Part Time</SelectItem>
-                    <SelectItem value="full_time">Full Time</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 

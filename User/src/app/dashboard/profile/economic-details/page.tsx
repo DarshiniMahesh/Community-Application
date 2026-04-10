@@ -60,18 +60,14 @@ function blankMember(id: string, name = "", relation = ""): MemberCoverage {
   };
 }
 
-/**
- * FIX: Shared helper — build deduplicated expected members from step1 + step3 only.
- * Never derives members from step5/step6 to avoid duplication.
- */
 function buildExpectedMembers(
   data: Record<string, unknown>
 ): { id: string; name: string; relation: string }[] {
   const s1 = data.step1 as Record<string, string> | null;
   const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "You";
   const familyMembers = (
-  ((data.step3 as Record<string, unknown>)?.members as Record<string, string>[]) || []
-      ).filter((fm) => fm.relation !== "Self");
+    ((data.step3 as Record<string, unknown>)?.members as Record<string, string>[]) || []
+  ).filter((fm) => fm.relation !== "Self");
 
   return [
     { id: "self", name: userName, relation: "Self" },
@@ -83,12 +79,6 @@ function buildExpectedMembers(
   ];
 }
 
-/**
- * Converts API coverage arrays to boolean | null:
- * - If the field doesn't exist on the API response object → null (never saved)
- * - If the field exists and has items → true (Yes)
- * - If the field exists and is an empty array → false (No)
- */
 function hasCov(obj: Record<string, unknown>, key: string): boolean | null {
   if (!(key in obj)) return null;
   const arr = obj[key];
@@ -97,43 +87,51 @@ function hasCov(obj: Record<string, unknown>, key: string): boolean | null {
 }
 
 /**
- * Three-state toggle: null = nothing selected (both grey), true = Yes (green), false = No (red).
- * Clicking the already-active button de-selects it back to null.
+ * SelectCell — 3-state dropdown: Not Selected / Yes / No
+ * Replaces the old ToggleCell (Yes/No pill buttons).
  */
-function ToggleCell({
-  checked,
+function SelectCell({
+  value,
   onChange,
 }: {
-  checked: boolean | null;
+  value: boolean | null;
   onChange: (val: boolean | null) => void;
 }) {
+  const displayValue =
+    value === null ? "not_selected" : value ? "yes" : "no";
+
   return (
-    <div className="flex items-center justify-center gap-2">
-      {/* YES button */}
-      <button
-        type="button"
-        onClick={() => onChange(checked === true ? null : true)}
-        className={`flex items-center justify-center w-14 h-8 rounded-full text-xs font-semibold border-2 transition-all duration-200 ${
-          checked === true
-            ? "bg-green-500 border-green-500 text-white shadow-md"
-            : "bg-white border-gray-200 text-gray-400 hover:border-green-300 hover:text-green-400"
+    <Select
+      value={displayValue}
+      onValueChange={(v) => {
+        if (v === "yes") onChange(true);
+        else if (v === "no") onChange(false);
+        else onChange(null);
+      }}
+    >
+      <SelectTrigger
+        className={`w-[100px] mx-auto text-xs h-8 px-2 ${
+          value === true
+            ? "border-green-400 bg-green-50 text-green-700 focus:ring-green-300"
+            : value === false
+            ? "border-red-400 bg-red-50 text-red-700 focus:ring-red-300"
+            : "border-border bg-background text-muted-foreground"
         }`}
       >
-        Yes
-      </button>
-      {/* NO button */}
-      <button
-        type="button"
-        onClick={() => onChange(checked === false ? null : false)}
-        className={`flex items-center justify-center w-14 h-8 rounded-full text-xs font-semibold border-2 transition-all duration-200 ${
-          checked === false
-            ? "bg-red-500 border-red-500 text-white shadow-md"
-            : "bg-white border-gray-200 text-gray-400 hover:border-red-300 hover:text-red-400"
-        }`}
-      >
-        No
-      </button>
-    </div>
+        <SelectValue placeholder="Not Selected" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="not_selected">
+          <span className="text-muted-foreground">Not Selected</span>
+        </SelectItem>
+        <SelectItem value="yes">
+          <span className="text-green-700 font-medium">Yes</span>
+        </SelectItem>
+        <SelectItem value="no">
+          <span className="text-red-700 font-medium">No</span>
+        </SelectItem>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -163,7 +161,6 @@ export default function Page() {
     api.get("/users/profile/full").then((data: unknown) => {
       const fullData = data as Record<string, unknown>;
 
-      // FIX: Build expected list from step1 + step3 only — prevents duplicate Self rows
       const bases = buildExpectedMembers(fullData);
       setAllBases(bases);
 
@@ -189,8 +186,6 @@ export default function Page() {
       const insurance = ((fullData.step6 as Record<string, unknown> | null)?.insurance || []) as Record<string, unknown>[];
       const documents  = ((fullData.step6 as Record<string, unknown> | null)?.documents  || []) as Record<string, unknown>[];
 
-      // FIX: Map insurance/documents by matching relation="Self" for self,
-      // and by name+relation for family members — using the canonical bases list only.
       setMembers(bases.map((base) => {
         let ins: Record<string, unknown> = {};
         let doc: Record<string, unknown> = {};
@@ -204,7 +199,6 @@ export default function Page() {
             (i.member_relation as string) === base.relation
           ) ?? {}) as Record<string, unknown>;
 
-          // Fallback: match by relation only if name is blank
           if (!Object.keys(ins).length && base.relation) {
             ins = (insurance.find(i =>
               (i.member_relation as string) === base.relation &&
@@ -260,11 +254,6 @@ export default function Page() {
     setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: val } : m));
   };
 
-  /**
-   * null  → send null to backend (never touched)
-   * true  → send ["self"] (has coverage)
-   * false → send []       (explicitly No)
-   */
   const covToPayload = (val: boolean | null): string[] | null => {
     if (val === null) return null;
     return val ? ["self"] : [];
@@ -493,7 +482,9 @@ export default function Page() {
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Insurance Coverage</CardTitle>
-          <CardDescription>Members are auto-loaded from Family Information. Toggle Yes / No for each member.</CardDescription>
+          <CardDescription>
+            Members are auto-loaded from Family Information. Select Yes / No / Not Selected for each member.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="border rounded-xl overflow-hidden">
@@ -501,12 +492,12 @@ export default function Page() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/50">
-                    <TableHead className="min-w-[140px] text-center">Member</TableHead>
+                    <TableHead className="min-w-[90px] text-center">Member</TableHead>
                     <TableHead className="min-w-[100px] text-center">Relation</TableHead>
-                    <TableHead className="text-center min-w-[160px]">Health Insurance</TableHead>
-                    <TableHead className="text-center min-w-[160px]">Life Insurance</TableHead>
-                    <TableHead className="text-center min-w-[160px]">Term Insurance</TableHead>
-                    <TableHead className="text-center min-w-[160px]">Konkani Card</TableHead>
+                    <TableHead className="text-center min-w-[110px]">Health Insurance</TableHead>
+                    <TableHead className="text-center min-w-[110px]">Life Insurance</TableHead>
+                    <TableHead className="text-center min-w-[110px]">Term Insurance</TableHead>
+                    <TableHead className="text-center min-w-[110px]">Konkani Card</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -514,17 +505,17 @@ export default function Page() {
                     <TableRow key={m.id} className="hover:bg-muted/20 transition-colors">
                       <TableCell className="font-medium text-center">{m.name}</TableCell>
                       <TableCell className="text-muted-foreground text-sm text-center">{m.relation}</TableCell>
-                      <TableCell className="text-center py-4">
-                        <ToggleCell checked={m.healthInsurance} onChange={val => setMemberField(m.id, "healthInsurance", val)} />
+                      <TableCell className="text-center py-3">
+                        <SelectCell value={m.healthInsurance} onChange={val => setMemberField(m.id, "healthInsurance", val)} />
                       </TableCell>
-                      <TableCell className="text-center py-4">
-                        <ToggleCell checked={m.lifeInsurance} onChange={val => setMemberField(m.id, "lifeInsurance", val)} />
+                      <TableCell className="text-center py-3">
+                        <SelectCell value={m.lifeInsurance} onChange={val => setMemberField(m.id, "lifeInsurance", val)} />
                       </TableCell>
-                      <TableCell className="text-center py-4">
-                        <ToggleCell checked={m.termInsurance} onChange={val => setMemberField(m.id, "termInsurance", val)} />
+                      <TableCell className="text-center py-3">
+                        <SelectCell value={m.termInsurance} onChange={val => setMemberField(m.id, "termInsurance", val)} />
                       </TableCell>
-                      <TableCell className="text-center py-4">
-                        <ToggleCell checked={m.konkaniCard} onChange={val => setMemberField(m.id, "konkaniCard", val)} />
+                      <TableCell className="text-center py-3">
+                        <SelectCell value={m.konkaniCard} onChange={val => setMemberField(m.id, "konkaniCard", val)} />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -539,7 +530,9 @@ export default function Page() {
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Document Information</CardTitle>
-          <CardDescription>Select which documents each member has. Toggle Yes / No for each.</CardDescription>
+          <CardDescription>
+            Select which documents each member has. Choose Yes / No / Not Selected for each.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="border rounded-xl overflow-hidden">
@@ -547,13 +540,13 @@ export default function Page() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/50">
-                    <TableHead className="min-w-[140px] text-center">Member</TableHead>
+                    <TableHead className="min-w-[90px] text-center">Member</TableHead>
                     <TableHead className="min-w-[100px] text-center">Relation</TableHead>
-                    <TableHead className="text-center min-w-[160px]">Aadhaar</TableHead>
-                    <TableHead className="text-center min-w-[140px]">PAN</TableHead>
-                    <TableHead className="text-center min-w-[160px]">Voter ID</TableHead>
-                    <TableHead className="text-center min-w-[160px]">Land Docs</TableHead>
-                    <TableHead className="text-center min-w-[140px]">DL</TableHead>
+                    <TableHead className="text-center min-w-[110px]">Aadhaar</TableHead>
+                    <TableHead className="text-center min-w-[90px]">PAN</TableHead>
+                    <TableHead className="text-center min-w-[110px]">Voter ID</TableHead>
+                    <TableHead className="text-center min-w-[110px]">Land Docs</TableHead>
+                    <TableHead className="text-center min-w-[90px]">DL</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -561,20 +554,20 @@ export default function Page() {
                     <TableRow key={m.id} className="hover:bg-muted/20 transition-colors">
                       <TableCell className="font-medium text-center">{m.name}</TableCell>
                       <TableCell className="text-muted-foreground text-sm text-center">{m.relation}</TableCell>
-                      <TableCell className="text-center py-4">
-                        <ToggleCell checked={m.aadhaar} onChange={val => setMemberField(m.id, "aadhaar", val)} />
+                      <TableCell className="text-center py-3">
+                        <SelectCell value={m.aadhaar} onChange={val => setMemberField(m.id, "aadhaar", val)} />
                       </TableCell>
-                      <TableCell className="text-center py-4">
-                        <ToggleCell checked={m.pan} onChange={val => setMemberField(m.id, "pan", val)} />
+                      <TableCell className="text-center py-3">
+                        <SelectCell value={m.pan} onChange={val => setMemberField(m.id, "pan", val)} />
                       </TableCell>
-                      <TableCell className="text-center py-4">
-                        <ToggleCell checked={m.voterId} onChange={val => setMemberField(m.id, "voterId", val)} />
+                      <TableCell className="text-center py-3">
+                        <SelectCell value={m.voterId} onChange={val => setMemberField(m.id, "voterId", val)} />
                       </TableCell>
-                      <TableCell className="text-center py-4">
-                        <ToggleCell checked={m.landDocuments} onChange={val => setMemberField(m.id, "landDocuments", val)} />
+                      <TableCell className="text-center py-3">
+                        <SelectCell value={m.landDocuments} onChange={val => setMemberField(m.id, "landDocuments", val)} />
                       </TableCell>
-                      <TableCell className="text-center py-4">
-                        <ToggleCell checked={m.drivingLicense} onChange={val => setMemberField(m.id, "drivingLicense", val)} />
+                      <TableCell className="text-center py-3">
+                        <SelectCell value={m.drivingLicense} onChange={val => setMemberField(m.id, "drivingLicense", val)} />
                       </TableCell>
                     </TableRow>
                   ))}

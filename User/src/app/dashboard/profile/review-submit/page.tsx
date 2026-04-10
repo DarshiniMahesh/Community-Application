@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Send, Edit, CheckCircle2, Loader2, Lock, Calendar } from "lucide-react";
+import { ArrowLeft, Send, Edit, CheckCircle2, Loader2, Lock, Calendar, Minus } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { INCOME_SLAB_REVERSE } from "@/lib/constants";
@@ -55,12 +55,27 @@ function Field({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-function YesNoBadge({ value }: { value: boolean }) {
+/**
+ * YesNoBadge — supports 3 states:
+ *   true  → green "Yes" badge
+ *   false → grey "No" badge
+ *   null  → italic "Not Selected" text
+ */
+function YesNoBadge({ value }: { value: boolean | null }) {
+  if (value === null) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium border border-dashed border-border text-muted-foreground italic">
+        <Minus className="h-3 w-3" />
+        Not Selected
+      </span>
+    );
+  }
+
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
       value
         ? "bg-green-50 text-green-700 border-green-200"
-        : "bg-muted text-muted-foreground border-border"
+        : "bg-red-50 text-red-600 border-red-200"
     }`}>
       {value ? <CheckCircle2 className="h-3 w-3" /> : null}
       {value ? "Yes" : "No"}
@@ -68,7 +83,10 @@ function YesNoBadge({ value }: { value: boolean }) {
   );
 }
 
-function CoverageRow({ label, value }: { label: string; value: boolean }) {
+/**
+ * CoverageRow — supports null value (Not Selected state)
+ */
+function CoverageRow({ label, value }: { label: string; value: boolean | null }) {
   return (
     <div className="flex items-center justify-between py-1.5">
       <span className="text-sm text-muted-foreground">{label}</span>
@@ -103,8 +121,17 @@ function SectionHeader({
   );
 }
 
-function hasCoverage(obj: Record<string, unknown> | undefined, key: string): boolean {
-  return Array.isArray(obj?.[key]) && (obj![key] as string[]).length > 0;
+/**
+ * hasCoverage — returns boolean | null:
+ *   null  → key missing from object (never saved / not selected)
+ *   true  → array with items (Yes)
+ *   false → empty array (explicitly No)
+ */
+function hasCoverage(obj: Record<string, unknown> | undefined, key: string): boolean | null {
+  if (!obj || !(key in obj)) return null;
+  const arr = obj[key];
+  if (!Array.isArray(arr)) return null;
+  return arr.length > 0;
 }
 
 function findMemberRow(
@@ -122,12 +149,6 @@ function findMemberRow(
 function formatAddress(a: Record<string, string>): string {
   return [a.flat_no, a.building, a.street, a.landmark, a.area, a.city, a.taluk, a.district, a.pincode, a.country]
     .filter(Boolean).join(", ");
-}
-
-function formatTenure(t: string): string {
-  if (t === "part_time") return "Part Time";
-  if (t === "full_time") return "Full Time";
-  return t;
 }
 
 function formatStatus(s: string): string {
@@ -164,22 +185,22 @@ function EduBlock({ edu }: { edu: Record<string, unknown> }) {
   const briefProfile = typeof edu.brief_profile === "string" ? edu.brief_profile : "";
   const educations   = (edu.educations as Record<string, string>[]) ?? [];
   const languages    = (edu.languages as { language: string; language_other?: string }[]) ?? [];
-  const isStudying   = edu.is_currently_studying === true || edu.is_currently_studying === "true";
 
-  const workingValue: string | null =
+  const studyingValue: string =
+    edu.is_currently_studying === true || edu.is_currently_studying === "true" ? "Yes" : "No";
+
+  const workingValue: string =
     typeof edu.is_currently_working === "boolean"
       ? edu.is_currently_working ? "Yes" : "No"
       : typeof edu.is_currently_working === "string" && edu.is_currently_working !== ""
         ? edu.is_currently_working === "true" ? "Yes" : "No"
-        : null;
+        : "—";
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <Field label="Currently Studying" value={isStudying ? "Yes" : "No"} />
-        {isStudying && workingValue && (
-          <Field label="Currently Working" value={workingValue} />
-        )}
+        <Field label="Currently Studying" value={studyingValue} />
+        <Field label="Currently Working" value={workingValue} />
         {profType && <Field label="Profession" value={formatProfession(profType)} />}
         {industry && <Field label="Industry / Field" value={industry} />}
         {briefProfile && <Field label="Brief Profile" value={briefProfile} />}
@@ -313,9 +334,9 @@ export default function Page() {
   const userIns  = findMemberRow(s6ins, userName, "Self") ?? s6ins.find(r => (r.member_relation as string) === "Self");
   const userDoc  = findMemberRow(s6doc, userName, "Self") ?? s6doc.find(r => (r.member_relation as string) === "Self");
   const userEdu =
-  s5?.find(e => (e.member_relation as string) === "Self") ??
-  s5?.[0] ??
-  null;
+    s5?.find(e => (e.member_relation as string) === "Self") ??
+    s5?.[0] ??
+    null;
 
   const fac: string[] = [];
   if (s6eco?.fac_rented_house)      fac.push("Staying in Rented House");
@@ -358,13 +379,13 @@ export default function Page() {
               </div>
               {submittedAt && (
                 <div className="flex items-center gap-2 mt-3 text-xs text-blue-600 border-t border-blue-200 pt-3">
-                <Calendar className="h-3.5 w-3.5" />
-                Submitted on: {new Date(submittedAt).toLocaleString("en-IN", {
-                dateStyle: "long",
-                timeStyle: "short",
-              })}
-            </div>
-            )}
+                  <Calendar className="h-3.5 w-3.5" />
+                  Submitted on: {new Date(submittedAt).toLocaleString("en-IN", {
+                    dateStyle: "long",
+                    timeStyle: "short",
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -381,22 +402,15 @@ export default function Page() {
               <SectionHeader title="Personal Details" href="/dashboard/profile/personal-details" isLocked={isLocked} />
               {s1 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <Field label="Full Name"      value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
-                  <Field label="Gender"         value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
-                  <Field label="Date of Birth"  value={formatDate(s1.date_of_birth)} />
-                  <Field label="Marital Status" value={s1.is_married ? "Married" : "Single"} />
-                  <Field label="Father's Name"  value={s1.fathers_name} />
-                  <Field label="Mother's Name"  value={s1.mothers_name} />
-                  <Field label="Surname in Use" value={s1.surname_in_use} />
+                  <Field label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
+                  <Field label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
+                  <Field label="Date of Birth"        value={formatDate(s1.date_of_birth)} />
+                  <Field label="Marital Status"       value={s1.is_married ? "Married" : "Single"} />
+                  <Field label="Father's Name"        value={s1.fathers_name} />
+                  <Field label="Mother's Name"        value={s1.mothers_name} />
+                  <Field label="Surname in Use"       value={s1.surname_in_use} />
                   <Field label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
-                  <Field label="Disability" value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
-                  {(s1.is_part_of_sangha === "yes" || s1.is_part_of_sangha === "true") && (
-                    <>
-                      <Field label="Sangha Name"   value={s1.sangha_name} />
-                      <Field label="Sangha Role"   value={s1.sangha_role} />
-                      <Field label="Sangha Tenure" value={formatTenure(s1.sangha_tenure)} />
-                    </>
-                  )}
+                  <Field label="Disability"           value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
                 </div>
               ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
             </div>
@@ -624,12 +638,12 @@ export default function Page() {
                     <div>
                       <SectionHeader title="Member Details" href="/dashboard/profile/family-information" isLocked={isLocked} />
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        <Field label="Name"       value={member.name} />
-                        <Field label="Relation"   value={member.relation} />
+                        <Field label="Name"          value={member.name} />
+                        <Field label="Relation"      value={member.relation} />
                         <Field label="Date of Birth" value={member.dob ? formatDate(member.dob) : member.age ? `Age: ${member.age}` : null} />
-                        <Field label="Gender"     value={member.gender ? member.gender.charAt(0).toUpperCase() + member.gender.slice(1) : null} />
-                        <Field label="Status"     value={member.status ? formatStatus(member.status) : null} />
-                        <Field label="Disability" value={member.disability === "yes" ? "Yes" : member.disability === "no" ? "No" : null} />
+                        <Field label="Gender"        value={member.gender ? member.gender.charAt(0).toUpperCase() + member.gender.slice(1) : null} />
+                        <Field label="Status"        value={member.status ? formatStatus(member.status) : null} />
+                        <Field label="Disability"    value={member.disability === "yes" ? "Yes" : member.disability === "no" ? "No" : null} />
                       </div>
                     </div>
 

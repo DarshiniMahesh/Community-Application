@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { User, Calendar, FileText, Users, MapPin, Wallet, Edit, CheckCircle2 } from "lucide-react";
+import { User, Calendar, FileText, Users, MapPin, Wallet, Edit, CheckCircle2, Minus } from "lucide-react";
 import { api } from "@/lib/api";
 import { INCOME_SLAB_REVERSE } from "@/lib/constants";
 
@@ -22,14 +22,16 @@ function formatIncome(raw?: string | null): string | null {
   return raw.replace(/_/g, " – ").replace(/l$/, " Lakh");
 }
 
-function hasCov(arr: unknown): boolean {
-  return Array.isArray(arr) && arr.length > 0;
-}
-
-function formatTenure(t: string): string {
-  if (t === "part_time") return "Part Time";
-  if (t === "full_time") return "Full Time";
-  return t || "";
+/**
+ * hasCov — returns boolean | null:
+ *   null  → key missing / not an array (never saved, not selected)
+ *   true  → array has items (Yes)
+ *   false → empty array (explicitly No)
+ */
+function hasCov(arr: unknown): boolean | null {
+  if (!Array.isArray(arr)) return null;
+  // If it's an array, we know it was intentionally saved
+  return arr.length > 0;
 }
 
 function formatStatus(s: string): string {
@@ -65,10 +67,6 @@ function getLangLabel(l: { language: string; language_other?: string }): string 
     : String(l.language ?? "");
 }
 
-function isSanghaMember(val: unknown): boolean {
-  return val === "yes" || val === "true" || val === true;
-}
-
 function InfoField({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
   return (
     <div className="space-y-1">
@@ -82,12 +80,27 @@ function InfoField({ icon: Icon, label, value }: { icon: React.ElementType; labe
   );
 }
 
-function YesNoBadge({ value }: { value: boolean }) {
+/**
+ * YesNoBadge — supports 3 states:
+ *   true  → green "Yes" badge
+ *   false → red "No" badge  (was grey before — now clearly red for No)
+ *   null  → dashed "Not Selected" badge
+ */
+function YesNoBadge({ value }: { value: boolean | null }) {
+  if (value === null) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border border-dashed border-border text-muted-foreground italic">
+        <Minus className="h-3 w-3" />
+        Not Selected
+      </span>
+    );
+  }
+
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${
       value
         ? "bg-green-50 text-green-700 border-green-200"
-        : "bg-muted text-muted-foreground border-border"
+        : "bg-red-50 text-red-600 border-red-200"
     }`}>
       {value ? <CheckCircle2 className="h-3 w-3" /> : null}
       {value ? "Yes" : "No"}
@@ -217,48 +230,16 @@ export default function Page() {
       {/* ── Personal Details ── */}
       <Section title="Personal Details" href="/dashboard/profile/personal-details" filled={!!s1} isLocked={isLocked}>
         {s1 ? (
-          <div className="space-y-5">
-            {/* Main grid */}
-            <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-              <InfoField icon={User}     label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
-              <InfoField icon={Calendar} label="Date of Birth"        value={formatDate(s1.date_of_birth)} />
-              <InfoField icon={User}     label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
-              <InfoField icon={Users}    label="Marital Status"       value={s1.is_married ? "Married" : "Single"} />
-              <InfoField icon={User}     label="Surname in Use"       value={s1.surname_in_use} />
-              <InfoField icon={User}     label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
-              {s1.fathers_name && <InfoField icon={User} label="Father's Name" value={s1.fathers_name} />}
-              {s1.mothers_name && <InfoField icon={User} label="Mother's Name" value={s1.mothers_name} />}
-              <InfoField icon={User} label="Disability" value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
-            </div>
-
-            {/* ── Sangha Membership highlighted block ── */}
-            {isSanghaMember(s1.is_part_of_sangha) && (
-              <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-4 space-y-3">
-                <p className="text-sm font-semibold text-yellow-800 flex items-center gap-2">
-                  <Users className="h-4 w-4" /> Sangha Membership
-                </p>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-xs text-yellow-600 font-medium mb-0.5">Sangha Name</p>
-                    <p className="text-sm font-semibold text-yellow-900">
-                      {s1.sangha_name || <span className="italic font-normal text-yellow-500">Not provided</span>}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-yellow-600 font-medium mb-0.5">Role</p>
-                    <p className="text-sm font-semibold text-yellow-900">
-                      {s1.sangha_role || <span className="italic font-normal text-yellow-500">Not provided</span>}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-yellow-600 font-medium mb-0.5">Tenure</p>
-                    <p className="text-sm font-semibold text-yellow-900">
-                      {formatTenure(s1.sangha_tenure) || <span className="italic font-normal text-yellow-500">Not provided</span>}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
+          <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+            <InfoField icon={User}     label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
+            <InfoField icon={Calendar} label="Date of Birth"        value={formatDate(s1.date_of_birth)} />
+            <InfoField icon={User}     label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
+            <InfoField icon={Users}    label="Marital Status"       value={s1.is_married ? "Married" : "Single"} />
+            <InfoField icon={User}     label="Surname in Use"       value={s1.surname_in_use} />
+            <InfoField icon={User}     label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
+            {s1.fathers_name && <InfoField icon={User} label="Father's Name" value={s1.fathers_name} />}
+            {s1.mothers_name && <InfoField icon={User} label="Mother's Name" value={s1.mothers_name} />}
+            <InfoField icon={User} label="Disability" value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
           </div>
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
@@ -370,8 +351,16 @@ export default function Page() {
               const briefProfile   = typeof edu.brief_profile === "string" ? edu.brief_profile : "";
               const educations     = (edu.educations as Record<string, string>[]) ?? [];
               const languages      = (edu.languages as { language: string; language_other?: string }[]) ?? [];
-              const isCurrentlyStudying = edu.is_currently_studying === true || edu.is_currently_studying === "true";
-              const isCurrentlyWorking  = edu.is_currently_working === true || edu.is_currently_working === "true";
+
+              const studyingValue =
+                edu.is_currently_studying === true || edu.is_currently_studying === "true" ? "Yes" : "No";
+
+              const workingValue =
+                typeof edu.is_currently_working === "boolean"
+                  ? edu.is_currently_working ? "Yes" : "No"
+                  : typeof edu.is_currently_working === "string" && edu.is_currently_working !== ""
+                    ? edu.is_currently_working === "true" ? "Yes" : "No"
+                    : null;
 
               return (
                 <div key={i} className="space-y-3">
@@ -382,20 +371,8 @@ export default function Page() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-                    <InfoField icon={FileText} label="Currently Studying" value={isCurrentlyStudying ? "Yes" : "No"} />
-                    {isCurrentlyStudying && (
-                      <InfoField
-                        icon={FileText}
-                        label="Currently Working"
-                        value={
-                          typeof edu.is_currently_working === "boolean"
-                            ? edu.is_currently_working ? "Yes" : "No"
-                            : typeof edu.is_currently_working === "string"
-                              ? edu.is_currently_working === "true" ? "Yes" : "No"
-                              : null
-                        }
-                      />
-                    )}
+                    <InfoField icon={FileText} label="Currently Studying" value={studyingValue} />
+                    <InfoField icon={FileText} label="Currently Working"  value={workingValue} />
                     {profType && <InfoField icon={Wallet} label="Profession" value={formatProfession(profType)} />}
                     {industry && <InfoField icon={FileText} label="Industry / Field" value={industry} />}
                     {briefProfile && <InfoField icon={FileText} label="Brief Profile" value={briefProfile} />}
@@ -489,7 +466,7 @@ export default function Page() {
                             { label: "Term",         key: "term_coverage" },
                             { label: "Konkani Card", key: "konkani_card_coverage" },
                           ].map(({ label, key }) => (
-                            <div key={key} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                            <div key={key} className="flex items-center justify-between px-3 py-2 text-xs">
                               <span className="text-muted-foreground">{label}</span>
                               <YesNoBadge value={hasCov(ins[key])} />
                             </div>
@@ -522,7 +499,7 @@ export default function Page() {
                             { label: "Land Docs", key: "land_doc_coverage" },
                             { label: "DL",        key: "dl_coverage" },
                           ].map(({ label, key }) => (
-                            <div key={key} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                            <div key={key} className="flex items-center justify-between px-3 py-2 text-xs">
                               <span className="text-muted-foreground">{label}</span>
                               <YesNoBadge value={hasCov(doc[key])} />
                             </div>
