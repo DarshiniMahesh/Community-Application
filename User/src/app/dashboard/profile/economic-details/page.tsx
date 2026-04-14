@@ -86,10 +86,6 @@ function hasCov(obj: Record<string, unknown>, key: string): boolean | null {
   return arr.length > 0;
 }
 
-/**
- * SelectCell — 3-state dropdown: Not Selected / Yes / No
- * Replaces the old ToggleCell (Yes/No pill buttons).
- */
 function SelectCell({
   value,
   onChange,
@@ -110,7 +106,7 @@ function SelectCell({
       }}
     >
       <SelectTrigger
-        className={`w-[100px] mx-auto text-xs h-8 px-2 ${
+        className={`w-[80px] mx-auto text-xs h-7 px-1 ${
           value === true
             ? "border-green-400 bg-green-50 text-green-700 focus:ring-green-300"
             : value === false
@@ -118,11 +114,11 @@ function SelectCell({
             : "border-border bg-background text-muted-foreground"
         }`}
       >
-        <SelectValue placeholder="Not Selected" />
+        <SelectValue placeholder="—" />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="not_selected">
-          <span className="text-muted-foreground">Not Selected</span>
+          <span className="text-muted-foreground">—</span>
         </SelectItem>
         <SelectItem value="yes">
           <span className="text-green-700 font-medium">Yes</span>
@@ -254,9 +250,10 @@ export default function Page() {
     setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: val } : m));
   };
 
+  // FIX: null → null (Not Selected), true → ["yes"] (Yes), false → [] (No)
   const covToPayload = (val: boolean | null): string[] | null => {
     if (val === null) return null;
-    return val ? ["self"] : [];
+    return val ? ["yes"] : [];
   };
 
   const buildPayload = () => ({
@@ -483,7 +480,7 @@ export default function Page() {
         <CardHeader>
           <CardTitle>Insurance Coverage</CardTitle>
           <CardDescription>
-            Members are auto-loaded from Family Information. Select Yes / No / Not Selected for each member.
+            Members are auto-loaded from Family Information. Select Yes / No / — for each member.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -531,7 +528,7 @@ export default function Page() {
         <CardHeader>
           <CardTitle>Document Information</CardTitle>
           <CardDescription>
-            Select which documents each member has. Choose Yes / No / Not Selected for each.
+            Select which documents each member has. Choose Yes / No / — for each.
           </CardDescription>
         </CardHeader>
         <CardContent>

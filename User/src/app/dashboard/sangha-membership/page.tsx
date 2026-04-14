@@ -57,7 +57,7 @@ interface SanghaEntry {
   sangha_name: string;
   role: string;
   tenure: string;
-  status?: string; // 'pending' | 'approved' | 'rejected'
+  status?: string;
   isSaved?: boolean;
   isDirty?: boolean;
 }
@@ -99,54 +99,57 @@ function MembershipStatusBadge({ status }: { status?: string }) {
 export default function Page() {
   const router = useRouter();
   const [profileStatus, setProfileStatus] = useState<string>("");
-  const [sanghaList, setSanghaList] = useState<SanghaOption[]>([]);
-  const [entries, setEntries] = useState<SanghaEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [sanghaList, setSanghaList]       = useState<SanghaOption[]>([]);
+  const [entries, setEntries]             = useState<SanghaEntry[]>([]);
+  const [loading, setLoading]             = useState(true);
 
-  // Dialog states
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
-  const [showResetDialog, setShowResetDialog] = useState(false);
-  const [resetIndex, setResetIndex] = useState<number | null>(null);
-
-  // Per-entry saving state
-  const [savingIndex, setSavingIndex] = useState<number | null>(null);
+  const [deleteIndex, setDeleteIndex]           = useState<number | null>(null);
+  const [showResetDialog, setShowResetDialog]   = useState(false);
+  const [resetIndex, setResetIndex]             = useState<number | null>(null);
+  const [savingIndex, setSavingIndex]           = useState<number | null>(null);
 
   useEffect(() => {
     api
       .get("/users/profile")
       .then(async (meta) => {
         setProfileStatus(meta.status || "");
-        if (meta.status === "approved") {
-          try {
-            const [sanghas, existingEntries] = await Promise.all([
-              api.get("/sangha/approved-list"),
-              api.get("/users/profile/sangha"),
-            ]);
-            setSanghaList(sanghas || []);
-            if (Array.isArray(existingEntries) && existingEntries.length > 0) {
-              setEntries(
-                existingEntries.map((e: SanghaEntry) => ({
-                  id:          e.id          || undefined,
-                  sangha_id:   e.sangha_id   || "",
-                  sangha_name: e.sangha_name || "",
-                  role:        e.role        || "",
-                  tenure:      e.tenure      || "",
-                  status:      e.status      || "pending",
-                  isSaved:     true,
-                  isDirty:     false,
-                }))
-              );
-            }
-          } catch {
-            toast.error("Failed to load sangha data");
+
+        // FIX: always fetch sangha list regardless of profile status
+        // Only fetch existing entries if profile is approved
+        try {
+          const [sanghas, existingEntries] = await Promise.all([
+            api.get("/sangha/approved-list"),
+            meta.status === "approved"
+              ? api.get("/users/profile/sangha")
+              : Promise.resolve([]),
+          ]);
+
+          setSanghaList(Array.isArray(sanghas) ? sanghas : []);
+
+          if (Array.isArray(existingEntries) && existingEntries.length > 0) {
+            setEntries(
+              existingEntries.map((e: SanghaEntry) => ({
+                id:          e.id          || undefined,
+                sangha_id:   e.sangha_id   || "",
+                sangha_name: e.sangha_name || "",
+                role:        e.role        || "",
+                tenure:      e.tenure      || "",
+                status:      e.status      || "pending",
+                isSaved:     true,
+                isDirty:     false,
+              }))
+            );
           }
+        } catch {
+          toast.error("Failed to load sangha data");
         }
       })
       .catch(() => toast.error("Failed to load profile"))
       .finally(() => setLoading(false));
   }, []);
 
+  // UI access still restricted to approved only
   const isAccessAllowed = profileStatus === "approved";
 
   const addRow = () => {
@@ -176,7 +179,6 @@ export default function Page() {
     });
   };
 
-  // ── Save a single entry ──────────────────────────────────────
   const handleSaveEntry = async (index: number) => {
     const entry = entries[index];
 
@@ -211,9 +213,7 @@ export default function Page() {
         return copy;
       });
 
-      toast.success(
-        `Membership submitted to ${entry.sangha_name} for approval`
-      );
+      toast.success(`Membership submitted to ${entry.sangha_name} for approval`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -221,7 +221,6 @@ export default function Page() {
     }
   };
 
-  // ── Reset a single entry ─────────────────────────────────────
   const confirmReset = async () => {
     if (resetIndex === null) return;
     const entry = entries[resetIndex];
@@ -237,9 +236,7 @@ export default function Page() {
         })),
       });
       setEntries(remaining);
-      toast.success(
-        `Membership for ${entry.sangha_name || "entry"} has been reset`
-      );
+      toast.success(`Membership for ${entry.sangha_name || "entry"} has been reset`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
     } finally {
@@ -248,7 +245,6 @@ export default function Page() {
     }
   };
 
-  // ── Remove (delete) a single entry ──────────────────────────
   const confirmDelete = async () => {
     if (deleteIndex === null) return;
 
@@ -276,7 +272,6 @@ export default function Page() {
     }
   };
 
-  // ── Loading ──────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
@@ -285,7 +280,6 @@ export default function Page() {
     );
   }
 
-  // ── Access Denied ────────────────────────────────────────────
   if (!isAccessAllowed) {
     return (
       <div className="max-w-2xl mx-auto space-y-6 pb-10">
@@ -321,16 +315,12 @@ export default function Page() {
     );
   }
 
-  // ── Main Page ────────────────────────────────────────────────
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-10">
+
       {/* Header */}
       <div>
-        <Button
-          variant="ghost"
-          onClick={() => router.push("/dashboard")}
-          className="gap-2 mb-4"
-        >
+        <Button variant="ghost" onClick={() => router.push("/dashboard")} className="gap-2 mb-4">
           <ArrowLeft className="h-4 w-4" /> Back to Dashboard
         </Button>
         <h1 className="text-3xl font-semibold">Sangha Membership</h1>
@@ -373,22 +363,17 @@ export default function Page() {
             >
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  {/* Title + Status */}
                   <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                     <Users className="h-4 w-4 text-primary" />
                     Membership {index + 1}
                     {entry.isSaved && <MembershipStatusBadge status={entry.status} />}
                     {entry.isDirty && entry.isSaved && (
-                      <Badge
-                        variant="outline"
-                        className="text-xs text-orange-600 border-orange-300"
-                      >
+                      <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">
                         Unsaved changes
                       </Badge>
                     )}
                   </CardTitle>
 
-                  {/* Action Buttons */}
                   <div className="flex items-center gap-2">
                     {entry.isSaved && (
                       <Button
@@ -419,8 +404,8 @@ export default function Page() {
               </CardHeader>
 
               <CardContent className="space-y-4">
-                {/* Fields */}
                 <div className="grid md:grid-cols-3 gap-4">
+
                   {/* Sangha Name */}
                   <div className="space-y-2">
                     <Label>
@@ -473,16 +458,16 @@ export default function Page() {
                     </Select>
                   </div>
 
-                  {/* Tenure */}
+                  {/* Employment Type (field stays as tenure in DB) */}
                   <div className="space-y-2">
-                    <Label>Tenure</Label>
+                    <Label>Employment Type</Label>
                     <Select
                       value={entry.tenure}
                       onValueChange={(v) => updateEntry(index, "tenure", v)}
                       disabled={entry.status === "approved"}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select tenure" />
+                        <SelectValue placeholder="Select employment type" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="part_time">Part Time</SelectItem>
@@ -498,9 +483,7 @@ export default function Page() {
                     <Button
                       size="sm"
                       onClick={() => handleSaveEntry(index)}
-                      disabled={
-                        savingIndex === index || (!entry.isDirty && entry.isSaved)
-                      }
+                      disabled={savingIndex === index || (!entry.isDirty && entry.isSaved)}
                       className="gap-2"
                     >
                       {savingIndex === index ? (
@@ -539,24 +522,19 @@ export default function Page() {
           ))}
 
           {/* Add Another */}
-          <Button
-            variant="outline"
-            onClick={addRow}
-            className="w-full gap-2 border-dashed"
-          >
+          <Button variant="outline" onClick={addRow} className="w-full gap-2 border-dashed">
             <Plus className="h-4 w-4" /> Add Another Sangha
           </Button>
         </div>
       )}
 
-      {/* ── Delete Dialog ── */}
+      {/* Delete Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove this entry?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove this Sangha membership entry. You can add it again if
-              needed.
+              This will permanently remove this Sangha membership entry. You can add it again if needed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -571,14 +549,13 @@ export default function Page() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ── Reset Dialog ── */}
+      {/* Reset Dialog */}
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Reset this membership?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will delete this entry from your profile. You can re-add it with fresh details
-              afterwards.
+              This will delete this entry from your profile. You can re-add it with fresh details afterwards.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

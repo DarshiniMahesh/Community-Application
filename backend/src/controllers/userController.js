@@ -1,14 +1,14 @@
 const pool = require('../config/db');
 
 function parsePgArray(val) {
-  if (!val) return [];
-  if (Array.isArray(val)) return val;
+  if (!val) return null; // FIX: return null instead of [] so "Not Selected" is preserved
+  if (Array.isArray(val)) return val.length === 0 ? [] : val;
   if (typeof val === 'string') {
     const inner = val.replace(/^\{|\}$/g, '').trim();
     if (!inner) return [];
     return inner.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
   }
-  return [];
+  return null;
 }
 
 const getOrCreateProfile = async (userId) => {
@@ -108,6 +108,7 @@ const getFullProfile = async (req, res) => {
     );
 
     const deduplicatedInsurance = deduplicateMembers(s6ins.rows);
+    // FIX: parsePgArray now returns null for missing/null DB values (Not Selected)
     const normalizedInsurance = deduplicatedInsurance.map(row => ({
       ...row,
       health_coverage:       parsePgArray(row.health_coverage),
@@ -450,6 +451,7 @@ const saveStep5 = async (req, res) => {
     for (let i = 0; i < members.length; i++) {
       const m = members[i];
 
+      // FIX: profession is ALWAYS saved regardless of studying/working status
       const eduRes = await pool.query(
         `INSERT INTO member_education
            (profile_id, member_name, member_relation, sort_order,
@@ -466,11 +468,11 @@ const saveStep5 = async (req, res) => {
           i,
           m.highest_education || null,
           m.brief_profile || null,
-          (m.is_currently_studying && !m.is_currently_working) ? null : (m.profession_type || null),
-          (m.is_currently_studying && !m.is_currently_working) ? null : (m.profession_other || null),
-          (m.is_currently_studying && !m.is_currently_working) ? null : (m.self_employed_type || null),
-          (m.is_currently_studying && !m.is_currently_working) ? null : (m.self_employed_other || null),
-          (m.is_currently_studying && !m.is_currently_working) ? null : (m.industry || null),
+          m.profession_type || null,        // FIX: always save, no condition
+          m.profession_other || null,        // FIX: always save
+          m.self_employed_type || null,      // FIX: always save
+          m.self_employed_other || null,     // FIX: always save
+          m.industry || null,                // FIX: always save
           m.is_currently_studying != null ? m.is_currently_studying : false,
           m.is_currently_working  != null ? m.is_currently_working  : null,
         ]
@@ -606,6 +608,7 @@ const saveStep6 = async (req, res) => {
     await pool.query('DELETE FROM member_insurance WHERE profile_id=$1', [pid]);
     for (let i = 0; i < insurance.length; i++) {
       const ins = insurance[i];
+      // FIX: null means Not Selected — do NOT fall back to [] which means "No"
       await pool.query(
         `INSERT INTO member_insurance
            (profile_id, member_name, member_relation, sort_order,
@@ -615,10 +618,10 @@ const saveStep6 = async (req, res) => {
         [
           pid,
           ins.member_name || null, ins.member_relation || null, i,
-          ins.health_coverage        || [],
-          ins.life_coverage          || [],
-          ins.term_coverage          || [],
-          ins.konkani_card_coverage  || [],
+          ins.health_coverage        !== undefined ? ins.health_coverage        : null,
+          ins.life_coverage          !== undefined ? ins.life_coverage          : null,
+          ins.term_coverage          !== undefined ? ins.term_coverage          : null,
+          ins.konkani_card_coverage  !== undefined ? ins.konkani_card_coverage  : null,
         ]
       );
     }
@@ -626,6 +629,7 @@ const saveStep6 = async (req, res) => {
     await pool.query('DELETE FROM member_documents WHERE profile_id=$1', [pid]);
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i];
+      // FIX: null means Not Selected — do NOT fall back to [] which means "No"
       await pool.query(
         `INSERT INTO member_documents
           (profile_id, member_name, member_relation, sort_order,
@@ -637,11 +641,11 @@ const saveStep6 = async (req, res) => {
           doc.member_name || null,
           doc.member_relation || null,
           i,
-          doc.aadhaar_coverage  || [],
-          doc.pan_coverage      || [],
-          doc.voter_id_coverage || [],
-          doc.land_doc_coverage || [],
-          doc.dl_coverage       || [],
+          doc.aadhaar_coverage  !== undefined ? doc.aadhaar_coverage  : null,
+          doc.pan_coverage      !== undefined ? doc.pan_coverage      : null,
+          doc.voter_id_coverage !== undefined ? doc.voter_id_coverage : null,
+          doc.land_doc_coverage !== undefined ? doc.land_doc_coverage : null,
+          doc.dl_coverage       !== undefined ? doc.dl_coverage       : null,
         ]
       );
     }
@@ -660,7 +664,6 @@ const getStep7 = async (req, res) => {
   try {
     const { id: userId } = req.user;
 
-    // Enforce: only approved profiles can access sangha membership
     const profileCheck = await pool.query(
       'SELECT id, status FROM profiles WHERE user_id=$1',
       [userId]
@@ -683,7 +686,7 @@ const getStep7 = async (req, res) => {
          ms.status,
          ms.sort_order,
          s.sangha_name,
-         s.location
+         NULL as location
        FROM member_sanghas ms
        LEFT JOIN sanghas s ON s.id = ms.sangha_id
        WHERE ms.profile_id = $1
@@ -703,7 +706,6 @@ const saveStep7 = async (req, res) => {
   try {
     const { id: userId } = req.user;
 
-    // Only approved profiles can fill sangha membership
     const profileCheck = await pool.query(
       'SELECT id, status FROM profiles WHERE user_id=$1',
       [userId]
@@ -719,17 +721,15 @@ const saveStep7 = async (req, res) => {
 
     const { entries = [] } = req.body;
 
-    // Delete existing sangha memberships for this profile
     await pool.query(
       'DELETE FROM member_sanghas WHERE profile_id=$1',
       [pid]
     );
 
-    // Insert new entries
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
 
-      if (!e.sangha_id) continue; // skip empty entries
+      if (!e.sangha_id) continue;
 
       await pool.query(
         `INSERT INTO member_sanghas
@@ -747,7 +747,6 @@ const saveStep7 = async (req, res) => {
       );
     }
 
-    // Update profile completion for step7
     await pool.query(
       `UPDATE profiles SET
          step7_sangha_pct = $1,
