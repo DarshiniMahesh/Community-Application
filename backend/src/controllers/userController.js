@@ -1,7 +1,7 @@
 const pool = require('../config/db');
 
 function parsePgArray(val) {
-  if (!val) return null; // FIX: return null instead of [] so "Not Selected" is preserved
+  if (!val) return null;
   if (Array.isArray(val)) return val.length === 0 ? [] : val;
   if (typeof val === 'string') {
     const inner = val.replace(/^\{|\}$/g, '').trim();
@@ -108,7 +108,6 @@ const getFullProfile = async (req, res) => {
     );
 
     const deduplicatedInsurance = deduplicateMembers(s6ins.rows);
-    // FIX: parsePgArray now returns null for missing/null DB values (Not Selected)
     const normalizedInsurance = deduplicatedInsurance.map(row => ({
       ...row,
       health_coverage:       parsePgArray(row.health_coverage),
@@ -451,7 +450,6 @@ const saveStep5 = async (req, res) => {
     for (let i = 0; i < members.length; i++) {
       const m = members[i];
 
-      // FIX: profession is ALWAYS saved regardless of studying/working status
       const eduRes = await pool.query(
         `INSERT INTO member_education
            (profile_id, member_name, member_relation, sort_order,
@@ -468,11 +466,11 @@ const saveStep5 = async (req, res) => {
           i,
           m.highest_education || null,
           m.brief_profile || null,
-          m.profession_type || null,        // FIX: always save, no condition
-          m.profession_other || null,        // FIX: always save
-          m.self_employed_type || null,      // FIX: always save
-          m.self_employed_other || null,     // FIX: always save
-          m.industry || null,                // FIX: always save
+          m.profession_type || null,
+          m.profession_other || null,
+          m.self_employed_type || null,
+          m.self_employed_other || null,
+          m.industry || null,
           m.is_currently_studying != null ? m.is_currently_studying : false,
           m.is_currently_working  != null ? m.is_currently_working  : null,
         ]
@@ -608,7 +606,6 @@ const saveStep6 = async (req, res) => {
     await pool.query('DELETE FROM member_insurance WHERE profile_id=$1', [pid]);
     for (let i = 0; i < insurance.length; i++) {
       const ins = insurance[i];
-      // FIX: null means Not Selected — do NOT fall back to [] which means "No"
       await pool.query(
         `INSERT INTO member_insurance
            (profile_id, member_name, member_relation, sort_order,
@@ -629,7 +626,6 @@ const saveStep6 = async (req, res) => {
     await pool.query('DELETE FROM member_documents WHERE profile_id=$1', [pid]);
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i];
-      // FIX: null means Not Selected — do NOT fall back to [] which means "No"
       await pool.query(
         `INSERT INTO member_documents
           (profile_id, member_name, member_relation, sort_order,
@@ -766,6 +762,130 @@ const saveStep7 = async (req, res) => {
   }
 };
 
+// ─── POST /users/profile/reset/step7 ─────────────────────────
+const resetStep7 = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+
+    const profileCheck = await pool.query(
+      'SELECT id, status FROM profiles WHERE user_id=$1',
+      [userId]
+    );
+    if (profileCheck.rows.length === 0)
+      return res.status(404).json({ message: 'Profile not found' });
+
+    const { id: pid, status } = profileCheck.rows[0];
+
+    if (status !== 'approved') {
+      return res.status(403).json({ message: 'Reset allowed only after approval' });
+    }
+
+    // 1. Get all sangha_ids before delete
+    const entries = await pool.query(
+      'SELECT sangha_id FROM member_sanghas WHERE profile_id=$1',
+      [pid]
+    );
+
+    // 2. Delete from member_sanghas
+    await pool.query(
+      'DELETE FROM member_sanghas WHERE profile_id=$1',
+      [pid]
+    );
+
+    // 3. Remove from sangha_members
+    const userRes = await pool.query(
+      'SELECT email, phone FROM users WHERE id=$1',
+      [userId]
+    );
+    const u = userRes.rows[0];
+
+    for (const e of entries.rows) {
+      await pool.query(
+        `DELETE FROM sangha_members
+         WHERE sangha_id = $1
+         AND (
+           ($2::text IS NOT NULL AND email = $2)
+           OR ($3::text IS NOT NULL AND phone = $3)
+         )`,
+        [e.sangha_id, u?.email || null, u?.phone || null]
+      );
+    }
+
+    await pool.query(
+      `UPDATE profiles SET
+         step7_sangha_pct = 0,
+         step7_completed  = false
+       WHERE id = $1`,
+      [pid]
+    );
+
+    res.json({ message: 'Step 7 reset successful' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── DELETE /users/profile/sangha/:entryId ────────────────────
+const deleteSangha = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const { entryId } = req.params;
+
+    const profile = await pool.query(
+      'SELECT id, status FROM profiles WHERE user_id=$1',
+      [userId]
+    );
+
+    if (profile.rows.length === 0)
+      return res.status(404).json({ message: 'Profile not found' });
+
+    const { id: pid, status } = profile.rows[0];
+
+    if (status !== 'approved') {
+      return res.status(403).json({ message: 'Not allowed before approval' });
+    }
+
+    // 1. Get entry first
+    const entryRes = await pool.query(
+      'SELECT sangha_id FROM member_sanghas WHERE id=$1 AND profile_id=$2',
+      [entryId, pid]
+    );
+
+    const sanghaId = entryRes.rows[0]?.sangha_id;
+
+    // 2. Delete from member_sanghas
+    await pool.query(
+      'DELETE FROM member_sanghas WHERE id=$1 AND profile_id=$2',
+      [entryId, pid]
+    );
+
+    // 3. Delete from sangha_members
+    const userRes = await pool.query(
+      'SELECT email, phone FROM users WHERE id=$1',
+      [userId]
+    );
+    const u = userRes.rows[0];
+
+    if (sanghaId) {
+      await pool.query(
+        `DELETE FROM sangha_members
+         WHERE sangha_id = $1
+         AND (
+           ($2::text IS NOT NULL AND email = $2)
+           OR ($3::text IS NOT NULL AND phone = $3)
+         )`,
+        [sanghaId, u?.email || null, u?.phone || null]
+      );
+    }
+
+    res.json({ message: 'Deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Delete failed' });
+  }
+};
+
 // ─── POST /users/profile/submit ──────────────────────────────
 const submitApplication = async (req, res) => {
   try {
@@ -821,8 +941,9 @@ const resetProfile = async (req, res) => {
 
     const { id: pid, status } = profile.rows[0];
 
-    if (status === 'submitted' || status === 'under_review')
-      return res.status(400).json({ message: 'Cannot reset while profile is under review' });
+    if (status !== 'approved') {
+      return res.status(403).json({ message: 'Reset allowed only after profile is approved' });
+    }
 
     await pool.query('DELETE FROM personal_details  WHERE profile_id=$1', [pid]);
     await pool.query('DELETE FROM religious_details WHERE profile_id=$1', [pid]);
@@ -1102,6 +1223,8 @@ module.exports = {
   submitApplication,
   resetProfile,
   resetStep1, resetStep2, resetStep3, resetStep4, resetStep5, resetStep6,
+  resetStep7,
+  deleteSangha,
   getPendingUsers, getUserById,
   getUserActivityLogs,
 };

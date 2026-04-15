@@ -21,6 +21,9 @@ router.post('/profile/step6',       requireRole('user'), uc.saveStep6);
 router.get('/profile/sangha',       requireRole('user'), uc.getStep7);
 router.post('/profile/step7',       requireRole('user'), uc.saveStep7);
 
+// ✅ ADDED: Delete individual sangha entry
+router.delete('/profile/sangha/:entryId', requireRole('user'), uc.deleteSangha);
+
 // Submit
 router.post('/profile/submit',      requireRole('user'), uc.submitApplication);
 
@@ -34,6 +37,7 @@ router.post('/profile/reset/step3', requireRole('user'), uc.resetStep3);
 router.post('/profile/reset/step4', requireRole('user'), uc.resetStep4);
 router.post('/profile/reset/step5', requireRole('user'), uc.resetStep5);
 router.post('/profile/reset/step6', requireRole('user'), uc.resetStep6);
+router.post('/profile/reset/step7', requireRole('user'), uc.resetStep7);
 
 // Activity logs (user's own history)
 router.get('/activity-logs',        requireRole('user'), uc.getUserActivityLogs);

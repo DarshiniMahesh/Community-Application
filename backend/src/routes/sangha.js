@@ -38,6 +38,11 @@ router.get('/members',             requireRole('sangha', 'admin'), sc.getMembers
 router.get('/pending-users',       requireRole('sangha', 'admin'), sc.getPendingUsers);
 router.get('/review-user/:id',     requireRole('sangha', 'admin'), sc.getUserForReview);
 
+// Member requests
+router.get('/member-requests',     requireRole('sangha', 'admin'), sc.getMemberRequests);
+router.post('/approve-request',    requireRole('sangha', 'admin'), sc.approveMemberRequest);
+router.post('/reject-request',     requireRole('sangha', 'admin'), sc.rejectMemberRequest);
+
 // Actions
 router.post('/approve',            requireRole('sangha', 'admin'), sc.approveUser);
 router.post('/reject',             requireRole('sangha', 'admin'), sc.rejectUser);

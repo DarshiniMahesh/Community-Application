@@ -502,7 +502,7 @@ const getDashboard = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// MEMBERS
+// MEMBERS — now reads from sangha_members table
 // ════════════════════════════════════════════════════════════
 const getMembers = async (req, res) => {
   try {
@@ -511,16 +511,10 @@ const getMembers = async (req, res) => {
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
     const result = await pool.query(
-      `SELECT u.id, u.email, u.phone, u.is_blocked,
-              p.id AS profile_id, p.status, p.overall_completion_pct, p.submitted_at,
-              pd.first_name, pd.last_name, pd.gender
-       FROM profiles p
-       JOIN users u ON u.id = p.user_id
-       LEFT JOIN personal_details pd ON pd.profile_id = p.id
-       WHERE p.sangha_id = $1
-       AND p.status = 'approved'
-       AND u.is_blocked = FALSE
-       ORDER BY p.updated_at DESC`,
+      `SELECT *
+       FROM sangha_members
+       WHERE sangha_id = $1
+       ORDER BY created_at DESC`,
       [sanghaId]
     );
     res.json(result.rows);
@@ -607,6 +601,119 @@ const getUserForReview = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
+// MEMBER REQUESTS
+// ════════════════════════════════════════════════════════════
+const getMemberRequests = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+
+    const result = await pool.query(
+      `SELECT ms.id, ms.profile_id, ms.sangha_id, ms.sangha_name,
+              ms.role, ms.tenure, ms.status,
+              pd.first_name, pd.last_name,
+              u.email, u.phone
+       FROM member_sanghas ms
+       JOIN profiles p ON p.id = ms.profile_id
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN personal_details pd ON pd.profile_id = p.id
+       WHERE ms.sangha_id = $1 AND ms.status = 'pending'
+       ORDER BY ms.created_at DESC`,
+      [sanghaId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+const approveMemberRequest = async (req, res) => {
+  try {
+    const { entryId } = req.body;
+    const { id: userId } = req.user;
+
+    const sanghaId = await getSanghaId(userId);
+
+    const entryRes = await pool.query(
+      `SELECT ms.*, p.user_id, pd.first_name, pd.last_name
+       FROM member_sanghas ms
+       JOIN profiles p ON p.id = ms.profile_id
+       LEFT JOIN personal_details pd ON pd.profile_id = p.id
+       WHERE ms.id = $1`,
+      [entryId]
+    );
+
+    if (entryRes.rows.length === 0)
+      return res.status(404).json({ message: 'Request not found' });
+
+    const entry = entryRes.rows[0];
+
+    // 1. Mark approved
+    await pool.query(
+      `UPDATE member_sanghas SET status='approved' WHERE id=$1`,
+      [entryId]
+    );
+
+    // 2. Get user contact info
+    const userRes = await pool.query(
+      'SELECT email, phone FROM users WHERE id=$1',
+      [entry.user_id]
+    );
+    const u = userRes.rows[0];
+
+    // 3. Delete old entry if exists to avoid duplicates
+    await pool.query(
+      `DELETE FROM sangha_members
+       WHERE sangha_id=$1
+       AND (
+         ($2::text IS NOT NULL AND email=$2)
+         OR ($3::text IS NOT NULL AND phone=$3)
+       )`,
+      [sanghaId, u?.email || null, u?.phone || null]
+    );
+
+    // 4. Insert fresh into sangha_members
+    await pool.query(
+      `INSERT INTO sangha_members
+         (sangha_id, first_name, last_name, email, phone, role, member_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        sanghaId,
+        entry.first_name || null,
+        entry.last_name  || null,
+        u?.email         || null,
+        u?.phone         || null,
+        entry.role       || null,
+        entry.tenure     || null,
+      ]
+    );
+
+    res.json({ message: 'Member request approved' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+const rejectMemberRequest = async (req, res) => {
+  try {
+    const { entryId } = req.body;
+
+    await pool.query(
+      `UPDATE member_sanghas SET status='rejected' WHERE id=$1`,
+      [entryId]
+    );
+
+    res.json({ message: 'Member request rejected' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ════════════════════════════════════════════════════════════
 // ACTIONS
 // ════════════════════════════════════════════════════════════
 const approveUser = async (req, res) => {
@@ -652,7 +759,6 @@ const approveUser = async (req, res) => {
         );
         const u = userRes.rows[0];
 
-        // ✅ FIX 3: DELETE old entry first, then INSERT fresh — no redundant alreadyExists check needed
         await pool.query(
           `DELETE FROM sangha_members
            WHERE sangha_id = $1
@@ -1030,4 +1136,5 @@ module.exports = {
   getAllSanghas, getSanghaById,
   getTeamMembers, addTeamMember, deleteTeamMember,
   getApprovedSanghas,
+  getMemberRequests, approveMemberRequest, rejectMemberRequest,
 };

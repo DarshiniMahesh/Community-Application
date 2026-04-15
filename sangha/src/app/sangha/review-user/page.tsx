@@ -1,5 +1,6 @@
 "use client";
 
+import { ProfileDetail } from "../user-management/page";
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -7,16 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { User, Users, Briefcase, GraduationCap, MapPin, CheckCircle2, XCircle, MessageSquare, ArrowLeft } from "lucide-react";
+import { CheckCircle2, XCircle, MessageSquare, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-
-function formatTenure(t?: string | null): string {
-  if (!t) return "—";
-  if (t === "part_time") return "Part Time";
-  if (t === "full_time") return "Full Time";
-  return t;
-}
 
 function ReviewContent() {
   const params = useSearchParams();
@@ -72,19 +66,7 @@ function ReviewContent() {
   if (loading) return <p className="text-muted-foreground p-8">Loading application...</p>;
   if (!data)   return <p className="text-muted-foreground p-8">Could not load application.</p>;
 
-  const { user, profile, step1, step2, step3, step4, step5, step6 } = data;
-
-  // ✅ covers 'yes' (string from DB after fix) and true (boolean — legacy data)
-  const isSanghaMemberClaim =
-    step1?.is_part_of_sangha === "yes" ||
-    step1?.is_part_of_sangha === true;
-
-  const Row = ({ label, value }: { label: string; value?: string | null }) => (
-    <div>
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="font-medium">{value || "—"}</dd>
-    </div>
-  );
+  const { profile } = data;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -103,169 +85,16 @@ function ReviewContent() {
         <Badge variant="secondary" className="capitalize">{profile?.status}</Badge>
       </div>
 
-      {/* ── Personal Details ── */}
-      <Card className="shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <User className="h-5 w-5 text-primary" />Personal Details
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <dl className="grid md:grid-cols-2 gap-4">
-            <Row label="Full Name" value={step1 ? `${step1.first_name ?? ""} ${step1.middle_name ?? ""} ${step1.last_name ?? ""}`.trim() : null} />
-            <Row label="Gender"    value={step1?.gender} />
-            <Row label="DOB"       value={step1?.date_of_birth} />
-            <Row label="Phone"     value={user?.phone} />
-            <Row label="Email"     value={user?.email} />
-            <Row label="Married"   value={step1?.is_married ? "Yes" : "No"} />
-            <Row label="Father"    value={step1?.fathers_name} />
-            <Row label="Mother"    value={step1?.mothers_name} />
-            {step1?.is_married && (
-              <Row label="Spouse" value={step1?.wife_name || step1?.husbands_name} />
-            )}
-          </dl>
-        </CardContent>
-      </Card>
-
-      {/* ── Sangha Membership Claim — highlighted warning ── */}
-      {isSanghaMemberClaim && (
-        <Card className="border-yellow-400 bg-yellow-50">
-          <CardHeader>
-            <CardTitle className="text-yellow-800 flex items-center gap-2">
-              <Users className="h-5 w-5" />⚠️ Sangha Membership Claim
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-yellow-800 space-y-4">
-            {/* Sangha details */}
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-xs text-yellow-600 font-medium mb-0.5">Sangha Name</p>
-                <p className="font-semibold text-yellow-900">{step1?.sangha_name || "—"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-yellow-600 font-medium mb-0.5">Role</p>
-                <p className="font-semibold text-yellow-900">{step1?.sangha_role || "—"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-yellow-600 font-medium mb-0.5">Tenure</p>
-                <p className="font-semibold text-yellow-900">{formatTenure(step1?.sangha_tenure)}</p>
-              </div>
-            </div>
-            {/* Verification instructions */}
-            <div className="border-t border-yellow-300 pt-3">
-              <p className="font-semibold mb-1">Please verify before approving:</p>
-              <ul className="list-disc ml-5 space-y-1">
-                <li>Verify in Sangha Members list</li>
-                <li>OR verify in physical register</li>
-              </ul>
-              <p className="font-semibold mt-2 text-yellow-900">✓ Approve only if verified</p>
-            </div>
-          </CardContent>
-        </Card>
+      {/* ── Sangha Warning ── */}
+      {data?.step1?.is_part_of_sangha === "yes" && (
+        <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 p-3 rounded mt-4">
+          ⚠ This user claims to be a Sangha member.
+          Please verify role and tenure before approval.
+        </div>
       )}
 
-      {/* ── Religious Details ── */}
-      {step2 && (
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <span className="text-primary">🕉</span>Religious Details
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid md:grid-cols-2 gap-4">
-              <Row label="Gotra"           value={step2.gotra} />
-              <Row label="Kuladevata"      value={step2.kuladevata} />
-              <Row label="Priest"          value={step2.priest_name} />
-              <Row label="Priest Location" value={step2.priest_location} />
-            </dl>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── Family Members ── */}
-      {step3?.members?.length > 0 && (
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-primary" />Family Members
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {step3.members.map((m: any, i: number) => (
-                <div key={i} className="flex gap-4 text-sm border rounded-md p-3">
-                  <span className="font-medium w-32">{m.relation}</span>
-                  <span>{m.name || "—"}</span>
-                  <span className="text-muted-foreground">{m.age ? `Age ${m.age}` : ""}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── Addresses ── */}
-      {step4?.length > 0 && (
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5 text-primary" />Addresses
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid md:grid-cols-2 gap-4">
-              {step4.map((addr: any, i: number) => (
-                <div key={i} className="border rounded-md p-3 text-sm space-y-1">
-                  <p className="font-medium capitalize">{addr.address_type} Address</p>
-                  <p>{[addr.flat_no, addr.building, addr.street, addr.area, addr.city, addr.state, addr.pincode].filter(Boolean).join(", ")}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── Education & Profession ── */}
-      {step5?.length > 0 && (
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <GraduationCap className="h-5 w-5 text-primary" />Education & Profession
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {step5.map((m: any, i: number) => (
-                <div key={i} className="border rounded-md p-3 text-sm space-y-1">
-                  <p className="font-medium">
-                    {m.member_name} <span className="text-muted-foreground font-normal">({m.member_relation})</span>
-                  </p>
-                  <p>Education: {m.highest_education || "—"}</p>
-                  <p>Profession: {m.profession_type || "—"}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── Economic Details ── */}
-      {step6?.economic && (
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Briefcase className="h-5 w-5 text-primary" />Economic Details
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid md:grid-cols-2 gap-4">
-              <Row label="Self Income"   value={step6.economic.self_income} />
-              <Row label="Family Income" value={step6.economic.family_income} />
-            </dl>
-          </CardContent>
-        </Card>
-      )}
+      {/* ── Profile Details ── */}
+      <ProfileDetail data={data}/>
 
       {/* ── Decision ── */}
       <Card className="shadow-sm bg-secondary/30">

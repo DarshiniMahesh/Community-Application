@@ -542,14 +542,14 @@ function DocumentsBox({ row }: { row: DocumentRow }) {
 
 /* ─── Profile Detail ─────────────────────────────────────────────────────────── */
 
-function ProfileDetail({
+export function ProfileDetail({
   data, onApprove, onReject, onRequestChanges, isMutating,
 }: {
   data: ProfileData;
-  onApprove: () => void;
-  onReject: () => void;
-  onRequestChanges: () => void;
-  isMutating: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
+  onRequestChanges?: () => void;
+  isMutating?: boolean;
 }) {
   const s1      = data.step1;
   const s2      = data.step2;

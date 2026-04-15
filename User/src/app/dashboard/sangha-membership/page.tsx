@@ -115,8 +115,6 @@ export default function Page() {
       .then(async (meta) => {
         setProfileStatus(meta.status || "");
 
-        // FIX: always fetch sangha list regardless of profile status
-        // Only fetch existing entries if profile is approved
         try {
           const [sanghas, existingEntries] = await Promise.all([
             api.get("/sangha/approved-list"),
@@ -149,7 +147,6 @@ export default function Page() {
       .finally(() => setLoading(false));
   }, []);
 
-  // UI access still restricted to approved only
   const isAccessAllowed = profileStatus === "approved";
 
   const addRow = () => {
@@ -221,21 +218,14 @@ export default function Page() {
     }
   };
 
+  // ✅ Reset: calls dedicated reset endpoint and clears all entries
   const confirmReset = async () => {
     if (resetIndex === null) return;
     const entry = entries[resetIndex];
 
     try {
-      const remaining = entries.filter((_, i) => i !== resetIndex);
-      await api.post("/users/profile/step7", {
-        entries: remaining.map((e) => ({
-          sangha_id:   e.sangha_id,
-          sangha_name: e.sangha_name,
-          role:        e.role,
-          tenure:      e.tenure,
-        })),
-      });
-      setEntries(remaining);
+      await api.post("/users/profile/reset/step7", {});
+      setEntries([]);
       toast.success(`Membership for ${entry.sangha_name || "entry"} has been reset`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
@@ -245,21 +235,14 @@ export default function Page() {
     }
   };
 
+  // ✅ Delete: calls DELETE API for saved entries, filters locally for unsaved
   const confirmDelete = async () => {
     if (deleteIndex === null) return;
 
     try {
       if (entries[deleteIndex].isSaved) {
-        const remaining = entries.filter((_, i) => i !== deleteIndex);
-        await api.post("/users/profile/step7", {
-          entries: remaining.map((e) => ({
-            sangha_id:   e.sangha_id,
-            sangha_name: e.sangha_name,
-            role:        e.role,
-            tenure:      e.tenure,
-          })),
-        });
-        setEntries(remaining);
+        await api.delete(`/users/profile/sangha/${entries[deleteIndex].id}`);
+        setEntries((prev) => prev.filter((_, i) => i !== deleteIndex));
       } else {
         setEntries((prev) => prev.filter((_, i) => i !== deleteIndex));
       }
@@ -458,7 +441,7 @@ export default function Page() {
                     </Select>
                   </div>
 
-                  {/* Employment Type (field stays as tenure in DB) */}
+                  {/* Employment Type */}
                   <div className="space-y-2">
                     <Label>Employment Type</Label>
                     <Select

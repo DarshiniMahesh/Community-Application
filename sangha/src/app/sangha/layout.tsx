@@ -13,6 +13,7 @@ const navigation = [
   { name: "Dashboard",       href: "/sangha/dashboard",       icon: Users },
   { name: "User Management", href: "/sangha/user-management", icon: UserCog },
   { name: "Pending Users",   href: "/sangha/pending-users",   icon: Clock },
+  { name: "Member Requests", href: "/sangha/member-requests", icon: Users },
   { name: "Sangha Members",  href: "/sangha/members",         icon: Users },
   { name: "Reports",         href: "/sangha/reports",         icon: FileText },
   { name: "Activity Logs",   href: "/sangha/activity-logs",   icon: Activity },

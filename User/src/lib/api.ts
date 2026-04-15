@@ -31,6 +31,17 @@ export const api = {
     if (!res.ok) throw new Error(data.message || "Something went wrong");
     return data;
   },
+  // ✅ ADDED: DELETE method
+  delete: async (path: string): Promise<any> => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "DELETE",
+      headers: getHeaders(),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+    if (!res.ok) throw new Error(data.message || "Something went wrong");
+    return data;
+  },
 };
 
 export const saveAuth = (token: string, role: string) => {
