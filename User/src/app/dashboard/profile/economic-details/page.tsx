@@ -79,11 +79,38 @@ function buildExpectedMembers(
   ];
 }
 
-function hasCov(obj: Record<string, unknown>, key: string): boolean | null {
+/**
+ * Read a scalar doc_coverage enum value ('yes' | 'no' | null) from a DB row.
+ * Also tolerates the old array format for backwards compatibility during migration.
+ */
+function hasCovScalar(obj: Record<string, unknown>, key: string): boolean | null {
+  if (!(key in obj)) return null;
+  const val = obj[key];
+
+  // Scalar enum — new format
+  if (val === 'yes') return true;
+  if (val === 'no')  return false;
+
+  // Old array format — fallback during migration
+  if (Array.isArray(val)) {
+    if (val.length === 0) return false;
+    if (val.includes('yes') || val.includes('self') || val.length > 0) return true;
+    return false;
+  }
+
+  return null;
+}
+
+/**
+ * Read an array-based insurance coverage value from a DB row.
+ */
+function hasCovArray(obj: Record<string, unknown>, key: string): boolean | null {
   if (!(key in obj)) return null;
   const arr = obj[key];
   if (!Array.isArray(arr)) return null;
-  return arr.length > 0;
+  if (arr.includes("yes")) return true;
+  if (arr.includes("no"))  return false;
+  return null;
 }
 
 function SelectCell({
@@ -217,15 +244,17 @@ export default function Page() {
 
         return {
           ...blankMember(base.id, base.name, base.relation),
-          healthInsurance: hasCov(ins, "health_coverage"),
-          lifeInsurance:   hasCov(ins, "life_coverage"),
-          termInsurance:   hasCov(ins, "term_coverage"),
-          konkaniCard:     hasCov(ins, "konkani_card_coverage"),
-          aadhaar:         hasCov(doc, "aadhaar_coverage"),
-          pan:             hasCov(doc, "pan_coverage"),
-          voterId:         hasCov(doc, "voter_id_coverage"),
-          landDocuments:   hasCov(doc, "land_doc_coverage"),
-          drivingLicense:  hasCov(doc, "dl_coverage"),
+          // Insurance — array-based
+          healthInsurance: hasCovArray(ins, "health_coverage"),
+          lifeInsurance:   hasCovArray(ins, "life_coverage"),
+          termInsurance:   hasCovArray(ins, "term_coverage"),
+          konkaniCard:     hasCovArray(ins, "konkani_card_coverage"),
+          // Documents — scalar enum ('yes' | 'no' | null)
+          aadhaar:       hasCovScalar(doc, "aadhaar_coverage"),
+          pan:           hasCovScalar(doc, "pan_coverage"),
+          voterId:       hasCovScalar(doc, "voter_id_coverage"),
+          landDocuments: hasCovScalar(doc, "land_doc_coverage"),
+          drivingLicense:hasCovScalar(doc, "dl_coverage"),
         };
       }));
 
@@ -250,10 +279,22 @@ export default function Page() {
     setMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: val } : m));
   };
 
-  // FIX: null → null (Not Selected), true → ["yes"] (Yes), false → [] (No)
-  const covToPayload = (val: boolean | null): string[] | null => {
+  /**
+   * Insurance payload: array-based (unchanged)
+   * null → null, true → ["yes"], false → ["no"]
+   */
+  const insToPayload = (val: boolean | null): string[] | null => {
     if (val === null) return null;
-    return val ? ["yes"] : [];
+    return val ? ["yes"] : ["no"];
+  };
+
+  /**
+   * Document payload: scalar string for doc_coverage enum
+   * null → null, true → "yes", false → "no"
+   */
+  const docToPayload = (val: boolean | null): string | null => {
+    if (val === null) return null;
+    return val ? "yes" : "no";
   };
 
   const buildPayload = () => ({
@@ -274,20 +315,21 @@ export default function Page() {
       member_name:           m.name     || null,
       member_relation:       m.relation || null,
       sort_order:            i,
-      health_coverage:       covToPayload(m.healthInsurance),
-      life_coverage:         covToPayload(m.lifeInsurance),
-      term_coverage:         covToPayload(m.termInsurance),
-      konkani_card_coverage: covToPayload(m.konkaniCard),
+      health_coverage:       insToPayload(m.healthInsurance),
+      life_coverage:         insToPayload(m.lifeInsurance),
+      term_coverage:         insToPayload(m.termInsurance),
+      konkani_card_coverage: insToPayload(m.konkaniCard),
     })),
     documents: members.map((m, i) => ({
       member_name:       m.name     || null,
       member_relation:   m.relation || null,
       sort_order:        i,
-      aadhaar_coverage:  covToPayload(m.aadhaar),
-      pan_coverage:      covToPayload(m.pan),
-      voter_id_coverage: covToPayload(m.voterId),
-      land_doc_coverage: covToPayload(m.landDocuments),
-      dl_coverage:       covToPayload(m.drivingLicense),
+      // Scalar strings — matches doc_coverage enum in DB
+      aadhaar_coverage:  docToPayload(m.aadhaar),
+      pan_coverage:      docToPayload(m.pan),
+      voter_id_coverage: docToPayload(m.voterId),
+      land_doc_coverage: docToPayload(m.landDocuments),
+      dl_coverage:       docToPayload(m.drivingLicense),
     })),
   });
 

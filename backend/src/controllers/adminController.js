@@ -231,7 +231,7 @@ const approveUser = async (req, res) => {
 
     const reviewerId = adminId === 'hardcoded-admin' ? null : adminId;
     await pool.query(
-      `UPDATE profiles SET status='approved', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2 WHERE id=$3`,
+      `UPDATE profiles SET status='approved', reviewed_by=$1, reviewed_at=(NOW() AT TIME ZONE 'UTC'), review_comment=$2 WHERE id=$3`,
       [reviewerId, comment || null, profileId]
     );
     if (reviewerId) {
@@ -264,7 +264,7 @@ const rejectUser = async (req, res) => {
     const { id: profileId } = profileRes.rows[0];
     const reviewerId = adminId === 'hardcoded-admin' ? null : adminId;
     await pool.query(
-      `UPDATE profiles SET status='rejected', reviewed_by=$1, reviewed_at=NOW(), review_comment=$2 WHERE id=$3`,
+      `UPDATE profiles SET status='rejected', reviewed_by=$1, reviewed_at=(NOW() AT TIME ZONE 'UTC'), review_comment=$2 WHERE id=$3`,
       [reviewerId, comment || null, profileId]
     );
     if (reviewerId) {

@@ -52,7 +52,7 @@ const blankRow = (): FamilyMember => ({
 const calcAge = (dob: string) => {
   if (!dob) return null;
   const today = new Date();
-  const birth = new Date(dob);
+  const birth = new Date(dob + "T00:00:00");
   let age = today.getFullYear() - birth.getFullYear();
   const m = today.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
@@ -92,7 +92,9 @@ export default function Page() {
         setSelfMember((prev) => ({
           ...prev,
           name: [s1.first_name, s1.last_name].filter(Boolean).join(" ") || prev.name,
-          dob: s1.date_of_birth || s1.dob || prev.dob,
+          dob: s1.date_of_birth
+          ? String(s1.date_of_birth).slice(0, 10)
+          : (s1.dob ? String(s1.dob).slice(0, 10) : prev.dob),
           gender: s1.gender || prev.gender,
           disability: s1.disability || prev.disability,
         }));
@@ -110,7 +112,9 @@ export default function Page() {
           setSelfMember((prev) => ({
             ...prev,
             name: selfFromSaved.name || prev.name,
-            dob: selfFromSaved.dob || prev.dob,
+            dob: selfFromSaved.dob
+            ? String(selfFromSaved.dob).slice(0, 10)
+            : prev.dob,
             gender: selfFromSaved.gender || prev.gender,
             status: selfFromSaved.status || prev.status,
             disability: selfFromSaved.disability || prev.disability,
@@ -123,7 +127,7 @@ export default function Page() {
               id: String(i + 1),
               relation: m.relation || "",
               name: m.name || "",
-              dob: m.dob || "",
+              dob: m.dob ? String(m.dob).slice(0, 10) : "",
               gender: m.gender || "",
               status: m.status || "active",
               disability: m.disability || "no",
@@ -259,14 +263,17 @@ export default function Page() {
         {/* Date of Birth */}
         <TableCell>
           <Input
-            type="date"
-            value={member.dob}
-            onChange={(e) =>
-              isSelf ? updateSelf("dob", e.target.value) : update(member.id, "dob", e.target.value)
-            }
-            className="h-9"
-            readOnly={isSelf}
-          />
+  type="date"
+  value={member.dob}
+  min="1000-01-01" max="9999-12-31"
+  onChange={(e) => {
+    const val = e.target.value;
+    if (val && val.split("-")[0].length !== 4) return;
+    isSelf ? updateSelf("dob", val) : update(member.id, "dob", val);
+  }}
+  className="h-9"
+  readOnly={isSelf}
+/>
         </TableCell>
 
         {/* Gender */}

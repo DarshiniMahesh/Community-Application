@@ -10,6 +10,25 @@ import { api } from "@/lib/api";
 
 type StatusType = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "changes_requested";
 
+// ✅ FIX: Always format dates explicitly in IST, regardless of browser timezone
+const formatIST = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return "Not yet submitted";
+  return new Date(dateStr).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+};
+
+const formatISTLong = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return "Not yet submitted";
+  return new Date(dateStr).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    dateStyle: "long",
+    timeStyle: "short",
+  });
+};
+
 const getStatusConfig = (status: StatusType) => {
   switch (status) {
     case "draft":             return { badge: <Badge variant="secondary">Draft</Badge>, icon: <Edit className="h-12 w-12 text-gray-600" />, title: "Profile Not Submitted", description: "Your profile is in draft. Complete and submit for approval.", color: "bg-gray-100", borderColor: "border-l-gray-400" };
@@ -52,21 +71,37 @@ export default function Page() {
 
   const timeline = [];
   if (submittedAt) {
-  timeline.push({
-    date: new Date(submittedAt).toLocaleString("en-IN", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }),
-    title: "Profile Submitted",
-    description: "Your profile was successfully submitted for review.",
-    icon: FileText,
-  });
-}
-  if (["under_review", "approved", "rejected", "changes_requested"].includes(status)) {
-    timeline.push({ date: reviewedAt ? new Date(reviewedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "In progress", title: "Under Review", description: "Sangha administration is reviewing your profile.", icon: Clock });
+    timeline.push({
+      date: formatIST(submittedAt),
+      title: "Profile Submitted",
+      description: "Your profile was successfully submitted for review.",
+      icon: FileText,
+    });
   }
-  if (status === "approved") timeline.push({ date: reviewedAt ? new Date(reviewedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "", title: "Profile Approved", description: "Your profile has been verified and approved.", icon: CheckCircle2 });
-  if (status === "rejected") timeline.push({ date: reviewedAt ? new Date(reviewedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "", title: "Profile Rejected", description: reviewComment || "Please review feedback and resubmit.", icon: XCircle });
+  if (["under_review", "approved", "rejected", "changes_requested"].includes(status)) {
+    timeline.push({
+      date: reviewedAt ? formatIST(reviewedAt) : "In progress",
+      title: "Under Review",
+      description: "Sangha administration is reviewing your profile.",
+      icon: Clock,
+    });
+  }
+  if (status === "approved") {
+    timeline.push({
+      date: formatIST(reviewedAt),
+      title: "Profile Approved",
+      description: "Your profile has been verified and approved.",
+      icon: CheckCircle2,
+    });
+  }
+  if (status === "rejected") {
+    timeline.push({
+      date: formatIST(reviewedAt),
+      title: "Profile Rejected",
+      description: reviewComment || "Please review feedback and resubmit.",
+      icon: XCircle,
+    });
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -145,19 +180,14 @@ export default function Page() {
               <Calendar className="h-5 w-5 text-primary" />
               <div>
                 <p className="text-sm text-muted-foreground">Submitted On</p>
-                <p className="font-medium">  {submittedAt    ? new Date(submittedAt).toLocaleString("en-IN", {
-        dateStyle: "long",
-        timeStyle: "short",
-      })
-    : "Not yet submitted"}
-</p>
+                <p className="font-medium">{formatISTLong(submittedAt)}</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
               <User className="h-5 w-5 text-primary" />
               <div>
                 <p className="text-sm text-muted-foreground">Profile Status</p>
-                <p className="font-medium capitalize">{status.replace("_", " ")}</p>
+                <p className="font-medium capitalize">{status.replace(/_/g, " ")}</p>
               </div>
             </div>
           </div>
@@ -191,7 +221,7 @@ export default function Page() {
           {["rejected", "changes_requested"].includes(status) && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">Please review the feedback and update your profile.</p>
-              <Button onClick={() => router.push("/dashboard/profile")} variant="destructive" className="gap-2"><Edit className="h-4 w-4" /> Edit & Resubmit</Button>
+              <Button onClick={() => router.push("/dashboard/profile")} variant="destructive" className="gap-2"><Edit className="h-4 w-4" /> Edit &amp; Resubmit</Button>
             </div>
           )}
         </CardContent>

@@ -23,35 +23,48 @@ function formatIncome(raw?: string | null): string | null {
 }
 
 /**
- * hasCov — returns boolean | null:
- *   null  → key missing / not an array (never saved, not selected)
+ * hasCovArray — for INSURANCE columns (still array-based):
+ *   null  → not an array / key missing
  *   true  → array has items (Yes)
- *   false → empty array (explicitly No)
+ *   false → empty array (No)
  */
-function hasCov(arr: unknown): boolean | null {
+function hasCovArray(arr: unknown): boolean | null {
   if (!Array.isArray(arr)) return null;
-  // If it's an array, we know it was intentionally saved
   return arr.length > 0;
 }
 
+/**
+ * hasCovScalar — for DOCUMENT columns (scalar doc_coverage enum 'yes'|'no'|null):
+ *   null  → value is null or missing (Not Selected)
+ *   true  → value is 'yes' (Yes)
+ *   false → value is 'no' (No)
+ */
+function hasCovScalar(val: unknown): boolean | null {
+  if (val === 'yes') return true;
+  if (val === 'no')  return false;
+  // fallback: old array format during migration
+  if (Array.isArray(val)) return val.length > 0 ? true : false;
+  return null;
+}
+
 function formatStatus(s: string): string {
-  if (s === "active") return "Active";
-  if (s === "passed_away") return "Passed Away";
-  if (s === "unknown") return "Unknown";
+  if (s === "active")       return "Active";
+  if (s === "passed_away")  return "Passed Away";
+  if (s === "unknown")      return "Unknown";
   return s || "";
 }
 
 function formatProfession(p: string): string {
   const map: Record<string, string> = {
     self_employed: "Self Employed or Business",
-    stem: "Science, Technology, Engineering & Mathematics",
-    healthcare: "Healthcare & Medicine",
-    business: "Business & Management",
-    law: "Law & Governance",
-    education: "Education & Research",
-    arts_media: "Arts, Media & Communication",
-    trades: "Trades & Vocational Professions",
-    agriculture: "Agriculture & Others",
+    stem:          "Science, Technology, Engineering & Mathematics",
+    healthcare:    "Healthcare & Medicine",
+    business:      "Business & Management",
+    law:           "Law & Governance",
+    education:     "Education & Research",
+    arts_media:    "Arts, Media & Communication",
+    trades:        "Trades & Vocational Professions",
+    agriculture:   "Agriculture & Others",
   };
   return map[p] || p || "";
 }
@@ -83,7 +96,7 @@ function InfoField({ icon: Icon, label, value }: { icon: React.ElementType; labe
 /**
  * YesNoBadge — supports 3 states:
  *   true  → green "Yes" badge
- *   false → red "No" badge  (was grey before — now clearly red for No)
+ *   false → red "No" badge
  *   null  → dashed "Not Selected" badge
  */
 function YesNoBadge({ value }: { value: boolean | null }) {
@@ -95,7 +108,6 @@ function YesNoBadge({ value }: { value: boolean | null }) {
       </span>
     );
   }
-
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${
       value
@@ -149,14 +161,12 @@ export default function Page() {
   const s1    = data?.step1 as Record<string, any> | null;
   const s2    = data?.step2 as Record<string, unknown> | null;
   const s4    = data?.step4 as Record<string, string>[] | null;
-  const s5 = Array.isArray(data?.step5)
-    ? data.step5 as Record<string, unknown>[]
-    : [];
+  const s5    = Array.isArray(data?.step5) ? data!.step5 as Record<string, unknown>[] : [];
   const s6eco = (data?.step6 as { economic?: Record<string, unknown> } | null)?.economic;
   const s6ins = ((data?.step6 as { insurance?: Record<string, unknown>[] } | null)?.insurance || []);
   const s6doc = ((data?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || []);
 
-  const s3typed = data?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
+  const s3typed       = data?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
   const familyType    = s3typed?.family_info?.family_type || "";
   const familyMembers = s3typed?.members || [];
 
@@ -164,8 +174,8 @@ export default function Page() {
   const isLocked      = ["submitted", "under_review"].includes(status);
   const completionPct = typeof profile?.overall_completion_pct === "number" ? profile.overall_completion_pct : 0;
 
-  const fullName  = s1 ? [s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ") : "Your Name";
-  const initials  = s1 ? `${s1.first_name?.[0] || ""}${s1.last_name?.[0] || ""}`.toUpperCase() : "?";
+  const fullName     = s1 ? [s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ") : "Your Name";
+  const initials     = s1 ? `${s1.first_name?.[0] || ""}${s1.last_name?.[0] || ""}`.toUpperCase() : "?";
   const currentAddr  = (s4 || []).find(a => a.address_type === "current");
   const hometownAddr = (s4 || []).find(a => a.address_type === "hometown");
   const oldAddresses = (s4 || []).filter(a => a.address_type?.startsWith("old_"));
@@ -325,7 +335,7 @@ export default function Page() {
       <Section title="Location" href="/dashboard/profile/location-information" filled={!!(currentAddr?.city && currentAddr?.district)} isLocked={isLocked}>
         {currentAddr ? (
           <div className="space-y-3">
-            <InfoField icon={MapPin} label="Current Address" value={formatAddress(currentAddr)} />
+            <InfoField icon={MapPin} label="Current Address"   value={formatAddress(currentAddr)} />
             {hometownAddr && (
               <InfoField icon={MapPin} label="Home Town Address" value={formatAddress(hometownAddr)} />
             )}
@@ -373,9 +383,9 @@ export default function Page() {
                   <div className="grid grid-cols-2 gap-x-8 gap-y-3">
                     <InfoField icon={FileText} label="Currently Studying" value={studyingValue} />
                     <InfoField icon={FileText} label="Currently Working"  value={workingValue} />
-                    {profType && <InfoField icon={Wallet} label="Profession" value={formatProfession(profType)} />}
-                    {industry && <InfoField icon={FileText} label="Industry / Field" value={industry} />}
-                    {briefProfile && <InfoField icon={FileText} label="Brief Profile" value={briefProfile} />}
+                    {profType     && <InfoField icon={Wallet}   label="Profession"      value={formatProfession(profType)} />}
+                    {industry     && <InfoField icon={FileText} label="Industry / Field" value={industry} />}
+                    {briefProfile && <InfoField icon={FileText} label="Brief Profile"    value={briefProfile} />}
                   </div>
 
                   {educations.filter(e => e.degree_type).length > 0 && (
@@ -386,7 +396,7 @@ export default function Page() {
                           <div key={ei} className="flex flex-wrap gap-x-4 gap-y-1 p-2.5 rounded-lg bg-muted/30 border border-border text-sm">
                             <span className="font-medium">{e.degree_type}</span>
                             {e.degree_name && <span className="text-muted-foreground">{e.degree_name}</span>}
-                            {e.university && <span className="text-muted-foreground">{e.university}</span>}
+                            {e.university  && <span className="text-muted-foreground">{e.university}</span>}
                             {e.start_date && e.end_date && (
                               <span className="text-muted-foreground text-xs">{formatDate(e.start_date)} – {formatDate(e.end_date)}</span>
                             )}
@@ -468,7 +478,8 @@ export default function Page() {
                           ].map(({ label, key }) => (
                             <div key={key} className="flex items-center justify-between px-3 py-2 text-xs">
                               <span className="text-muted-foreground">{label}</span>
-                              <YesNoBadge value={hasCov(ins[key])} />
+                              {/* Insurance: array-based */}
+                              <YesNoBadge value={hasCovArray(ins[key])} />
                             </div>
                           ))}
                         </div>
@@ -501,7 +512,8 @@ export default function Page() {
                           ].map(({ label, key }) => (
                             <div key={key} className="flex items-center justify-between px-3 py-2 text-xs">
                               <span className="text-muted-foreground">{label}</span>
-                              <YesNoBadge value={hasCov(doc[key])} />
+                              {/* Documents: scalar enum */}
+                              <YesNoBadge value={hasCovScalar(doc[key])} />
                             </div>
                           ))}
                         </div>

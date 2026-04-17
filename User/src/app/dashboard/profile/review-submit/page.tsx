@@ -58,7 +58,7 @@ function Field({ label, value }: { label: string; value?: string | null }) {
 /**
  * YesNoBadge — supports 3 states:
  *   true  → green "Yes" badge
- *   false → grey "No" badge
+ *   false → red "No" badge
  *   null  → italic "Not Selected" text
  */
 function YesNoBadge({ value }: { value: boolean | null }) {
@@ -70,7 +70,6 @@ function YesNoBadge({ value }: { value: boolean | null }) {
       </span>
     );
   }
-
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
       value
@@ -83,9 +82,6 @@ function YesNoBadge({ value }: { value: boolean | null }) {
   );
 }
 
-/**
- * CoverageRow — supports null value (Not Selected state)
- */
 function CoverageRow({ label, value }: { label: string; value: boolean | null }) {
   return (
     <div className="flex items-center justify-between py-1.5">
@@ -122,16 +118,32 @@ function SectionHeader({
 }
 
 /**
- * hasCoverage — returns boolean | null:
- *   null  → key missing from object (never saved / not selected)
- *   true  → array with items (Yes)
- *   false → empty array (explicitly No)
+ * hasCovArray — for INSURANCE columns (still array-based):
+ *   null  → key missing or not an array
+ *   true  → array has items (Yes)
+ *   false → empty array (No)
  */
-function hasCoverage(obj: Record<string, unknown> | undefined, key: string): boolean | null {
+function hasCovArray(obj: Record<string, unknown> | undefined, key: string): boolean | null {
   if (!obj || !(key in obj)) return null;
   const arr = obj[key];
   if (!Array.isArray(arr)) return null;
   return arr.length > 0;
+}
+
+/**
+ * hasCovScalar — for DOCUMENT columns (scalar doc_coverage enum):
+ *   null  → key missing or null in DB (Not Selected)
+ *   true  → value is 'yes' (Yes)
+ *   false → value is 'no' (No)
+ */
+function hasCovScalar(obj: Record<string, unknown> | undefined, key: string): boolean | null {
+  if (!obj || !(key in obj)) return null;
+  const val = obj[key];
+  if (val === 'yes') return true;
+  if (val === 'no')  return false;
+  // fallback: old array format during migration
+  if (Array.isArray(val)) return val.length > 0 ? true : false;
+  return null;
 }
 
 function findMemberRow(
@@ -152,23 +164,23 @@ function formatAddress(a: Record<string, string>): string {
 }
 
 function formatStatus(s: string): string {
-  if (s === "active") return "Active";
-  if (s === "passed_away") return "Passed Away";
-  if (s === "unknown") return "Unknown";
+  if (s === "active")       return "Active";
+  if (s === "passed_away")  return "Passed Away";
+  if (s === "unknown")      return "Unknown";
   return s;
 }
 
 function formatProfession(p: string): string {
   const map: Record<string, string> = {
     self_employed: "Self Employed or Business",
-    stem: "Science, Technology, Engineering & Mathematics",
-    healthcare: "Healthcare & Medicine",
-    business: "Business & Management",
-    law: "Law & Governance",
-    education: "Education & Research",
-    arts_media: "Arts, Media & Communication",
-    trades: "Trades & Vocational Professions",
-    agriculture: "Agriculture & Others",
+    stem:          "Science, Technology, Engineering & Mathematics",
+    healthcare:    "Healthcare & Medicine",
+    business:      "Business & Management",
+    law:           "Law & Governance",
+    education:     "Education & Research",
+    arts_media:    "Arts, Media & Communication",
+    trades:        "Trades & Vocational Professions",
+    agriculture:   "Agriculture & Others",
   };
   return map[p] || p;
 }
@@ -200,10 +212,10 @@ function EduBlock({ edu }: { edu: Record<string, unknown> }) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <Field label="Currently Studying" value={studyingValue} />
-        <Field label="Currently Working" value={workingValue} />
-        {profType && <Field label="Profession" value={formatProfession(profType)} />}
-        {industry && <Field label="Industry / Field" value={industry} />}
-        {briefProfile && <Field label="Brief Profile" value={briefProfile} />}
+        <Field label="Currently Working"  value={workingValue} />
+        {profType     && <Field label="Profession"      value={formatProfession(profType)} />}
+        {industry     && <Field label="Industry / Field" value={industry} />}
+        {briefProfile && <Field label="Brief Profile"   value={briefProfile} />}
       </div>
 
       {educations.filter(e => e.degree_type).length > 0 && (
@@ -214,7 +226,7 @@ function EduBlock({ edu }: { edu: Record<string, unknown> }) {
               <div key={i} className="flex flex-wrap gap-x-6 gap-y-1 p-3 rounded-lg bg-muted/30 border border-border text-sm">
                 <span className="font-medium">{e.degree_type}</span>
                 {e.degree_name && <span className="text-muted-foreground">{e.degree_name}</span>}
-                {e.university && <span className="text-muted-foreground">{e.university}</span>}
+                {e.university  && <span className="text-muted-foreground">{e.university}</span>}
                 {e.start_date && e.end_date && (
                   <span className="text-muted-foreground text-xs">{formatDate(e.start_date)} – {formatDate(e.end_date)}</span>
                 )}
@@ -333,7 +345,7 @@ export default function Page() {
   const userName = s1 ? [s1.first_name, s1.last_name].filter(Boolean).join(" ") : "";
   const userIns  = findMemberRow(s6ins, userName, "Self") ?? s6ins.find(r => (r.member_relation as string) === "Self");
   const userDoc  = findMemberRow(s6doc, userName, "Self") ?? s6doc.find(r => (r.member_relation as string) === "Self");
-  const userEdu =
+  const userEdu  =
     s5?.find(e => (e.member_relation as string) === "Self") ??
     s5?.[0] ??
     null;
@@ -582,10 +594,11 @@ export default function Page() {
                     <div>
                       <Label className="text-xs text-muted-foreground mb-2 block">Insurance</Label>
                       <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
-                        <CoverageRow label="Health Insurance" value={hasCoverage(userIns, "health_coverage")} />
-                        <CoverageRow label="Life Insurance"   value={hasCoverage(userIns, "life_coverage")} />
-                        <CoverageRow label="Term Insurance"   value={hasCoverage(userIns, "term_coverage")} />
-                        <CoverageRow label="Konkani Card"     value={hasCoverage(userIns, "konkani_card_coverage")} />
+                        {/* Insurance uses array-based coverage */}
+                        <CoverageRow label="Health Insurance" value={hasCovArray(userIns, "health_coverage")} />
+                        <CoverageRow label="Life Insurance"   value={hasCovArray(userIns, "life_coverage")} />
+                        <CoverageRow label="Term Insurance"   value={hasCovArray(userIns, "term_coverage")} />
+                        <CoverageRow label="Konkani Card"     value={hasCovArray(userIns, "konkani_card_coverage")} />
                       </div>
                     </div>
                   )}
@@ -594,11 +607,12 @@ export default function Page() {
                     <div>
                       <Label className="text-xs text-muted-foreground mb-2 block">Documents</Label>
                       <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
-                        <CoverageRow label="Aadhaar"   value={hasCoverage(userDoc, "aadhaar_coverage")} />
-                        <CoverageRow label="PAN"       value={hasCoverage(userDoc, "pan_coverage")} />
-                        <CoverageRow label="Voter ID"  value={hasCoverage(userDoc, "voter_id_coverage")} />
-                        <CoverageRow label="Land Docs" value={hasCoverage(userDoc, "land_doc_coverage")} />
-                        <CoverageRow label="DL"        value={hasCoverage(userDoc, "dl_coverage")} />
+                        {/* Documents use scalar enum coverage */}
+                        <CoverageRow label="Aadhaar"   value={hasCovScalar(userDoc, "aadhaar_coverage")} />
+                        <CoverageRow label="PAN"       value={hasCovScalar(userDoc, "pan_coverage")} />
+                        <CoverageRow label="Voter ID"  value={hasCovScalar(userDoc, "voter_id_coverage")} />
+                        <CoverageRow label="Land Docs" value={hasCovScalar(userDoc, "land_doc_coverage")} />
+                        <CoverageRow label="DL"        value={hasCovScalar(userDoc, "dl_coverage")} />
                       </div>
                     </div>
                   )}
@@ -664,10 +678,10 @@ export default function Page() {
                             <div>
                               <Label className="text-xs text-muted-foreground mb-2 block">Insurance</Label>
                               <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
-                                <CoverageRow label="Health Insurance" value={hasCoverage(memberIns, "health_coverage")} />
-                                <CoverageRow label="Life Insurance"   value={hasCoverage(memberIns, "life_coverage")} />
-                                <CoverageRow label="Term Insurance"   value={hasCoverage(memberIns, "term_coverage")} />
-                                <CoverageRow label="Konkani Card"     value={hasCoverage(memberIns, "konkani_card_coverage")} />
+                                <CoverageRow label="Health Insurance" value={hasCovArray(memberIns, "health_coverage")} />
+                                <CoverageRow label="Life Insurance"   value={hasCovArray(memberIns, "life_coverage")} />
+                                <CoverageRow label="Term Insurance"   value={hasCovArray(memberIns, "term_coverage")} />
+                                <CoverageRow label="Konkani Card"     value={hasCovArray(memberIns, "konkani_card_coverage")} />
                               </div>
                             </div>
                           )}
@@ -675,11 +689,11 @@ export default function Page() {
                             <div>
                               <Label className="text-xs text-muted-foreground mb-2 block">Documents</Label>
                               <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
-                                <CoverageRow label="Aadhaar"   value={hasCoverage(memberDoc, "aadhaar_coverage")} />
-                                <CoverageRow label="PAN"       value={hasCoverage(memberDoc, "pan_coverage")} />
-                                <CoverageRow label="Voter ID"  value={hasCoverage(memberDoc, "voter_id_coverage")} />
-                                <CoverageRow label="Land Docs" value={hasCoverage(memberDoc, "land_doc_coverage")} />
-                                <CoverageRow label="DL"        value={hasCoverage(memberDoc, "dl_coverage")} />
+                                <CoverageRow label="Aadhaar"   value={hasCovScalar(memberDoc, "aadhaar_coverage")} />
+                                <CoverageRow label="PAN"       value={hasCovScalar(memberDoc, "pan_coverage")} />
+                                <CoverageRow label="Voter ID"  value={hasCovScalar(memberDoc, "voter_id_coverage")} />
+                                <CoverageRow label="Land Docs" value={hasCovScalar(memberDoc, "land_doc_coverage")} />
+                                <CoverageRow label="DL"        value={hasCovScalar(memberDoc, "dl_coverage")} />
                               </div>
                             </div>
                           )}

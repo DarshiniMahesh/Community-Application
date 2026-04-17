@@ -52,3 +52,6 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Census API running on http://localhost:${PORT}`);
 });
+
+const pg = require('pg');
+pg.types.setTypeParser(1082, val => val); // 1082 = DATE type

@@ -62,8 +62,8 @@ export default function Page() {
           lastName:          s.last_name || "",
           gender:            s.gender || "",
           dateOfBirth: s.date_of_birth
-            ? s.date_of_birth.split("T")[0]
-            : "",
+          ? String(s.date_of_birth).slice(0, 10)
+          : "",
           surnameInUse:      s.surname_in_use || "",
           surnameAsPerGotra: s.surname_as_per_gotra || "",
           fathersName:       s.fathers_name || "",
@@ -80,7 +80,7 @@ export default function Page() {
     middle_name:          formData.middleName || undefined,
     last_name:            formData.lastName,
     gender:               formData.gender,
-    date_of_birth:        formData.dateOfBirth || undefined,
+    date_of_birth:        formData.dateOfBirth || null,
     surname_in_use:       formData.surnameInUse || undefined,
     surname_as_per_gotra: formData.surnameAsPerGotra || undefined,
     fathers_name:         formData.fathersName || undefined,
@@ -217,8 +217,13 @@ export default function Page() {
             <div className="space-y-2">
               <Label htmlFor="dateOfBirth">Date of Birth <span className="text-destructive">*</span></Label>
               <Input id="dateOfBirth" type="date" value={formData.dateOfBirth}
-                onChange={e => set("dateOfBirth", e.target.value)}
-                className={errors.dateOfBirth ? "border-destructive" : ""} />
+  min="1000-01-01" max="9999-12-31"
+  onChange={e => {
+    const val = e.target.value;
+    if (val && val.split("-")[0].length !== 4) return;
+    set("dateOfBirth", val);
+  }}
+  className={errors.dateOfBirth ? "border-destructive" : ""} />
               {errors.dateOfBirth && <p className="text-xs text-destructive">{errors.dateOfBirth}</p>}
             </div>
           </div>

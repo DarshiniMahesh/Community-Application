@@ -11,6 +11,21 @@ function parsePgArray(val) {
   return null;
 }
 
+const cleanDOB = (d) => {
+  if (!d) return null;
+  const val = String(d).slice(0, 10);
+  const parts = val.split("-");
+  if (
+    parts.length !== 3 ||
+    parts[0].length !== 4 ||
+    parts[1].length !== 2 ||
+    parts[2].length !== 2
+  ) {
+    return null;
+  }
+  return val;
+};
+
 const getOrCreateProfile = async (userId) => {
   let res = await pool.query('SELECT * FROM profiles WHERE user_id=$1', [userId]);
   if (res.rows.length === 0) {
@@ -116,14 +131,16 @@ const getFullProfile = async (req, res) => {
       konkani_card_coverage: parsePgArray(row.konkani_card_coverage),
     }));
 
+    // Documents now use scalar doc_coverage enum ('yes' | 'no' | null)
     const deduplicatedDocuments = deduplicateMembers(s6doc.rows);
     const normalizedDocuments = deduplicatedDocuments.map(row => ({
       ...row,
-      aadhaar_coverage:     parsePgArray(row.aadhaar_coverage),
-      pan_coverage:         parsePgArray(row.pan_coverage),
-      voter_id_coverage:    parsePgArray(row.voter_id_coverage),
-      land_doc_coverage:    parsePgArray(row.land_doc_coverage),
-      dl_coverage:          parsePgArray(row.dl_coverage),
+      // Return scalar strings directly — no array parsing needed
+      aadhaar_coverage:   row.aadhaar_coverage   ?? null,
+      pan_coverage:       row.pan_coverage       ?? null,
+      voter_id_coverage:  row.voter_id_coverage  ?? null,
+      land_doc_coverage:  row.land_doc_coverage  ?? null,
+      dl_coverage:        row.dl_coverage        ?? null,
     }));
 
     res.json({
@@ -185,7 +202,7 @@ const saveStep1 = async (req, res) => {
          WHERE profile_id=$16`,
         [
           first_name, middle_name || null, last_name,
-          gender, date_of_birth || null,
+          gender, cleanDOB(date_of_birth),
           surname_in_use || null, surname_as_per_gotra || null,
           fathers_name || null, mothers_name || null, mothers_maiden_name || null,
           is_married || false, wife_name || null, wife_maiden_name || null, husbands_name || null,
@@ -206,7 +223,7 @@ const saveStep1 = async (req, res) => {
         [
           pid,
           first_name, middle_name || null, last_name,
-          gender, date_of_birth || null,
+          gender, cleanDOB(date_of_birth),
           surname_in_use || null, surname_as_per_gotra || null,
           fathers_name || null, mothers_name || null, mothers_maiden_name || null,
           is_married || false, wife_name || null, wife_maiden_name || null, husbands_name || null,
@@ -343,7 +360,7 @@ const saveStep3 = async (req, res) => {
         [
           pid, familyInfoId,
           m.relation || null, m.name || null,
-          m.age || null, m.dob || null,
+          m.age || null, m.dob ? String(m.dob).slice(0, 10) : null,
           m.gender || null, m.status || 'active',
           m.disability || 'no', i,
         ]
@@ -558,6 +575,7 @@ const saveStep6 = async (req, res) => {
     insurance = deduplicateMembersPayload(insurance);
     documents = deduplicateMembersPayload(documents);
 
+    // ── Economic ──────────────────────────────────────────────
     const ecoExists = await pool.query(
       'SELECT id FROM economic_details WHERE profile_id=$1', [pid]
     );
@@ -603,6 +621,7 @@ const saveStep6 = async (req, res) => {
       );
     }
 
+    // ── Insurance (unchanged — still array-based enum) ────────
     await pool.query('DELETE FROM member_insurance WHERE profile_id=$1', [pid]);
     for (let i = 0; i < insurance.length; i++) {
       const ins = insurance[i];
@@ -623,25 +642,35 @@ const saveStep6 = async (req, res) => {
       );
     }
 
+    // ── Documents — scalar doc_coverage enum ('yes' | 'no' | null) ──
     await pool.query('DELETE FROM member_documents WHERE profile_id=$1', [pid]);
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i];
+
+      // Helper: accept string 'yes'/'no'/null OR boolean true/false/null
+      const toDocEnum = (val) => {
+        if (val === null || val === undefined) return null;
+        if (val === true  || val === 'yes') return 'yes';
+        if (val === false || val === 'no')  return 'no';
+        return null;
+      };
+
       await pool.query(
         `INSERT INTO member_documents
           (profile_id, member_name, member_relation, sort_order,
-          aadhaar_coverage, pan_coverage,
-          voter_id_coverage, land_doc_coverage, dl_coverage)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+           aadhaar_coverage, pan_coverage,
+           voter_id_coverage, land_doc_coverage, dl_coverage)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
           pid,
-          doc.member_name || null,
+          doc.member_name     || null,
           doc.member_relation || null,
           i,
-          doc.aadhaar_coverage  !== undefined ? doc.aadhaar_coverage  : null,
-          doc.pan_coverage      !== undefined ? doc.pan_coverage      : null,
-          doc.voter_id_coverage !== undefined ? doc.voter_id_coverage : null,
-          doc.land_doc_coverage !== undefined ? doc.land_doc_coverage : null,
-          doc.dl_coverage       !== undefined ? doc.dl_coverage       : null,
+          toDocEnum(doc.aadhaar_coverage),
+          toDocEnum(doc.pan_coverage),
+          toDocEnum(doc.voter_id_coverage),
+          toDocEnum(doc.land_doc_coverage),
+          toDocEnum(doc.dl_coverage),
         ]
       );
     }
@@ -776,23 +805,20 @@ const resetStep7 = async (req, res) => {
 
     const { id: pid, status } = profileCheck.rows[0];
 
-    if (status !== 'approved') {
-      return res.status(403).json({ message: 'Reset allowed only after approval' });
+    if (!['draft', 'changes_requested', 'approved'].includes(status)) {
+      return res.status(403).json({ message: 'Reset not allowed in current status' });
     }
 
-    // 1. Get all sangha_ids before delete
     const entries = await pool.query(
       'SELECT sangha_id FROM member_sanghas WHERE profile_id=$1',
       [pid]
     );
 
-    // 2. Delete from member_sanghas
     await pool.query(
       'DELETE FROM member_sanghas WHERE profile_id=$1',
       [pid]
     );
 
-    // 3. Remove from sangha_members
     const userRes = await pool.query(
       'SELECT email, phone FROM users WHERE id=$1',
       [userId]
@@ -846,7 +872,6 @@ const deleteSangha = async (req, res) => {
       return res.status(403).json({ message: 'Not allowed before approval' });
     }
 
-    // 1. Get entry first
     const entryRes = await pool.query(
       'SELECT sangha_id FROM member_sanghas WHERE id=$1 AND profile_id=$2',
       [entryId, pid]
@@ -854,13 +879,11 @@ const deleteSangha = async (req, res) => {
 
     const sanghaId = entryRes.rows[0]?.sangha_id;
 
-    // 2. Delete from member_sanghas
     await pool.query(
       'DELETE FROM member_sanghas WHERE id=$1 AND profile_id=$2',
       [entryId, pid]
     );
 
-    // 3. Delete from sangha_members
     const userRes = await pool.query(
       'SELECT email, phone FROM users WHERE id=$1',
       [userId]
@@ -917,8 +940,10 @@ const submitApplication = async (req, res) => {
     if (sanghaCheck.rows.length === 0)
       return res.status(400).json({ message: 'Selected Sangha is not valid or not yet approved' });
 
+    // ✅ FIX: Use NOW() AT TIME ZONE 'UTC' so timestamp is always stored as UTC
+    // Frontend uses new Date() which correctly converts UTC → IST for display
     await pool.query(
-      "UPDATE profiles SET status='submitted', submitted_at=NOW(), sangha_id=$1 WHERE id=$2",
+      "UPDATE profiles SET status='submitted', submitted_at=(NOW() AT TIME ZONE 'UTC'), sangha_id=$1 WHERE id=$2",
       [sangha_id, pid]
     );
 
@@ -941,8 +966,8 @@ const resetProfile = async (req, res) => {
 
     const { id: pid, status } = profile.rows[0];
 
-    if (status !== 'approved') {
-      return res.status(403).json({ message: 'Reset allowed only after profile is approved' });
+    if (!['draft', 'changes_requested', 'approved'].includes(status)) {
+      return res.status(403).json({ message: 'Reset not allowed in current status' });
     }
 
     await pool.query('DELETE FROM personal_details  WHERE profile_id=$1', [pid]);
