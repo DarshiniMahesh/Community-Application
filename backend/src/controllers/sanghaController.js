@@ -502,7 +502,8 @@ const getDashboard = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// MEMBERS — now reads from sangha_members table
+// MEMBERS — reads from profiles table (FIXED)
+// GET /sangha/members
 // ════════════════════════════════════════════════════════════
 const getMembers = async (req, res) => {
   try {
@@ -511,12 +512,26 @@ const getMembers = async (req, res) => {
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
     const result = await pool.query(
-      `SELECT *
-       FROM sangha_members
-       WHERE sangha_id = $1
-       ORDER BY created_at DESC`,
+      `SELECT
+         u.id,
+         u.email,
+         u.phone,
+         p.id AS profile_id,
+         p.status,
+         p.overall_completion_pct,
+         p.submitted_at,
+         p.reviewed_at,
+         pd.first_name,
+         pd.last_name
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN personal_details pd ON pd.profile_id = p.id
+       WHERE p.sangha_id = $1
+         AND p.status = 'approved'
+       ORDER BY p.reviewed_at DESC`,
       [sanghaId]
     );
+
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -1085,6 +1100,10 @@ const addTeamMember = async (req, res) => {
   }
 };
 
+// ════════════════════════════════════════════════════════════
+// DELETE TEAM MEMBER
+// DELETE /sangha/team-members/:memberId
+// ════════════════════════════════════════════════════════════
 const deleteTeamMember = async (req, res) => {
   try {
     const { id: userId } = req.user;
@@ -1092,11 +1111,39 @@ const deleteTeamMember = async (req, res) => {
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
     const { memberId } = req.params;
-    const result = await pool.query(
-      `DELETE FROM sangha_members WHERE id=$1 AND sangha_id=$2 RETURNING id`,
+
+    // Fetch member's email and phone BEFORE deleting
+    const memberRes = await pool.query(
+      `SELECT email, phone FROM sangha_members WHERE id=$1 AND sangha_id=$2`,
       [memberId, sanghaId]
     );
-    if (result.rows.length === 0) return res.status(404).json({ message: 'Member not found' });
+    if (memberRes.rows.length === 0)
+      return res.status(404).json({ message: 'Member not found' });
+
+    const { email, phone } = memberRes.rows[0];
+
+    // 1. Delete from sangha_members (Sangha's internal team list)
+    await pool.query(
+      `DELETE FROM sangha_members WHERE id=$1 AND sangha_id=$2`,
+      [memberId, sanghaId]
+    );
+
+    // 2. Also remove from member_sanghas (user's membership record)
+    //    so the user's portal no longer shows this sangha entry
+    if (email || phone) {
+      await pool.query(
+        `DELETE FROM member_sanghas
+         WHERE sangha_id = $1
+           AND profile_id IN (
+             SELECT p.id FROM profiles p
+             JOIN users u ON u.id = p.user_id
+             WHERE ($2::text IS NOT NULL AND u.email = $2)
+                OR ($3::text IS NOT NULL AND u.phone = $3)
+           )`,
+        [sanghaId, email || null, phone || null]
+      );
+    }
+
     res.json({ message: 'Member deleted' });
   } catch (err) {
     console.error(err);
