@@ -22,7 +22,7 @@ interface UserLog {
 
 interface SanghaLog {
   id:           string;
-  sangha_name:  string;
+  name:  string;
   email:        string | null;
   phone:        string | null;
   location:     string | null;
@@ -32,10 +32,19 @@ interface SanghaLog {
   reviewed_at:  string | null;
 }
 
+function toUtc(d: string): Date {
+  const clean = d.endsWith('Z') ? d.slice(0, -1) : d;
+  return new Date(clean);
+}
+
+
 function fmt(d: string | null) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-IN');
+  // Strip Z so browser treats it as local time (IST on your machine)
+  const clean = d.endsWith('Z') ? d.slice(0, -1) : d;
+  return new Date(clean).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 }
+
 
 function isPending(s: string) {
   return s === 'submitted' || s === 'under_review';
@@ -56,6 +65,9 @@ export default function HistoryPage() {
       api.get('/api/admin/sangha/history'),
     ])
       .then(([users, sanghas]) => {
+        console.log('=== RAW TIME CHECK ===');
+  console.log('First user reviewed_at:', users[0]?.reviewed_at);
+  console.log('First sangha reviewed_at:', sanghas[0]?.reviewed_at);
         setUserLogs(Array.isArray(users)   ? users   : []);
         setSanghaLogs(Array.isArray(sanghas) ? sanghas : []);
         setError(null);
@@ -93,7 +105,7 @@ export default function HistoryPage() {
   );
 
   const currentSangha = sanghaBuckets[subTab].filter((s) =>
-    (s.sangha_name ?? '').toLowerCase().includes(srch) ||
+    (s.name ?? '').toLowerCase().includes(srch) ||
     (s.email ?? '').toLowerCase().includes(srch) ||
     (s.phone ?? '').includes(srch)
   );
@@ -212,6 +224,7 @@ export default function HistoryPage() {
                 <th>STATUS</th>
                 <th>APPROVED BY</th>
                 <th>APPROVED DATE</th>
+                <th>APPROVED TIME</th>
                 <th>REJECTED BY</th>
                 <th>REJECTED DATE</th>
               </tr>
@@ -249,8 +262,15 @@ export default function HistoryPage() {
                       {u.status === 'approved' ? (u.reviewed_by_name || 'Admin') : '—'}
                     </td>
                     <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-                      {u.status === 'approved' ? fmt(u.reviewed_at) : '—'}
-                    </td>
+  {u.status === 'approved'
+? u.reviewed_at : '—'}
+</td>
+
+<td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
+  {u.status === 'approved'
+    ? toUtc(u.reviewed_at!).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })
+    : '—'}
+</td>
                     <td style={{ fontSize: 12 }}>
                       {u.status === 'rejected' ? (u.reviewed_by_name || 'Admin') : '—'}
                     </td>
@@ -280,6 +300,7 @@ export default function HistoryPage() {
                 <th>SUBMITTED</th>
                 <th>STATUS</th>
                 <th>APPROVED DATE</th>
+                <th>APPROVED TIME</th>
                 <th>REJECTED DATE</th>
               </tr>
             </thead>
@@ -299,9 +320,9 @@ export default function HistoryPage() {
                     <td>
                       <div className="avatar-cell">
                         <div className="avatar-sm avatar-purple">
-                          {(s.sangha_name || '?')[0].toUpperCase()}
+                          {(s.name || '?')[0].toUpperCase()}
                         </div>
-                        {s.sangha_name}
+                        {s.name}
                       </div>
                     </td>
                     <td style={{ fontSize: 12, color: 'var(--gray-500)' }}>{s.email || '—'}</td>
@@ -315,11 +336,18 @@ export default function HistoryPage() {
                       </span>
                     </td>
                     <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-                      {s.status === 'approved' ? fmt(s.reviewed_at) : '—'}
-                    </td>
-                    <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-                      {s.status === 'rejected' ? fmt(s.reviewed_at) : '—'}
-                    </td>
+  {s.status === 'approved'
+  ? toUtc(s.reviewed_at!).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })
+    : '—'}
+</td>
+
+<td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
+  {s.status === 'approved'
+  ? toUtc(s.reviewed_at!).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })
+    : '—'}
+</td>
+
+
                   </tr>
                 ))
               )}

@@ -1,3 +1,4 @@
+/*harshitha*/
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
@@ -86,7 +87,7 @@ body { font-family: var(--font); background: var(--gray-50); color: var(--gray-8
 .sidebar-footer { padding:14px;border-top:1px solid rgba(255,255,255,0.06); }
 .user-pill { display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(255,255,255,0.05);border-radius:10px; }
 .u-name { font-size:12px;font-weight:600;color:var(--white); }
-.logout-btn { background:none;border:none;cursor:pointer;font-size:11px;color:rgba(255,255,255,0.4);font-family:var(--font);font-weight:500;transition:color var(--transition); }
+.logout-btn { background:none;border:none;cursor:pointer;font-size:21px;color:rgba(211, 237, 45, 0.871);font-family:var(--font);font-weight:500;transition:color var(--transition); }
 .logout-btn:hover { color:rgba(255,255,255,0.85); }
 .main-content { margin-left:var(--sidebar-w);flex:1;display:flex;flex-direction:column;min-height:100vh; }
 .topbar { height:var(--topbar-h);background:var(--white);border-bottom:1px solid var(--gray-200);display:flex;align-items:center;padding:0 28px;position:sticky;top:0;z-index:50;box-shadow:0 1px 3px rgba(0,0,0,0.04); }

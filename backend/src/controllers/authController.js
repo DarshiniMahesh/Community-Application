@@ -55,6 +55,8 @@ const userLogin = async (req, res) => {
     const user = result.rows[0];
     if (!user.is_active)
       return res.status(401).json({ message: 'Account is disabled' });
+    if (user.is_blocked)
+  return res.status(403).json({ message: 'Account is blocked. Contact support.' });
 
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match)

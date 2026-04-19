@@ -1,3 +1,4 @@
+/*Community-Application\admin\src\app\signup\login\page.tsx*/
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -43,7 +44,7 @@ export default function LoginPage() {
 
       sessionStorage.setItem('admin_token', data.token);
       sessionStorage.setItem('admin_email', data.email);
-      router.push('/dashboard');
+      router.push('/signup/otp');
     } catch {
       setErr('Network error. Please try again.');
       setTimeout(() => setErr(''), 3000);

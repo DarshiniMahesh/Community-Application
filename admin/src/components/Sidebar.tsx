@@ -78,9 +78,7 @@ export default function Sidebar() {
                 >
                   <span className="nav-icon">{ICONS[item.icon]}</span>
                   {item.label}
-                  {item.badge && !active && pendingCount > 0 && (
-                    <span className="nav-badge">{pendingCount}</span>
-                  )}
+                  
                 </div>
               );
             })}
@@ -89,7 +87,7 @@ export default function Sidebar() {
       </nav>
       <div className="sidebar-footer">
         <div className="user-pill">
-          <div className="u-name">{adminEmail}</div>
+          
           <button className="logout-btn" onClick={handleLogout}>Logout</button>
         </div>
       </div>
