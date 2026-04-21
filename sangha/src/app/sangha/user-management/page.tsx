@@ -15,7 +15,7 @@ import { CheckCircle2, Minus } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 
-/* ─── Types ──────────────────────────────────────────────────────────────────── */
+/* ─── Types ──────────────────────────────────────────────────────────── */
 
 interface Member {
   id: string;
@@ -30,7 +30,7 @@ interface Member {
   gender: string | null;
 }
 
-/* ─── Constants ──────────────────────────────────────────────────────────────── */
+/* ─── Constants ──────────────────────────────────────────────────────── */
 
 const STATUS_COLOR: Record<string, string> = {
   approved:          "bg-green-100 text-green-800",
@@ -51,7 +51,7 @@ const INCOME_LABELS: Record<string, string> = {
   "25l_plus": "₹25 Lakh+",
 };
 
-/* ─── Helpers ────────────────────────────────────────────────────────────────── */
+/* ─── Helpers ────────────────────────────────────────────────────────── */
 
 function formatDate(raw?: string | null): string | null {
   if (!raw) return null;
@@ -113,7 +113,7 @@ function hasCovScalar(val: unknown): boolean | null {
   return null;
 }
 
-/* ─── UI Primitives ──────────────────────────────────────────────────────────── */
+/* ─── UI Primitives ──────────────────────────────────────────────────── */
 
 function Field({ label, value }: { label: string; value?: string | null }) {
   if (value === undefined || value === null || value === "") return null;
@@ -165,71 +165,128 @@ function SectionBlock({ title }: { title: string }) {
 
 function EduBlock({ edu }: { edu: Record<string, unknown> }) {
   const profType     = typeof edu.profession_type === "string" ? edu.profession_type : "";
-  const industry     = typeof edu.industry === "string" ? edu.industry : "";
-  const briefProfile = typeof edu.brief_profile === "string" ? edu.brief_profile : "";
+  const industry     = typeof edu.industry        === "string" ? edu.industry        : "";
+  const briefProfile = typeof edu.brief_profile   === "string" ? edu.brief_profile   : "";
   const educations   = (edu.educations as Record<string, string>[]) ?? [];
-  const languages    = (edu.languages as { language: string; language_other?: string }[]) ?? [];
+  const languages    = (edu.languages  as { language: string; language_other?: string }[]) ?? [];
 
-  const studyingValue: string =
-    edu.is_currently_studying === true || edu.is_currently_studying === "true" ? "Yes" : "No";
+  // Fix: properly resolve true/false/"true"/"false"/null for both fields
+  const isStudying: boolean | null =
+    edu.is_currently_studying === true  || edu.is_currently_studying === "true"  ? true  :
+    edu.is_currently_studying === false || edu.is_currently_studying === "false" ? false :
+    null;
 
-  const workingValue: string =
-    typeof edu.is_currently_working === "boolean"
-      ? edu.is_currently_working ? "Yes" : "No"
-      : typeof edu.is_currently_working === "string" && edu.is_currently_working !== ""
-        ? edu.is_currently_working === "true" ? "Yes" : "No"
-        : "—";
+  const isWorking: boolean | null =
+    edu.is_currently_working === true  || edu.is_currently_working === "true"  ? true  :
+    edu.is_currently_working === false || edu.is_currently_working === "false" ? false :
+    null;
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <Field label="Currently Studying" value={studyingValue} />
-        <Field label="Currently Working"  value={workingValue} />
-        {profType     && <Field label="Profession"       value={formatProfession(profType)} />}
-        {industry     && <Field label="Industry / Field" value={industry} />}
-        {briefProfile && <Field label="Brief Profile"    value={briefProfile} />}
+    <div className="space-y-6">
+
+      {/* ── Current Status ── */}
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          Current Status
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-muted/30 rounded-xl border border-border">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Currently Studying?</span>
+            <YesNoBadge value={isStudying} />
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Currently Working?</span>
+            <YesNoBadge value={isWorking} />
+          </div>
+        </div>
       </div>
 
-      {educations.filter(e => e.degree_type).length > 0 && (
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Education</Label>
-          <div className="space-y-2">
+      {/* ── Profession ── */}
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          Profession
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-muted/30 rounded-xl border border-border">
+          <div className="space-y-0.5">
+            <Label className="text-xs text-muted-foreground">Type of Profession</Label>
+            <p className="text-sm font-medium">{profType ? formatProfession(profType) : <span className="italic text-muted-foreground">Not provided</span>}</p>
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-xs text-muted-foreground">Industry / Field</Label>
+            <p className="text-sm font-medium">{industry || <span className="italic text-muted-foreground">Not provided</span>}</p>
+          </div>
+          <div className="sm:col-span-2 space-y-0.5">
+            <Label className="text-xs text-muted-foreground">Brief Profile</Label>
+            <p className="text-sm font-medium">{briefProfile || <span className="italic text-muted-foreground">Not provided</span>}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Education History ── */}
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          Education History
+        </p>
+        {educations.filter(e => e.degree_type).length > 0 ? (
+          <div className="space-y-3">
             {educations.filter(e => e.degree_type).map((e, i) => (
-              <div key={i} className="p-3 border rounded-lg text-sm space-y-1">
-                <p className="font-medium">{e.degree_type}</p>
-                {e.degree_name && <p>{e.degree_name}</p>}
-                {e.university  && <p>{e.university}</p>}
-                {e.start_date && e.end_date && (
-                  <p className="text-xs text-muted-foreground">
-                    {formatDate(e.start_date)} – {formatDate(e.end_date)}
-                  </p>
-                )}
-                {e.certificate && (
-                  <p className="text-xs text-muted-foreground">Cert: {e.certificate}</p>
-                )}
+              <div key={i} className="p-4 border border-border rounded-xl bg-white shadow-sm space-y-3">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <p className="font-bold text-sm text-foreground">{e.degree_type}</p>
+                  {e.degree_name && (
+                    <Badge variant="secondary" className="text-xs shrink-0">{e.degree_name}</Badge>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                  <div className="space-y-0.5">
+                    <Label className="text-xs text-muted-foreground">Institution</Label>
+                    <p className="text-sm font-medium">{e.university || <span className="italic text-muted-foreground">Not provided</span>}</p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-xs text-muted-foreground">Certificate Name</Label>
+                    <p className="text-sm font-medium">{e.certificate || <span className="italic text-muted-foreground">Not provided</span>}</p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-xs text-muted-foreground">Start Date</Label>
+                    <p className="text-sm font-medium">{e.start_date ? formatDate(e.start_date) : <span className="italic text-muted-foreground">Not provided</span>}</p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-xs text-muted-foreground">End Date</Label>
+                    <p className="text-sm font-medium">{e.end_date ? formatDate(e.end_date) : <span className="italic text-muted-foreground">Not provided</span>}</p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-sm text-muted-foreground italic">No education entries recorded.</p>
+        )}
+      </div>
 
-      {languages.length > 0 && (
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Languages Known</Label>
+      {/* ── Languages Known ── */}
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          Languages Known
+        </p>
+        {languages.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {languages.map((l, i) => (
-              <Badge key={i} variant="secondary" className="text-xs">
+              <Badge key={i} variant="outline" className="bg-white border-border text-foreground">
                 {getLangLabel(l)}
               </Badge>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-sm text-muted-foreground italic">No languages recorded.</p>
+        )}
+      </div>
+
     </div>
   );
 }
 
-/* ─── Profile Viewer ─────────────────────────────────────────────────────────── */
+  
+/* ─── Profile Viewer ──────────────────────────────────────────────────── */
 
 function ProfileViewer({ data }: { data: any }) {
   const s1    = data?.step1 as Record<string, any> | null;
@@ -574,7 +631,7 @@ function ProfileViewer({ data }: { data: any }) {
         </CardContent>
       </Card>
 
-      {/* ── Family Members — index-based ── */}
+      {/* ── Family Members — Name/Relation Match ── */}
       {nonSelfMembers.length > 0 && (
         <Card className="shadow-sm">
           <CardHeader className="pb-2">
@@ -582,9 +639,16 @@ function ProfileViewer({ data }: { data: any }) {
           </CardHeader>
           <CardContent className="space-y-8">
             {nonSelfMembers.map((member, idx) => {
-              const memberEdu = s5[idx + 1]    ?? null;
-              const memberIns = s6ins[idx + 1] ?? null;
-              const memberDoc = s6doc[idx + 1] ?? null;
+              
+              // FIX: Match Step 5 data by Name and Relation, not just index.
+              const memberEdu = s5.find(s => 
+                s.member_name === member.name && 
+                s.member_relation === member.relation && 
+                s.member_relation !== "Self"
+              ) ?? null;
+              
+              const memberIns = s6ins.find(s => s.member_name === member.name && s.member_relation === member.relation && s.member_relation !== "Self") ?? null;
+              const memberDoc = s6doc.find(s => s.member_name === member.name && s.member_relation === member.relation && s.member_relation !== "Self") ?? null;
 
               return (
                 <div key={idx} className="space-y-4">
@@ -659,7 +723,7 @@ function ProfileViewer({ data }: { data: any }) {
   );
 }
 
-/* ─── Main Page ──────────────────────────────────────────────────────────────── */
+/* ─── Main Page ────────────────────────────────────────────────────────── */
 
 export default function UserManagementPage() {
   const [members, setMembers]               = useState<Member[]>([]);

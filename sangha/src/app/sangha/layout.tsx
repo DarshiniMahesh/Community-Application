@@ -15,7 +15,7 @@ const navigation = [
   { name: "Pending Users",   href: "/sangha/pending-users",   icon: Clock },
   { name: "Member Requests", href: "/sangha/member-requests", icon: Users },
   { name: "Sangha Members",  href: "/sangha/members",         icon: Users },
-  { name: "Reports",         href: "/sangha/reports",         icon: FileText },
+  { name: "Analytics",         href: "/sangha/reports",         icon: FileText },
   { name: "Activity Logs",   href: "/sangha/activity-logs",   icon: Activity },
   { name: "Block Users",     href: "/sangha/block",           icon: ShieldOff },
   { name: "Profile",         href: "/sangha/profile",         icon: UserCircle2 },

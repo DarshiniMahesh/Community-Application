@@ -1,3 +1,5 @@
+//harshitha
+//Community-Application\backend\src\routes\sangha.js
 const express   = require('express');
 const router    = express.Router();
 const multer    = require('multer');
@@ -50,6 +52,9 @@ router.post('/request-changes',    requireRole('sangha', 'admin'), sc.requestCha
 router.post('/block-user',         requireRole('sangha'), sc.blockUser);
 
 // Reports & logs
+router.get('/reports/advanced', requireRole('sangha', 'admin'), sc.getAdvancedReports);
+router.post('/reports/export',  requireRole('sangha', 'admin'), sc.getExportData);
+router.get('/reports/enhanced',    requireRole('sangha', 'admin'), sc.getEnhancedReports);
 router.get('/reports',             requireRole('sangha', 'admin'), sc.getReports);
 router.get('/activity-logs',       requireRole('sangha', 'admin'), sc.getActivityLogs);
 
@@ -61,5 +66,7 @@ router.delete('/team-members/:memberId', requireRole('sangha', 'admin'), sc.dele
 // Admin only — keep /:id LAST to avoid swallowing other routes
 router.get('/all',  requireRole('admin'), sc.getAllSanghas);
 router.get('/:id',  requireRole('admin'), sc.getSanghaById);
+
+
 
 module.exports = router;
