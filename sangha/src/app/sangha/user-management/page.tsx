@@ -1,3 +1,4 @@
+// Community-Application\sangha\src\app\sangha\user-management\page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -101,15 +102,38 @@ function getLangLabel(l: { language: string; language_other?: string }): string 
     : String(l.language ?? "");
 }
 
-function hasCovArray(arr: unknown): boolean | null {
-  if (!Array.isArray(arr)) return null;
-  return arr.length > 0;
+function parseCovArray(val: unknown): string[] {
+  if (Array.isArray(val)) return (val as unknown[]).map(String);
+  if (typeof val === "string") {
+    const t = val.trim();
+    if (t.startsWith("{") && t.endsWith("}")) {
+      const inner = t.slice(1, -1).trim();
+      if (!inner) return [];
+      // handle optional double-quotes inside postgres literals: {"yes","no"}
+      return inner.split(",").map(s => s.trim().replace(/^"|"$/g, "").toLowerCase());
+    }
+    return t ? [t.toLowerCase()] : [];
+  }
+  return [];
 }
 
+function hasCovArray(val: unknown): boolean | null {
+  const arr = parseCovArray(val);
+  if (arr.length === 0) return null;
+  if (arr.every(v => v === "none" || v === "no" || v === ""))  return false;
+  if (arr.some(v => v === "yes"))  return true;
+  if (arr.some(v => v === "no"))   return false;
+  // array has some other non-empty value — treat as covered
+  return true;
+}
 function hasCovScalar(val: unknown): boolean | null {
-  if (val === "yes") return true;
-  if (val === "no")  return false;
-  if (Array.isArray(val)) return val.length > 0 ? true : false;
+  if (val === "yes" || val === true)  return true;
+  if (val === "no"  || val === false) return false;
+  // fall back to array parsing for edge cases
+  const arr = parseCovArray(val);
+  if (arr.length === 0) return null;
+  if (arr.includes("yes")) return true;
+  if (arr.includes("no"))  return false;
   return null;
 }
 

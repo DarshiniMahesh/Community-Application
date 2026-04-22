@@ -1,34 +1,39 @@
-//harshitha
-//Community-Application\backend\src\routes\sangha.js
+// ─────────────────────────────────────────────────────────────────────────────
+// ADD TO: Community-Application/backend/src/routes/sangha.js
+//
+// Add this route BEFORE the existing /reports/export route:
+//
+//   router.post('/reports/export/full', requireRole('sangha', 'admin'), sc.getFullExportData);
+//
+// And update the require at the top to include getFullExportData:
+//   const sc = require('../controllers/sanghaController');
+//   (no change needed — it will auto-include when you add to module.exports)
+//
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// FULL sangha.js with the new route added:
+
 const express   = require('express');
 const router    = express.Router();
 const multer    = require('multer');
 const { authenticate, requireRole } = require('../middlewares/auth');
 const sc        = require('../controllers/sanghaController');
 
-// multer — memory storage for logo uploads
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
-// ── Public: Register OTP flow ────────────────────────────────
+// ── Public ───────────────────────────────────────────────────
 router.post('/register/send-otp',    sc.registerSendOtp);
 router.post('/register/verify-otp',  sc.registerVerifyOtp);
-
-// ── Public: Login OTP flow ───────────────────────────────────
 router.post('/login/send-otp',       sc.loginSendOtp);
 router.post('/login/verify-otp',     sc.loginVerifyOtp);
-
-// ── Public: Forgot password flow ─────────────────────────────
 router.post('/forgot-password/send-otp',   sc.forgotSendOtp);
 router.post('/forgot-password/verify-otp', sc.forgotVerifyOtp);
 router.post('/forgot-password/reset',      sc.forgotReset);
-
-// ── Public: Approved sangha list (for user dropdown) ─────────
 router.get('/approved-list', sc.getApprovedSanghas);
 
-// ── All routes below require authentication ──────────────────
 router.use(authenticate);
 
-// Sangha profile
+// Profile
 router.get('/profile',             requireRole('sangha'),          sc.getSanghaProfile);
 router.put('/profile',             requireRole('sangha'),          sc.updateSanghaProfile);
 router.post('/profile/logo',       requireRole('sangha'),          upload.single('logo'), sc.uploadSanghaLogo);
@@ -51,11 +56,15 @@ router.post('/reject',             requireRole('sangha', 'admin'), sc.rejectUser
 router.post('/request-changes',    requireRole('sangha', 'admin'), sc.requestChanges);
 router.post('/block-user',         requireRole('sangha'), sc.blockUser);
 
-// Reports & logs
-router.get('/reports/advanced', requireRole('sangha', 'admin'), sc.getAdvancedReports);
-router.post('/reports/export',  requireRole('sangha', 'admin'), sc.getExportData);
+// ── Reports ──────────────────────────────────────────────────
+router.get('/reports/advanced',    requireRole('sangha', 'admin'), sc.getAdvancedReports);
 router.get('/reports/enhanced',    requireRole('sangha', 'admin'), sc.getEnhancedReports);
 router.get('/reports',             requireRole('sangha', 'admin'), sc.getReports);
+
+// NEW: Full export for Custom Report tab (must come BEFORE /reports/export)
+router.post('/reports/export/full', requireRole('sangha', 'admin'), sc.getFullExportData);
+router.post('/reports/export',      requireRole('sangha', 'admin'), sc.getExportData);
+
 router.get('/activity-logs',       requireRole('sangha', 'admin'), sc.getActivityLogs);
 
 // Team members
@@ -63,10 +72,8 @@ router.get('/team-members',              requireRole('sangha', 'admin'), sc.getT
 router.post('/team-members',             requireRole('sangha', 'admin'), sc.addTeamMember);
 router.delete('/team-members/:memberId', requireRole('sangha', 'admin'), sc.deleteTeamMember);
 
-// Admin only — keep /:id LAST to avoid swallowing other routes
+// Admin only
 router.get('/all',  requireRole('admin'), sc.getAllSanghas);
 router.get('/:id',  requireRole('admin'), sc.getSanghaById);
-
-
 
 module.exports = router;
