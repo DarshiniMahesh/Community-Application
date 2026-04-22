@@ -246,7 +246,7 @@ function EduBlock({ edu }: { edu: Record<string, unknown> }) {
         </div>
       </div>
 
-      {/* ── Education History ── */}
+            {/* ── Education History ── */}
       <div>
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
           Education History
@@ -309,7 +309,6 @@ function EduBlock({ edu }: { edu: Record<string, unknown> }) {
   );
 }
 
-  
 /* ─── Profile Viewer ──────────────────────────────────────────────────── */
 
 function ProfileViewer({ data }: { data: any }) {
