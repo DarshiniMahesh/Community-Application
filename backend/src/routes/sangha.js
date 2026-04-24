@@ -56,16 +56,8 @@ router.post('/reject',             requireRole('sangha', 'admin'), sc.rejectUser
 router.post('/request-changes',    requireRole('sangha', 'admin'), sc.requestChanges);
 router.post('/block-user',         requireRole('sangha'), sc.blockUser);
 
-// ── Reports ──────────────────────────────────────────────────
-router.get('/reports/advanced',    requireRole('sangha', 'admin'), sc.getAdvancedReports);
-router.get('/reports/enhanced',    requireRole('sangha', 'admin'), sc.getEnhancedReports);
-router.get('/reports',             requireRole('sangha', 'admin'), sc.getReports);
-
-// NEW: Full export for Custom Report tab (must come BEFORE /reports/export)
-router.post('/reports/export/full', requireRole('sangha', 'admin'), sc.getFullExportData);
-router.post('/reports/export',      requireRole('sangha', 'admin'), sc.getExportData);
-
-router.get('/activity-logs',       requireRole('sangha', 'admin'), sc.getActivityLogs);
+// ── Reports (delegated to separate router) ──────────────────
+router.use('/reports', require('./sanghareport'));
 
 // Team members
 router.get('/team-members',              requireRole('sangha', 'admin'), sc.getTeamMembers);

@@ -11,7 +11,7 @@ import {
   TrendingUp, TrendingDown, Minus, Users, CheckCircle2, Clock,
   AlertCircle, FileEdit, RefreshCw, FileSpreadsheet, Loader2,
   ArrowRight, MapPin, GraduationCap, Wallet, Shield, Activity,
-  UserCheck, UserX,
+  UserCheck, UserX, BookOpen,
 } from "lucide-react";
 import { EnhancedReport } from "./page";
 
@@ -218,6 +218,13 @@ export default function GeneralDashboard({ data, loading, error, onRefresh, onGo
       title: "Documentation Status", value: n(counts.approved),
       section: "documents", label: "View Document Analytics",
       excelSections: ["personal-details"],
+    },
+    // ── NEW: Religious Details card ──────────────────────────────────────────
+    {
+      icon: BookOpen, color: "#a855f7", bg: "bg-purple-50",
+      title: "Religious Details", value: n(counts.approved),
+      section: "religious", label: "View Religious Analytics",
+      excelSections: ["religious-details"],
     },
   ];
 

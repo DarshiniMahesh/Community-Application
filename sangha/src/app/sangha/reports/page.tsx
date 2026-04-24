@@ -30,23 +30,50 @@ export interface AdvancedReport {
   demographics: {
     gender: { male: number; female: number; other: number };
     ageGroups: { label: string; count: number }[];
+    ageGroupsGender?: { label: string; male: number; female: number; other: number }[];
     familyType: { nuclear: number; joint: number };
     maritalStatus: { label: string; count: number }[];
+    maritalStatusGender?: { label: string; male: number; female: number; other: number }[];
   };
   education: {
     degrees: { label: string; count: number }[];
-    studying: { yes: number; no: number };
-    working: { yes: number; no: number };
+    degreesGender?: { label: string; male: number; female: number; other: number }[];
+    studying: { yes: number; no: number; maleYes?: number; femaleYes?: number; otherYes?: number; maleNo?: number; femaleNo?: number; otherNo?: number };
+    working: { yes: number; no: number; maleYes?: number; femaleYes?: number; otherYes?: number; maleNo?: number; femaleNo?: number; otherNo?: number };
     professions: { label: string; count: number }[];
+    professionsGender?: { label: string; male: number; female: number; other: number }[];
   };
   economic: {
     incomeSlabs: { label: string; count: number }[];
     assets: { label: string; owned: number; total: number }[];
+    assetsGender?: { label: string; male: number; female: number; other: number }[];
     employment: { label: string; count: number }[];
+    employmentGender?: { label: string; male: number; female: number; other: number }[];
   };
-  insurance: { label: string; covered: number; notCovered: number }[];
+  insurance: { label: string; covered?: number; notCovered?: number; yes?: number; no?: number; unknown?: number }[];
   documents: { label: string; yes: number; no: number; unknown: number }[];
   geographic: { city: string; count: number; pincode?: string; state?: string }[];
+  geographicGender?: { city: string; male: number; female: number; other: number }[];
+  religious?: {
+    gotras?: { label: string; count: number }[];
+    kuladevatas?: { label: string; count: number }[];
+    surnames?: { label: string; count: number }[];
+    pravaras?: { label: string; count: number }[];
+    summary?: {
+      uniqueGotras?: number;
+      uniqueKuladevatas?: number;
+      ancestralChallenges?: number;
+      uniqueSurnames?: number;
+    };
+    ancestralStats?: {
+      withChallenge?: number;
+      withoutChallenge?: number;
+      withPriest?: number;
+      withCommonRelatives?: number;
+      withUpanama?: number;
+      withDemiGods?: number;
+    };
+  };
 }
 
 export type TabId = "general" | "advanced" | "custom";

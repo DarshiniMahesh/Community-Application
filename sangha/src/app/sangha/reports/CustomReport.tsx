@@ -10,6 +10,9 @@ import {
 import { api } from "@/lib/api";
 
 // ─── Section Definitions ──────────────────────────────────────────────────────
+// IMPORTANT: column ORDER here defines where each column appears in the table.
+// "Base" columns (Full Name, Email, Phone, Status) always come first;
+// section columns append in the order listed below.
 
 export const SECTIONS: {
   id: string;
@@ -25,7 +28,22 @@ export const SECTIONS: {
     icon: "👤",
     color: "#0ea5e9",
     bg: "bg-sky-50",
-    columns: ["Full Name", "Email", "Phone", "Gender", "Date of Birth", "Status", "Submitted At", "Reviewed At"],
+    // These are always-on base cols + section-specific cols
+    columns: [
+      "Full Name",      // base — always first
+      "Email",          // base
+      "Phone",          // base
+      "Status",         // base
+      "Gender",
+      "Date of Birth",
+      "Submitted At",
+      "Reviewed At",
+      "Aadhaar",
+      "PAN Card",
+      "Voter ID",
+      "Land Docs",
+      "DL",
+    ],
   },
   {
     id: "economic-details",
@@ -33,7 +51,26 @@ export const SECTIONS: {
     icon: "💰",
     color: "#f59e0b",
     bg: "bg-amber-50",
-    columns: ["Self Income (Individual)", "Family Income (Annual)", "Owns House", "Has Agricultural Land", "Has 4-Wheeler", "Has 2-Wheeler", "Renting"],
+    columns: [
+      "Self Income (Individual)",
+      "Family Income (Annual)",
+      "Owns House",
+      "Has Agricultural Land",
+      "Has 4-Wheeler",
+      "Has 2-Wheeler",
+      "Renting",
+      // Documents under economic
+      "Aadhaar",
+      "PAN Card",
+      "Voter ID",
+      "Land Docs",
+      "DL",
+      // Investments
+      "Invests in Fixed Deposits",
+      "Invests in Mutual Funds / SIP",
+      "Invests in Shares / Demat",
+      "Other Investments",
+    ],
   },
   {
     id: "education-profession",
@@ -41,7 +78,15 @@ export const SECTIONS: {
     icon: "🎓",
     color: "#8b5cf6",
     bg: "bg-violet-50",
-    columns: ["Education Level", "Profession", "Currently Studying", "Currently Working", "Member Name", "Relation"],
+    columns: [
+      "Member Name",
+      "Relation",
+      "Education Level",
+      "Profession",
+      "Currently Studying",
+      "Currently Working",
+      "Languages Known",
+    ],
   },
   {
     id: "family-information",
@@ -49,7 +94,15 @@ export const SECTIONS: {
     icon: "👨‍👩‍👧‍👦",
     color: "#10b981",
     bg: "bg-emerald-50",
-    columns: ["Family Type", "Health Coverage", "Life Coverage", "Term Coverage", "Konkani Card Coverage"],
+    columns: [
+      "Family Member Name",
+      "Family Member Relation",
+      "Family Type",
+      "Health Coverage",
+      "Life Coverage",
+      "Term Coverage",
+      "Konkani Card Coverage",
+    ],
   },
   {
     id: "location-information",
@@ -65,12 +118,45 @@ export const SECTIONS: {
     icon: "🕉️",
     color: "#f43f5e",
     bg: "bg-rose-50",
-    columns: ["Gotra", "Pravara", "Kuladevata"],
+    columns: [
+      "Gotra",
+      "Pravara",
+      "Kuladevata",
+      "Surname in Use",
+      "Surname as per Gotra",
+      "Priest Name",
+      "Priest Location",
+      "Upanama General",
+      "Upanama Proper",
+      "Demi Gods",
+      "Ancestral Challenge",
+      "Ancestral Challenge Notes",
+      "Common Relative Names",
+    ],
   },
 ];
 
-// ─── Category to section mapping ──────────────────────────────────────────────
+// ─── BASE COLUMNS always present ──────────────────────────────────────────────
+const BASE_COLUMNS = ["Full Name", "Email", "Phone", "Status"];
 
+// ─── Master column order (defines final left-to-right order) ─────────────────
+// Built by walking sections in order and collecting unique cols.
+function buildMasterOrder(): string[] {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  // Base cols first
+  BASE_COLUMNS.forEach(c => { if (!seen.has(c)) { seen.add(c); order.push(c); } });
+  // Then all section cols in section order
+  SECTIONS.forEach(sec => {
+    sec.columns.forEach(c => {
+      if (!seen.has(c) && !BASE_COLUMNS.includes(c)) { seen.add(c); order.push(c); }
+    });
+  });
+  return order;
+}
+const MASTER_COL_ORDER = buildMasterOrder();
+
+// ─── Category to section mapping ──────────────────────────────────────────────
 const CATEGORY_SECTION_MAP: Record<string, string> = {
   gender:        "personal-details",
   age_group:     "personal-details",
@@ -86,19 +172,16 @@ const CATEGORY_SECTION_MAP: Record<string, string> = {
   geographic:    "location-information",
   demographics:  "personal-details",
   economic:      "economic-details",
+  gotra:         "religious-details",
+  kuladevata:    "religious-details",
+  pravara:       "religious-details",
+  surname:       "religious-details",
   all:           "personal-details",
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface TableRow {
-  [key: string]: any;
-}
-
-interface ColumnFilter {
-  column: string;
-  value: string;
-}
+interface TableRow { [key: string]: any; }
+interface ColumnFilter { column: string; value: string; }
 
 interface Props {
   initSections: string[];
@@ -107,7 +190,6 @@ interface Props {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
 async function downloadExcel(rows: any[], filename: string): Promise<void> {
   const XLSX = await import("xlsx");
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -125,28 +207,38 @@ function getUniqueValues(rows: TableRow[], col: string): string[] {
   return Array.from(vals).sort();
 }
 
-// ─── COMPONENT ────────────────────────────────────────────────────────────────
+// Sort visible columns according to MASTER_COL_ORDER, keeping unlisted ones at end
+function sortedCols(cols: string[]): string[] {
+  const indexed = cols.filter(c => MASTER_COL_ORDER.includes(c));
+  const rest    = cols.filter(c => !MASTER_COL_ORDER.includes(c));
+  indexed.sort((a, b) => MASTER_COL_ORDER.indexOf(a) - MASTER_COL_ORDER.indexOf(b));
+  return [...indexed, ...rest];
+}
 
+// ─── COMPONENT ────────────────────────────────────────────────────────────────
 export default function CustomReport({ initSections, initCategory, onClearInit }: Props) {
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
-  const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
-  const [columnFilters, setColumnFilters] = useState<ColumnFilter[]>([]);
-  const [rows, setRows] = useState<TableRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [openFilterCol, setOpenFilterCol] = useState<string | null>(null);
+  const [visibleColumns, setVisibleColumns]     = useState<string[]>(BASE_COLUMNS);
+  const [columnFilters, setColumnFilters]       = useState<ColumnFilter[]>([]);
+  const [rows, setRows]                         = useState<TableRow[]>([]);
+  const [loading, setLoading]                   = useState(false);
+  const [error, setError]                       = useState<string | null>(null);
+  const [downloading, setDownloading]           = useState(false);
+  const [searchQuery, setSearchQuery]           = useState("");
+  const [openFilterCol, setOpenFilterCol]       = useState<string | null>(null);
   const [includeAllStatuses, setIncludeAllStatuses] = useState(false);
+  const [sidebarSearch, setSidebarSearch]       = useState("");
 
   // Sidebar collapse state per section
   const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({});
 
-  // Apply init sections from navigation
+  // Filter dropdown ref (for click-outside)
+  const filterDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // ── Apply init sections from navigation ───────────────────
   useEffect(() => {
     if (initSections.length > 0) {
       setSelectedSections(initSections);
-      // Auto-open those sections in sidebar
       const openMap: Record<string, boolean> = {};
       initSections.forEach(s => { openMap[s] = true; });
       setSectionOpen(openMap);
@@ -154,63 +246,45 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
     }
   }, [initSections]); // eslint-disable-line
 
-  // When sections change, update visible columns
+  // ── When sections change, update visible columns ──────────
+  // Always maintain MASTER_COL_ORDER sorting; re-adding a removed column
+  // restores it to its original position.
   useEffect(() => {
-    const allCols: string[] = ["Full Name", "Email", "Phone", "Status"];
+    // Collect all cols that should be visible for selected sections
+    const desired = new Set<string>(BASE_COLUMNS);
     selectedSections.forEach(secId => {
       const sec = SECTIONS.find(s => s.id === secId);
-      if (sec) {
-        sec.columns.forEach(col => {
-          if (!allCols.includes(col)) allCols.push(col);
-        });
-      }
+      if (sec) sec.columns.forEach(c => desired.add(c));
     });
-    setVisibleColumns(allCols);
-    // Remove column filters for deleted columns
-    setColumnFilters(prev => prev.filter(f => allCols.includes(f.column)));
+
+    // Keep currently-visible cols that are still desired,
+    // add new desired cols that aren't yet visible.
+    setVisibleColumns(prev => {
+      const kept    = prev.filter(c => desired.has(c));
+      const keptSet = new Set(kept);
+      const added   = Array.from(desired).filter(c => !keptSet.has(c));
+      return sortedCols([...kept, ...added]);
+    });
+
+    // Remove column filters for columns no longer in any selected section
+    setColumnFilters(prev => prev.filter(f => desired.has(f.column)));
   }, [selectedSections]);
 
-  // Fetch data whenever sections or status toggle changes
+  // ── Fetch data ────────────────────────────────────────────
   const fetchData = useCallback(async () => {
-    if (selectedSections.length === 0) {
-      setRows([]);
-      return;
-    }
+    if (selectedSections.length === 0) { setRows([]); return; }
     setLoading(true);
     setError(null);
     try {
-      // Fetch from all selected sections in parallel
-      const promises = selectedSections.map(secId => {
-        const categoryMap: Record<string, string> = {
-          "personal-details":    "status",
-          "economic-details":    "asset",
-          "education-profession":"education",
-          "family-information":  "family_type",
-          "location-information":"city",
-          "religious-details":   "status",
-        };
-        const cat = categoryMap[secId] || "status";
-        const filter = includeAllStatuses ? "all" : "approved";
-        return api.post("/sangha/reports/export", {
-          category: cat,
-          filter: includeAllStatuses ? "" : "approved",
-          includeAll: includeAllStatuses,
-          sections: selectedSections,
-        }).catch(() => []);
-      });
-
-      // For simplicity, use the comprehensive export endpoint
       const result = await api.post("/sangha/reports/export/full", {
         sections: selectedSections,
         includeAllStatuses,
       }).catch(async () => {
-        // Fallback: use status export to get all users
         return await api.post("/sangha/reports/export", {
           category: "status",
           filter: includeAllStatuses ? "" : "approved",
         });
       });
-
       setRows(Array.isArray(result) ? result : []);
     } catch (e) {
       setError("Failed to load data. Please try again.");
@@ -220,15 +294,12 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
     }
   }, [selectedSections, includeAllStatuses]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Filtered rows (column filters + search)
+  // ── Filtered rows ─────────────────────────────────────────
   const filteredRows = useMemo(() => {
     let result = rows;
-
-    // Apply column filters
+    // Column filters — exact match
     columnFilters.forEach(({ column, value }) => {
       if (!value) return;
       result = result.filter(row => {
@@ -236,18 +307,32 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
         return cellVal === value.toLowerCase();
       });
     });
-
-    // Apply search
+    // Global search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(row =>
         visibleColumns.some(col => String(row[col] ?? "").toLowerCase().includes(q))
       );
     }
-
     return result;
   }, [rows, columnFilters, searchQuery, visibleColumns]);
 
+  // ── Sidebar section search ────────────────────────────────
+  // When sidebar search has text, show matching sections and highlight matching columns/fields
+  const sidebarFiltered = useMemo(() => {
+    if (!sidebarSearch.trim()) return SECTIONS;
+    const q = sidebarSearch.toLowerCase();
+    return SECTIONS.filter(sec =>
+      sec.label.toLowerCase().includes(q) ||
+      sec.columns.some(c => c.toLowerCase().includes(q))
+    ).map(sec => ({
+      ...sec,
+      // Only show matching columns in the expanded view
+      matchedColumns: sec.columns.filter(c => c.toLowerCase().includes(q)),
+    }));
+  }, [sidebarSearch]);
+
+  // ── Actions ───────────────────────────────────────────────
   const toggleSection = (secId: string) => {
     setSelectedSections(prev =>
       prev.includes(secId) ? prev.filter(s => s !== secId) : [...prev, secId]
@@ -255,7 +340,12 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
   };
 
   const deleteColumn = (col: string) => {
+    if (BASE_COLUMNS.includes(col)) return; // never delete base cols
     setVisibleColumns(prev => prev.filter(c => c !== col));
+  };
+
+  const addColumn = (col: string) => {
+    setVisibleColumns(prev => sortedCols([...prev, col]));
   };
 
   const addColumnFilter = (col: string, val: string) => {
@@ -287,6 +377,9 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
 
   const activeFilters = columnFilters.filter(f => f.value);
 
+  // Unique filter values from actual data rows for reliable filtering
+  const getFilterVals = (col: string) => getUniqueValues(rows, col);
+
   return (
     <div className="flex gap-0 min-h-[80vh]">
       {/* ── Sidebar ─────────────────────────────────────────────── */}
@@ -295,6 +388,32 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
         <div className="p-4 border-b border-slate-100">
           <p className="text-sm font-bold text-slate-900">Report Builder</p>
           <p className="text-xs text-slate-500 mt-0.5">Select sections to include</p>
+        </div>
+
+        {/* ── Sidebar search bar (req #12) ────────────────────── */}
+        <div className="px-3 pt-3 pb-2 border-b border-slate-100">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search sections & fields…"
+              value={sidebarSearch}
+              onChange={e => setSidebarSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl
+                focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none bg-white"
+            />
+            {sidebarSearch && (
+              <button onClick={() => setSidebarSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          {sidebarSearch && (
+            <p className="text-xs text-slate-400 mt-1 px-1">
+              {sidebarFiltered.length} section{sidebarFiltered.length !== 1 ? "s" : ""} match
+            </p>
+          )}
         </div>
 
         {/* Include all statuses toggle */}
@@ -318,21 +437,26 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
         </div>
 
         <div className="p-3 space-y-2">
-          {SECTIONS.map(sec => {
+          {sidebarFiltered.length === 0 && (
+            <p className="text-xs text-slate-400 text-center py-6">No sections match your search.</p>
+          )}
+          {sidebarFiltered.map(sec => {
             const isSelected = selectedSections.includes(sec.id);
             const isOpen = sectionOpen[sec.id] ?? false;
+            // When sidebar search active, auto-expand matching section
+            const effectiveOpen = sidebarSearch ? true : isOpen;
+            // Columns to show in expanded list — filtered when searching
+            const colsToShow = sidebarSearch
+              ? ((sec as any).matchedColumns ?? sec.columns)
+              : sec.columns;
 
             return (
               <div key={sec.id}
                 className={`rounded-xl border transition-all ${
                   isSelected ? "border-sky-200 bg-sky-50" : "border-slate-100 bg-white"
                 }`}>
-                {/* Section Header Row */}
                 <div className="flex items-center gap-2 px-3 py-2.5">
-                  <button
-                    onClick={() => toggleSection(sec.id)}
-                    className={`flex items-center gap-2 flex-1 text-left`}
-                  >
+                  <button onClick={() => toggleSection(sec.id)} className="flex items-center gap-2 flex-1 text-left">
                     <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
                       isSelected ? "border-sky-500 bg-sky-500" : "border-slate-300"
                     }`}>
@@ -343,47 +467,52 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                       {sec.label}
                     </span>
                   </button>
-
-                  {/* Add columns button */}
-                  <button
-                    onClick={() => {
-                      if (!isSelected) toggleSection(sec.id);
-                      setSectionOpen(prev => ({ ...prev, [sec.id]: !prev[sec.id] }));
-                    }}
-                    className="p-1 rounded-lg hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-700"
-                    title={isOpen ? "Collapse" : "Expand columns"}
-                  >
-                    {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                  </button>
+                  {!sidebarSearch && (
+                    <button
+                      onClick={() => {
+                        if (!isSelected) toggleSection(sec.id);
+                        setSectionOpen(prev => ({ ...prev, [sec.id]: !prev[sec.id] }));
+                      }}
+                      className="p-1 rounded-lg hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-700"
+                      title={isOpen ? "Collapse" : "Expand columns"}
+                    >
+                      {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
                 </div>
 
-                {/* Expandable columns list */}
-                {isOpen && (
+                {effectiveOpen && (
                   <div className="px-3 pb-2.5 space-y-1">
-                    {sec.columns.map(col => {
+                    {colsToShow.map((col: string) => {
                       const isVisible = visibleColumns.includes(col);
+                      const isBase = BASE_COLUMNS.includes(col);
                       return (
                         <div key={col}
-                          className="flex items-center justify-between px-2 py-1 rounded-lg bg-white border border-slate-100 text-xs">
+                          className={`flex items-center justify-between px-2 py-1 rounded-lg border text-xs ${
+                            sidebarSearch && col.toLowerCase().includes(sidebarSearch.toLowerCase())
+                              ? "bg-yellow-50 border-yellow-200"
+                              : "bg-white border-slate-100"
+                          }`}>
                           <span className="text-slate-600 truncate flex-1">{col}</span>
-                          <button
-                            onClick={() => {
-                              if (isVisible) {
-                                deleteColumn(col);
-                              } else {
-                                setVisibleColumns(prev => [...prev, col]);
-                              }
-                            }}
-                            title={isVisible ? "Remove column" : "Add column"}
-                            className={`ml-2 shrink-0 transition-colors ${
-                              isVisible ? "text-rose-400 hover:text-rose-600" : "text-emerald-400 hover:text-emerald-600"
-                            }`}
-                          >
-                            {isVisible ? <Eye className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-                          </button>
+                          {isBase ? (
+                            <span className="ml-2 text-xs text-slate-300 italic">always</span>
+                          ) : (
+                            <button
+                              onClick={() => isVisible ? deleteColumn(col) : addColumn(col)}
+                              title={isVisible ? "Remove column" : "Add column"}
+                              className={`ml-2 shrink-0 transition-colors ${
+                                isVisible ? "text-rose-400 hover:text-rose-600" : "text-emerald-400 hover:text-emerald-600"
+                              }`}
+                            >
+                              {isVisible ? <Eye className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                            </button>
+                          )}
                         </div>
                       );
                     })}
+                    {sidebarSearch && colsToShow.length === 0 && (
+                      <p className="text-xs text-slate-400 px-2 py-1">No matching fields</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -416,7 +545,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
             )}
           </div>
 
-          {/* Active filters */}
+          {/* Active column filters */}
           {activeFilters.map(f => (
             <span key={f.column}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-100 border border-sky-200 text-sky-700 text-xs font-medium">
@@ -428,13 +557,11 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
 
           <div className="flex-1" />
 
-          {/* Row count */}
           <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1.5 rounded-lg font-medium">
             {filteredRows.length.toLocaleString()} rows
             {filteredRows.length !== rows.length && ` of ${rows.length.toLocaleString()}`}
           </span>
 
-          {/* Download */}
           <button
             onClick={handleDownload}
             disabled={downloading || filteredRows.length === 0}
@@ -451,17 +578,15 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-400 py-20">
             <FileSpreadsheet className="w-12 h-12 opacity-30" />
             <p className="text-sm font-medium">Select sections from the sidebar to build your report</p>
-            <p className="text-xs">Tip: Click the + button to add data sections</p>
+            <p className="text-xs">Tip: Use the search bar to find specific fields quickly</p>
           </div>
         )}
-
         {selectedSections.length > 0 && loading && (
           <div className="flex-1 flex items-center justify-center gap-3 text-slate-400">
             <Loader2 className="w-6 h-6 animate-spin" />
             <p className="text-sm">Loading data…</p>
           </div>
         )}
-
         {selectedSections.length > 0 && !loading && error && (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
             <AlertCircle className="w-8 h-8 opacity-40" />
@@ -475,13 +600,13 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
 
         {/* Table */}
         {selectedSections.length > 0 && !loading && !error && (
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto" ref={filterDropdownRef}>
             {filteredRows.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-3 text-slate-400 py-20">
                 <Search className="w-8 h-8 opacity-30" />
                 <p className="text-sm">No matching records found</p>
-                {columnFilters.length > 0 && (
-                  <button onClick={() => setColumnFilters([])}
+                {(columnFilters.length > 0 || searchQuery) && (
+                  <button onClick={() => { setColumnFilters([]); setSearchQuery(""); }}
                     className="text-xs text-sky-600 hover:underline">Clear all filters</button>
                 )}
               </div>
@@ -492,7 +617,8 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                     <th className="text-xs font-semibold text-slate-500 px-4 py-3 text-left w-10">#</th>
                     {visibleColumns.map(col => {
                       const activeFilter = columnFilters.find(f => f.column === col);
-                      const uniqueVals = getUniqueValues(rows, col);
+                      const uniqueVals   = getFilterVals(col);
+                      const isBase       = BASE_COLUMNS.includes(col);
 
                       return (
                         <th key={col}
@@ -500,7 +626,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                           <div className="flex items-center gap-1.5">
                             <span>{col}</span>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {/* Filter dropdown */}
+                              {/* Filter dropdown — works for all cols with data */}
                               <div className="relative">
                                 <button
                                   onClick={() => setOpenFilterCol(openFilterCol === col ? null : col)}
@@ -512,13 +638,19 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                                   <Filter className="w-3 h-3" />
                                 </button>
                                 {openFilterCol === col && (
-                                  <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-2 min-w-[160px] max-h-48 overflow-y-auto">
+                                  <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-2 min-w-[180px] max-h-52 overflow-y-auto">
+                                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-2 py-1 mb-1">
+                                      Filter by {col}
+                                    </p>
                                     <button
                                       onClick={() => { removeColumnFilter(col); setOpenFilterCol(null); }}
                                       className="w-full text-left text-xs px-2 py-1.5 rounded-lg hover:bg-slate-50 text-slate-500 font-medium mb-1">
-                                      Clear filter
+                                      — Clear filter
                                     </button>
-                                    {uniqueVals.slice(0, 30).map(val => (
+                                    {uniqueVals.length === 0 && (
+                                      <p className="text-xs text-slate-300 px-2 py-1">No values in data</p>
+                                    )}
+                                    {uniqueVals.slice(0, 50).map(val => (
                                       <button key={val}
                                         onClick={() => addColumnFilter(col, val)}
                                         className={`w-full text-left text-xs px-2 py-1.5 rounded-lg hover:bg-sky-50 hover:text-sky-700 transition-colors truncate ${
@@ -527,24 +659,26 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                                         {val || "(empty)"}
                                       </button>
                                     ))}
-                                    {uniqueVals.length > 30 && (
-                                      <p className="text-xs text-slate-400 px-2 py-1">+{uniqueVals.length - 30} more values</p>
+                                    {uniqueVals.length > 50 && (
+                                      <p className="text-xs text-slate-400 px-2 py-1">+{uniqueVals.length - 50} more — use table search to narrow down</p>
                                     )}
                                   </div>
                                 )}
                               </div>
 
-                              {/* Delete column */}
-                              <button
-                                onClick={() => deleteColumn(col)}
-                                className="p-0.5 rounded hover:bg-rose-100 text-slate-400 hover:text-rose-500 transition-colors"
-                                title="Remove column"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
+                              {/* Delete column (not for base cols) */}
+                              {!isBase && (
+                                <button
+                                  onClick={() => deleteColumn(col)}
+                                  className="p-0.5 rounded hover:bg-rose-100 text-slate-400 hover:text-rose-500 transition-colors"
+                                  title="Remove column"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              )}
                             </div>
                             {activeFilter && (
-                              <span className="text-xs bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-medium max-w-[60px] truncate">
+                              <span className="text-xs bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-medium max-w-[70px] truncate">
                                 {activeFilter.value}
                               </span>
                             )}
@@ -560,29 +694,36 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                       <td className="px-4 py-2.5 text-xs text-slate-400 font-mono">{idx + 1}</td>
                       {visibleColumns.map(col => {
                         const val = row[col];
-                        let displayVal = val;
+                        let displayVal: any = val;
                         let cellClass = "text-slate-700";
 
                         // Status coloring
                         if (col === "Status") {
                           const s = String(val ?? "").toLowerCase();
-                          if (s === "approved") cellClass = "text-emerald-700 font-semibold";
-                          else if (s === "rejected") cellClass = "text-rose-600 font-semibold";
-                          else if (s === "submitted") cellClass = "text-amber-600 font-semibold";
-                          else if (s === "draft") cellClass = "text-slate-500";
+                          if (s === "approved")           cellClass = "text-emerald-700 font-semibold";
+                          else if (s === "rejected")      cellClass = "text-rose-600 font-semibold";
+                          else if (s === "submitted")     cellClass = "text-amber-600 font-semibold";
+                          else if (s === "draft")         cellClass = "text-slate-500";
                           else if (s === "changes_requested") cellClass = "text-orange-600 font-semibold";
                         }
                         // Gender coloring
                         if (col === "Gender") {
                           const g = String(val ?? "").toLowerCase();
-                          if (g === "male") cellClass = "text-sky-600 font-medium";
+                          if (g === "male")        cellClass = "text-sky-600 font-medium";
                           else if (g === "female") cellClass = "text-pink-600 font-medium";
-                          else if (val) cellClass = "text-slate-500";
+                          else if (val)            cellClass = "text-slate-500";
+                        }
+                        // Document status coloring
+                        if (["Aadhaar","PAN Card","Voter ID","Land Docs","DL"].includes(col)) {
+                          const v = String(val ?? "").toLowerCase();
+                          if (v === "yes")         cellClass = "text-emerald-600 font-medium";
+                          else if (v === "no")     cellClass = "text-rose-500";
+                          else if (v === "unknown") cellClass = "text-slate-400";
                         }
                         // Boolean display
                         if (typeof val === "boolean") {
                           displayVal = val ? "✓ Yes" : "No";
-                          cellClass = val ? "text-emerald-600 font-medium" : "text-slate-400";
+                          cellClass  = val ? "text-emerald-600 font-medium" : "text-slate-400";
                         }
 
                         return (
