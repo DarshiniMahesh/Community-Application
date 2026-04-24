@@ -24,7 +24,7 @@ export const GENDER_COLORS = {
 const RELIGIOUS_COLORS = ["#a855f7", "#c084fc", "#d8b4fe", "#7c3aed", "#6d28d9", "#581c87", "#e879f9", "#f0abfc"];
 const GEO_BAR_COLORS   = ["#0d9488", "#14b8a6", "#2dd4bf", "#5eead4", "#99f6e4", "#0891b2", "#06b6d4", "#22d3ee"];
 
-// ─── Degree display order ─────────────────────────────────────────────────────
+// ─── Degree display order — matches degreeTypes in education-profession/page.tsx ──
 const DEGREE_ORDER = [
   'High School',
   'Pre-University',
@@ -34,6 +34,13 @@ const DEGREE_ORDER = [
   'Doctorate',
   'Specialised Professional Degree',
 ];
+
+// ─── Insurance type color scheme ──────────────────────────────────────────────
+const INS_COVERAGE_COLORS = {
+  yes:     "#10b981", // green
+  no:      "#ef4444", // red
+  unknown: "#cbd5e1", // slate
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -190,6 +197,160 @@ function GenderStackedBarVertical({
   );
 }
 
+// ─── Insurance Gender Coverage Card ───────────────────────────────────────────
+// Shows male/female/other coverage for one insurance type with a grouped bar chart
+function InsuranceGenderCard({
+  ins,
+  onExport,
+}: {
+  ins: {
+    label: string;
+    maleYes: number; femaleYes: number; otherYes: number;
+    maleNo: number;  femaleNo: number;  otherNo: number;
+    maleUnknown: number; femaleUnknown: number; otherUnknown: number;
+    yes: number; no: number; unknown: number;
+  };
+  onExport?: () => void;
+}) {
+  const totalYes = ins.maleYes + ins.femaleYes + ins.otherYes;
+  const totalAll = ins.yes + ins.no + ins.unknown;
+  const yesPct   = totalAll > 0 ? Math.round((ins.yes / totalAll) * 100) : 0;
+
+  // Grouped bar data: Yes / No per gender
+  const barData = [
+    { label: "Male",   yes: ins.maleYes,   no: ins.maleNo   },
+    { label: "Female", yes: ins.femaleYes, no: ins.femaleNo },
+    ...(ins.otherYes + ins.otherNo > 0
+      ? [{ label: "Other", yes: ins.otherYes, no: ins.otherNo }]
+      : []),
+  ];
+
+  // Pie: total yes / no / unknown
+  const pieData = [
+    { name: "Yes",     value: ins.yes,     color: INS_COVERAGE_COLORS.yes     },
+    { name: "No",      value: ins.no,      color: INS_COVERAGE_COLORS.no      },
+    { name: "Unknown", value: ins.unknown, color: INS_COVERAGE_COLORS.unknown },
+  ].filter(d => d.value > 0);
+
+  return (
+    <ChartCard
+      title={`${ins.label} Insurance`}
+      subtitle="Coverage by gender"
+      onExport={onExport}
+    >
+      {/* Pie overview */}
+      <ResponsiveContainer width="100%" height={100}>
+        <PieChart>
+          <Pie
+            data={pieData.length > 0 ? pieData : [{ name: "No Data", value: 1, color: "#f1f5f9" }]}
+            cx="50%" cy="50%" innerRadius={28} outerRadius={44}
+            paddingAngle={pieData.length > 1 ? 3 : 0}
+            dataKey="value" strokeWidth={2} stroke="#ffffff"
+          >
+            {(pieData.length > 0 ? pieData : [{ color: "#f1f5f9" }]).map((d: any, i: number) => (
+              <Cell key={i} fill={d.color} />
+            ))}
+          </Pie>
+          <Tooltip content={
+            <PieTooltipContent total={totalAll} active={undefined} payload={undefined} />
+          } />
+        </PieChart>
+      </ResponsiveContainer>
+
+      {/* Overall yes % */}
+      <p className="text-center text-2xl font-black text-slate-900 mt-1">{yesPct}%</p>
+      <p className="text-center text-xs text-slate-400 mb-3">have coverage</p>
+
+      {/* Gender breakdown — grouped bars */}
+      <div className="border-t border-slate-100 pt-3">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+          Coverage by Gender
+        </p>
+        <ResponsiveContainer width="100%" height={90}>
+          <BarChart data={barData} margin={{ left: -24, right: 4, top: 4, bottom: 0 }} barCategoryGap="30%">
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
+            <YAxis tick={{ fontSize: 9, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
+            <Tooltip content={<BarTooltipContent />} />
+            <Bar dataKey="yes" name="Yes" fill={INS_COVERAGE_COLORS.yes} radius={[3, 3, 0, 0]} maxBarSize={28} />
+            <Bar dataKey="no"  name="No"  fill={INS_COVERAGE_COLORS.no}  radius={[3, 3, 0, 0]} maxBarSize={28} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Count rows: Yes/No/Unknown with gender detail */}
+      <div className="space-y-2 mt-3">
+        {/* Yes row */}
+        <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+              Yes — {ins.yes.toLocaleString()}
+            </span>
+            <span className="text-xs text-emerald-600 font-bold">{yesPct}%</span>
+          </div>
+          <div className="flex gap-3 text-xs text-slate-500">
+            <span>
+              <span className="font-medium" style={{ color: GENDER_COLORS.male }}>M</span>{" "}
+              {ins.maleYes.toLocaleString()}
+            </span>
+            <span>
+              <span className="font-medium" style={{ color: GENDER_COLORS.female }}>F</span>{" "}
+              {ins.femaleYes.toLocaleString()}
+            </span>
+            {ins.otherYes > 0 && (
+              <span>
+                <span className="font-medium" style={{ color: GENDER_COLORS.other }}>O</span>{" "}
+                {ins.otherYes.toLocaleString()}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* No row */}
+        <div className="rounded-xl bg-red-50 border border-red-100 px-3 py-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-red-600">
+              <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
+              No — {ins.no.toLocaleString()}
+            </span>
+            <span className="text-xs text-red-500 font-bold">
+              {totalAll > 0 ? Math.round((ins.no / totalAll) * 100) : 0}%
+            </span>
+          </div>
+          <div className="flex gap-3 text-xs text-slate-500">
+            <span>
+              <span className="font-medium" style={{ color: GENDER_COLORS.male }}>M</span>{" "}
+              {ins.maleNo.toLocaleString()}
+            </span>
+            <span>
+              <span className="font-medium" style={{ color: GENDER_COLORS.female }}>F</span>{" "}
+              {ins.femaleNo.toLocaleString()}
+            </span>
+            {ins.otherNo > 0 && (
+              <span>
+                <span className="font-medium" style={{ color: GENDER_COLORS.other }}>O</span>{" "}
+                {ins.otherNo.toLocaleString()}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Unknown row */}
+        {ins.unknown > 0 && (
+          <div className="flex items-center justify-between text-xs px-1">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-slate-300 inline-block" />
+              <span className="text-slate-500 font-medium">Unknown</span>
+            </span>
+            <span className="font-bold text-slate-400">{ins.unknown.toLocaleString()}</span>
+          </div>
+        )}
+      </div>
+    </ChartCard>
+  );
+}
+
 // ─── PROPS ────────────────────────────────────────────────────────────────────
 interface Props {
   data: AdvancedReport | null;
@@ -284,13 +445,22 @@ export default function AdvancedDashboard({
   }));
   const maritalBarData = maritalGenderData.length > 0 ? maritalGenderData : maritalFallback;
 
-  // ── Education degrees — already normalized & ordered from backend ──
-  const degreesBarData = (edu.degreesGender || []).map((d: any) => ({
+  // ── Education degrees — ordered to match frontend degreeTypes exactly ──
+  const rawDegreesGender = (edu.degreesGender || []).map((d: any) => ({
     label:  d.label,
     male:   d.male   || 0,
     female: d.female || 0,
     other:  d.other  || 0,
   }));
+  // Enforce the canonical order from DEGREE_ORDER; unknown labels go at bottom
+  const degreeMap = new Map(rawDegreesGender.map((d: any) => [d.label, d]));
+  const degreesBarData = [
+    ...DEGREE_ORDER
+      .map(label => degreeMap.get(label))
+      .filter(Boolean),
+    // Any extra labels (e.g. 'Other') that aren't in DEGREE_ORDER
+    ...rawDegreesGender.filter((d: any) => !DEGREE_ORDER.includes(d.label)),
+  ] as { label: string; male: number; female: number; other: number }[];
 
   // ── Profession × Gender ────────────────────────────────
   const professionGenderData = (edu.professionsGender || []).map((p: any) => ({
@@ -518,7 +688,7 @@ export default function AdvancedDashboard({
           color="#8b5cf6" />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Education degrees — standard categories */}
+          {/* Education degrees — canonical order matching frontend degreeTypes */}
           <ChartCard
             title="Highest Degree Level"
             subtitle="Male (blue) · Female (pink) — educational attainment"
@@ -734,15 +904,51 @@ export default function AdvancedDashboard({
           })}
         </div>
 
-        {/* Asset ownership × gender */}
+        {/* Asset ownership × gender — Male (blue) / Female (pink) / Other (grey) */}
         <ChartCard
           title="Asset Ownership by Gender"
-          subtitle="Male (blue) · Female (pink) — ownership across asset types"
+          subtitle="Male (blue) · Female (pink) · Other (grey) — who owns which assets"
           className="mt-5"
           onExport={() => onGoToCustomReport(["economic-details"], "asset")}
         >
           {assetsGenderData.length > 0 ? (
-            <GenderStackedBar data={assetsGenderData} height={200} />
+            <>
+              <GenderStackedBar data={assetsGenderData} height={200} />
+              {/* Summary table */}
+              <div className="mt-4 border-t border-slate-100 pt-4">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                  Ownership Count by Gender
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-slate-400 border-b border-slate-100">
+                        <th className="pb-2 font-medium">Asset</th>
+                        <th className="pb-2 font-medium text-right" style={{ color: GENDER_COLORS.male }}>Male</th>
+                        <th className="pb-2 font-medium text-right" style={{ color: GENDER_COLORS.female }}>Female</th>
+                        {assetsGenderData.some(a => (a.other || 0) > 0) && (
+                          <th className="pb-2 font-medium text-right" style={{ color: GENDER_COLORS.other }}>Other</th>
+                        )}
+                        <th className="pb-2 font-medium text-right text-slate-400">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {assetsGenderData.map(a => (
+                        <tr key={a.label} className="border-b border-slate-50 hover:bg-slate-50">
+                          <td className="py-1.5 font-medium text-slate-700">{a.label}</td>
+                          <td className="py-1.5 text-right font-bold" style={{ color: GENDER_COLORS.male }}>{a.male.toLocaleString()}</td>
+                          <td className="py-1.5 text-right font-bold" style={{ color: GENDER_COLORS.female }}>{a.female.toLocaleString()}</td>
+                          {assetsGenderData.some(x => (x.other || 0) > 0) && (
+                            <td className="py-1.5 text-right font-bold" style={{ color: GENDER_COLORS.other }}>{(a.other || 0).toLocaleString()}</td>
+                          )}
+                          <td className="py-1.5 text-right text-slate-500">{(a.male + a.female + (a.other || 0)).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           ) : (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={assetBarData} margin={{ left: -20, right: 5, top: 5, bottom: 5 }}>
@@ -773,76 +979,83 @@ export default function AdvancedDashboard({
       <section>
         <SectionHeader id="adv-insurance" icon={Shield}
           title="Insurance Coverage"
-          subtitle="Term, Life, Health, Konkani Card"
+          subtitle="Term, Life, Health, Konkani Card — coverage by gender"
           color="#14b8a6" />
 
         {data.insurance.length > 0 ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {data.insurance.map(ins => {
-              const total = (ins.yes || 0) + (ins.no || 0) + (ins.unknown || 0);
-              const yesPct = total > 0 ? Math.round((ins.yes || 0) / total * 100) : 0;
-              const noPct  = total > 0 ? Math.round((ins.no  || 0) / total * 100) : 0;
-
-              // Pie: yes=green, no=red, unknown=grey
-              const pieData = [
-                { name: "Yes",     value: ins.yes     || 0, color: "#10b981" },
-                { name: "No",      value: ins.no      || 0, color: "#ef4444" },
-                { name: "Unknown", value: ins.unknown || 0, color: "#cbd5e1" },
-              ].filter(d => d.value > 0);
-
-              return (
-                <ChartCard key={ins.label} title={`${ins.label} Insurance`}
-                  onExport={() => onGoToCustomReport(["family-information"], "insurance")}
-                >
-                  <ResponsiveContainer width="100%" height={110}>
-                    <PieChart>
-                      <Pie
-                        data={pieData.length > 0 ? pieData : [{ name: "No Data", value: 1, color: "#f1f5f9" }]}
-                        cx="50%" cy="50%" innerRadius={30} outerRadius={46}
-                        paddingAngle={pieData.length > 1 ? 3 : 0}
-                        dataKey="value" strokeWidth={2} stroke="#ffffff"
-                      >
-                        {(pieData.length > 0 ? pieData : [{ color: "#f1f5f9" }]).map((d: any, i: number) => (
-                          <Cell key={i} fill={d.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip content={
-                        <PieTooltipContent total={total} active={undefined} payload={undefined} />
-                      } />
-                    </PieChart>
-                  </ResponsiveContainer>
-
-                  {/* Yes / No / Unknown count rows */}
-                  <div className="space-y-1.5 mt-1">
-                    <div className="flex items-center justify-between text-xs px-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-                        <span className="text-slate-600 font-medium">Yes</span>
+          <>
+            {/* Summary bar: total yes across all insurance types */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+              {data.insurance.map(ins => {
+                const total = (ins.yes || 0) + (ins.no || 0) + (ins.unknown || 0);
+                const yesPct = total > 0 ? Math.round((ins.yes || 0) / total * 100) : 0;
+                return (
+                  <div key={ins.label}
+                    className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
+                    <p className="text-xs text-slate-500 font-medium mb-1">{ins.label}</p>
+                    <p className="text-3xl font-black text-slate-900">{yesPct}%</p>
+                    <p className="text-xs text-slate-400 mb-2">covered</p>
+                    <div className="flex justify-center gap-3 text-xs">
+                      <span className="font-bold" style={{ color: GENDER_COLORS.male }}>
+                        M {((ins as any).maleYes || 0).toLocaleString()}
                       </span>
-                      <span className="font-bold text-emerald-600">{(ins.yes || 0).toLocaleString()}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs px-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
-                        <span className="text-slate-600 font-medium">No</span>
+                      <span className="font-bold" style={{ color: GENDER_COLORS.female }}>
+                        F {((ins as any).femaleYes || 0).toLocaleString()}
                       </span>
-                      <span className="font-bold text-red-500">{(ins.no || 0).toLocaleString()}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs px-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-slate-300 inline-block" />
-                        <span className="text-slate-600 font-medium">Unknown</span>
-                      </span>
-                      <span className="font-bold text-slate-400">{(ins.unknown || 0).toLocaleString()}</span>
+                      {((ins as any).otherYes || 0) > 0 && (
+                        <span className="font-bold" style={{ color: GENDER_COLORS.other }}>
+                          O {((ins as any).otherYes || 0).toLocaleString()}
+                        </span>
+                      )}
                     </div>
                   </div>
+                );
+              })}
+            </div>
 
-                  <p className="text-center text-xl font-black text-slate-900 mt-2">{yesPct}%</p>
-                  <p className="text-center text-xs text-slate-400">have coverage</p>
-                </ChartCard>
-              );
-            })}
-          </div>
+            {/* Detailed cards per insurance type */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {data.insurance.map(ins => (
+                <InsuranceGenderCard
+                  key={ins.label}
+                  ins={{
+                    label:        ins.label,
+                    maleYes:      (ins as any).maleYes      || 0,
+                    femaleYes:    (ins as any).femaleYes    || 0,
+                    otherYes:     (ins as any).otherYes     || 0,
+                    maleNo:       (ins as any).maleNo       || 0,
+                    femaleNo:     (ins as any).femaleNo     || 0,
+                    otherNo:      (ins as any).otherNo      || 0,
+                    maleUnknown:  (ins as any).maleUnknown  || 0,
+                    femaleUnknown:(ins as any).femaleUnknown|| 0,
+                    otherUnknown: (ins as any).otherUnknown || 0,
+                    yes:     ins.yes     || 0,
+                    no:      ins.no      || 0,
+                    unknown: ins.unknown || 0,
+                  }}
+                  onExport={() => onGoToCustomReport(["family-information"], "insurance")}
+                />
+              ))}
+            </div>
+
+            {/* Combined insurance coverage bar: all types side by side by gender */}
+            <ChartCard
+              title="Insurance Coverage Overview"
+              subtitle="Male (blue) · Female (pink) — Yes coverage across all insurance types"
+              className="mt-5"
+              onExport={() => onGoToCustomReport(["family-information"], "insurance")}
+            >
+              <GenderStackedBar
+                data={data.insurance.map(ins => ({
+                  label:  ins.label,
+                  male:   (ins as any).maleYes   || 0,
+                  female: (ins as any).femaleYes || 0,
+                  other:  (ins as any).otherYes  || 0,
+                }))}
+                height={180}
+              />
+            </ChartCard>
+          </>
         ) : (
           <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center text-slate-400 text-sm">
             No insurance data available.
