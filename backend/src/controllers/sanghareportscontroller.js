@@ -1,4 +1,3 @@
-// Community-Application\backend\src\controllers\sanghareportscontroller.js
 const pool = require('../config/db');
 
 // ─── Helper: Get sangha ID from user ID ────────────────────────────────────
@@ -26,11 +25,26 @@ function normalizeDegree(label) {
   if (l.includes('high school') || l.includes('10th') || l.includes('ssc') || l.includes('matriculation') || l === '10') return 'High School';
   if (l.includes('pre-university') || l.includes('pre university') || l.includes('puc') || l.includes('12th') || l.includes('hsc') || l.includes('intermediate') || l === '12') return 'Pre-University';
   if (l.includes('diploma') || l.includes('associate') || l.includes('polytechnic')) return 'Diploma & Associate Degree';
-  if (l.includes('bachelor') || l.includes('undergraduate') || l.includes('b.e') || l.includes('b.tech') || l.includes('be ') || l.includes('btech') || l.includes('b.sc') || l.includes('bsc') || l.includes('bca') || l.includes('bba') || l.includes('b.com') || l.includes('ba ') || l.includes('ug') || l.includes('graduate') && !l.includes('post') && !l.includes('under')) return 'Undergraduate / Bachelor\'s';
-  if (l.includes('master') || l.includes('postgraduate') || l.includes('post graduate') || l.includes('m.e') || l.includes('m.tech') || l.includes('mtech') || l.includes('mba') || l.includes('m.sc') || l.includes('msc') || l.includes('mca') || l.includes('m.com') || l.includes('ma ') || l.includes('pg')) return 'Postgraduate / Master\'s';
+  if (l.includes('bachelor') || l.includes('undergraduate') || l.includes('b.e') || l.includes('b.tech') || l.includes('be ') || l.includes('btech') || l.includes('b.sc') || l.includes('bsc') || l.includes('bca') || l.includes('bba') || l.includes('b.com') || l.includes('ba ') || l.includes('ug') || (l.includes('graduate') && !l.includes('post') && !l.includes('under'))) return "Undergraduate / Bachelor's";
+  if (l.includes('master') || l.includes('postgraduate') || l.includes('post graduate') || l.includes('m.e') || l.includes('m.tech') || l.includes('mtech') || l.includes('mba') || l.includes('m.sc') || l.includes('msc') || l.includes('mca') || l.includes('m.com') || l.includes('ma ') || l.includes('pg')) return "Postgraduate / Master's";
   if (l.includes('doctor') || l.includes('phd') || l.includes('ph.d') || l.includes('doctorate')) return 'Doctorate';
   if (l.includes('chartered') || l.includes('ca') || l.includes('cs ') || l.includes('icai') || l.includes('mbbs') || l.includes('md ') || l.includes('llb') || l.includes('llm') || l.includes('law') || l.includes('professional')) return 'Specialised Professional Degree';
   return 'Other';
+}
+
+// ─── Helper: build date range filter clause ─────────────────────────────────
+function buildDateFilter(dateFrom, dateTo, existingParamCount = 1, dateField = 'p.submitted_at') {
+  const clauses = [];
+  const params  = [];
+  if (dateFrom) {
+    params.push(dateFrom);
+    clauses.push(`${dateField} >= $${existingParamCount + params.length}`);
+  }
+  if (dateTo) {
+    params.push(dateTo);
+    clauses.push(`${dateField} < ($${existingParamCount + params.length}::date + INTERVAL '1 day')`);
+  }
+  return { clause: clauses.length ? ' AND ' + clauses.join(' AND ') : '', params };
 }
 
 // ════════════════════════════════════════════════════════════
@@ -93,6 +107,9 @@ const getEnhancedReports = async (req, res) => {
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
+    const { dateFrom, dateTo } = req.query;
+    const df = buildDateFilter(dateFrom, dateTo, 1, 'p.created_at');
+
     const [currentCounts, trendData, dailyRegs] = await Promise.all([
       pool.query(
         `SELECT
@@ -102,8 +119,8 @@ const getEnhancedReports = async (req, res) => {
            COUNT(*) FILTER (WHERE status = 'changes_requested')              AS changes_requested,
            COUNT(*) FILTER (WHERE status = 'draft')                          AS draft,
            COUNT(*)                                                           AS total
-         FROM profiles WHERE sangha_id = $1`,
-        [sanghaId]
+         FROM profiles WHERE sangha_id = $1 ${df.clause}`,
+        [sanghaId, ...df.params]
       ),
       pool.query(
         `SELECT
@@ -153,27 +170,49 @@ const getAdvancedReports = async (req, res) => {
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
+    const { dateFrom, dateTo } = req.query;
+    const drSubmitted = buildDateFilter(dateFrom, dateTo, 1, 'p.submitted_at');
+    const approvedDateFilter  = `AND p.status='approved'${drSubmitted.clause}`;
+    const allStatusDateFilter = drSubmitted.clause;
+
     const totalRes = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM profiles WHERE sangha_id=$1 AND status='approved'`,
-      [sanghaId]
+      `SELECT COUNT(*) AS cnt FROM profiles WHERE sangha_id=$1 ${approvedDateFilter}`,
+      [sanghaId, ...drSubmitted.params]
     );
     const totalApproved = parseInt(totalRes.rows[0]?.cnt || 0);
 
+    // FIX #2: Simplified population query — use drSubmitted params directly in subquery
     const populationRes = await pool.query(
       `SELECT
          COUNT(DISTINCT p.id) AS family_count,
          COALESCE((
            SELECT COUNT(*) FROM family_members fm
            JOIN profiles p2 ON p2.id = fm.profile_id
-           WHERE p2.sangha_id=$1 AND p2.status='approved'
+           WHERE p2.sangha_id=$1 AND p2.status='approved' ${drSubmitted.clause}
          ), 0) AS member_count
        FROM profiles p
-       WHERE p.sangha_id=$1 AND p.status='approved'`,
-      [sanghaId]
+       WHERE p.sangha_id=$1 ${approvedDateFilter}`,
+      [sanghaId, ...drSubmitted.params]
     );
     const popRow = populationRes.rows[0] || {};
     const totalPopulation =
       parseInt(popRow.family_count || 0) + parseInt(popRow.member_count || 0);
+
+    const statusGenderRows = await safe(`
+      SELECT
+        p.status AS label,
+        COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male')   AS male,
+        COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female') AS female,
+        COUNT(*) FILTER (WHERE pd.gender IS NOT NULL
+          AND LOWER(pd.gender::text) NOT IN ('male','female'))     AS other,
+        COUNT(*)                                                    AS total
+      FROM profiles p
+      LEFT JOIN personal_details pd ON pd.profile_id = p.id
+      WHERE p.sangha_id=$1 ${allStatusDateFilter}
+        AND p.status IN ('approved','rejected','changes_requested','submitted','draft')
+      GROUP BY p.status
+      ORDER BY total DESC
+    `, [sanghaId, ...drSubmitted.params]);
 
     const [
       genderRows,
@@ -186,7 +225,6 @@ const getAdvancedReports = async (req, res) => {
       maritalRows,
       maritalGenderRows,
 
-      // Education — raw labels with gender
       degreeGenderRows,
 
       professionRows,
@@ -204,7 +242,7 @@ const getAdvancedReports = async (req, res) => {
       employmentRows,
       employmentGenderRows,
 
-      // Insurance — yes/no/null counts per type
+      // FIX #9: Insurance queries now include gender breakdowns
       healthInsRows,
       lifeInsRows,
       termInsRows,
@@ -225,7 +263,7 @@ const getAdvancedReports = async (req, res) => {
 
     ] = await Promise.all([
 
-      // ── Gender — heads ─────────────────────────────────────
+      // ── Gender — heads
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male')   AS male,
@@ -234,10 +272,10 @@ const getAdvancedReports = async (req, res) => {
             AND LOWER(pd.gender::text) NOT IN ('male','female'))     AS other
         FROM profiles p
         JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Gender — family members ────────────────────────────
+      // ── Gender — family members
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE LOWER(fm.gender::text) = 'male')   AS male,
@@ -246,10 +284,10 @@ const getAdvancedReports = async (req, res) => {
             AND LOWER(fm.gender::text) NOT IN ('male','female'))     AS other
         FROM profiles p
         JOIN family_members fm ON fm.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Age — family_members ───────────────────────────────
+      // ── Age — family_members
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE fm.dob IS NOT NULL
@@ -262,10 +300,10 @@ const getAdvancedReports = async (req, res) => {
             AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, fm.dob)) > 60)              AS o60
         FROM profiles p
         JOIN family_members fm ON fm.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Age — personal_details heads ──────────────────────
+      // ── Age — personal_details heads
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE pd.date_of_birth IS NOT NULL
@@ -278,10 +316,10 @@ const getAdvancedReports = async (req, res) => {
             AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) > 60)              AS o60
         FROM profiles p
         JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Age × Gender — family_members ─────────────────────
+      // ── Age × Gender — family_members
       safe(`
         SELECT
           age_bucket AS label,
@@ -299,15 +337,15 @@ const getAdvancedReports = async (req, res) => {
             END AS age_bucket
           FROM profiles p
           JOIN family_members fm ON fm.profile_id = p.id
-          WHERE p.sangha_id=$1 AND p.status='approved' AND fm.dob IS NOT NULL
+          WHERE p.sangha_id=$1 ${approvedDateFilter} AND fm.dob IS NOT NULL
         ) sub
         GROUP BY age_bucket
         ORDER BY MIN(
           CASE age_bucket WHEN '0–18' THEN 1 WHEN '19–35' THEN 2 WHEN '36–60' THEN 3 ELSE 4 END
         )
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Age × Gender — personal_details heads ─────────────
+      // ── Age × Gender — personal_details heads
       safe(`
         SELECT
           age_bucket AS label,
@@ -325,35 +363,35 @@ const getAdvancedReports = async (req, res) => {
             END AS age_bucket
           FROM profiles p
           JOIN personal_details pd ON pd.profile_id = p.id
-          WHERE p.sangha_id=$1 AND p.status='approved' AND pd.date_of_birth IS NOT NULL
+          WHERE p.sangha_id=$1 ${approvedDateFilter} AND pd.date_of_birth IS NOT NULL
         ) sub
         GROUP BY age_bucket
         ORDER BY MIN(
           CASE age_bucket WHEN '0–18' THEN 1 WHEN '19–35' THEN 2 WHEN '36–60' THEN 3 ELSE 4 END
         )
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Family type ────────────────────────────────────────
+      // ── Family type
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE LOWER(fi.family_type::text) LIKE '%nuclear%') AS nuclear,
           COUNT(*) FILTER (WHERE LOWER(fi.family_type::text) LIKE '%joint%')   AS joint
         FROM profiles p
         JOIN family_info fi ON fi.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Marital status ─────────────────────────────────────
+      // ── Marital status
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE pd.is_married = true)  AS married,
           COUNT(*) FILTER (WHERE pd.is_married = false) AS single
         FROM profiles p
         JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Marital × Gender ───────────────────────────────────
+      // ── Marital × Gender
       safe(`
         SELECT
           CASE WHEN pd.is_married = true THEN 'Married' ELSE 'Single' END AS label,
@@ -363,12 +401,12 @@ const getAdvancedReports = async (req, res) => {
             AND LOWER(pd.gender::text) NOT IN ('male','female'))     AS other
         FROM profiles p
         JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved' AND pd.is_married IS NOT NULL
+        WHERE p.sangha_id=$1 ${approvedDateFilter} AND pd.is_married IS NOT NULL
         GROUP BY pd.is_married
         ORDER BY pd.is_married DESC
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Degree × Gender — RAW labels (normalized in JS) ───
+      // ── Degree × Gender
       safe(`
         SELECT
           me.highest_education AS label,
@@ -379,25 +417,25 @@ const getAdvancedReports = async (req, res) => {
         FROM profiles p
         JOIN member_education me ON me.profile_id = p.id
         JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND me.highest_education IS NOT NULL AND TRIM(me.highest_education) != ''
         GROUP BY me.highest_education
         ORDER BY (COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') +
                   COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female')) DESC
         LIMIT 50
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Professions ────────────────────────────────────────
+      // ── Professions
       safe(`
         SELECT me.profession_type::text AS label, COUNT(*) AS count
         FROM profiles p
         JOIN member_education me ON me.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND me.profession_type IS NOT NULL
         GROUP BY me.profession_type ORDER BY count DESC LIMIT 10
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Profession × Gender ────────────────────────────────
+      // ── Profession × Gender
       safe(`
         SELECT
           me.profession_type::text AS label,
@@ -408,23 +446,23 @@ const getAdvancedReports = async (req, res) => {
         FROM profiles p
         JOIN member_education me ON me.profile_id = p.id
         JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND me.profession_type IS NOT NULL
         GROUP BY me.profession_type
         ORDER BY (COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') +
                   COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female')) DESC
         LIMIT 10
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Studying ───────────────────────────────────────────
+      // ── Studying
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE me.is_currently_studying = true)  AS yes_count,
           COUNT(*) FILTER (WHERE me.is_currently_studying = false) AS no_count
         FROM profiles p
         JOIN member_education me ON me.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -439,19 +477,19 @@ const getAdvancedReports = async (req, res) => {
         FROM profiles p
         JOIN member_education me ON me.profile_id = p.id
         JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Working ────────────────────────────────────────────
+      // ── Working
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE me.is_currently_working = true)  AS yes_count,
           COUNT(*) FILTER (WHERE me.is_currently_working = false) AS no_count
         FROM profiles p
         JOIN member_education me ON me.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND me.is_currently_working IS NOT NULL
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -466,21 +504,21 @@ const getAdvancedReports = async (req, res) => {
         FROM profiles p
         JOIN member_education me ON me.profile_id = p.id
         JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND me.is_currently_working IS NOT NULL
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Geographic ─────────────────────────────────────────
+      // ── Geographic
       safe(`
         SELECT TRIM(a.city) AS city, COUNT(DISTINCT p.id) AS count
         FROM profiles p
         JOIN addresses a ON a.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND a.city IS NOT NULL AND TRIM(a.city) != ''
         GROUP BY TRIM(a.city)
         ORDER BY count DESC
         LIMIT 100
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -492,15 +530,15 @@ const getAdvancedReports = async (req, res) => {
         FROM profiles p
         JOIN addresses a ON a.profile_id = p.id
         JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND a.city IS NOT NULL AND TRIM(a.city) != ''
         GROUP BY TRIM(a.city)
         ORDER BY (COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') +
                   COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female')) DESC
         LIMIT 100
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Assets ─────────────────────────────────────────────
+      // ── Assets
       safe(`
         SELECT
           COUNT(*) AS total,
@@ -511,10 +549,10 @@ const getAdvancedReports = async (req, res) => {
           COUNT(*) FILTER (WHERE ed.fac_rented_house = true)      AS renting
         FROM profiles p
         JOIN economic_details ed ON ed.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Asset × Gender — count of owners by gender ─────────
+      // ── Asset × Gender
       safe(`
         SELECT
           asset_label AS label,
@@ -534,22 +572,22 @@ const getAdvancedReports = async (req, res) => {
           FROM profiles p
           JOIN economic_details ed ON ed.profile_id = p.id
           JOIN personal_details pd ON pd.profile_id = p.id
-          WHERE p.sangha_id=$1 AND p.status='approved'
+          WHERE p.sangha_id=$1 ${approvedDateFilter}
         ) sub
         WHERE asset_label IS NOT NULL
         GROUP BY asset_label
         ORDER BY asset_label
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Employment ─────────────────────────────────────────
+      // ── Employment
       safe(`
         SELECT me.profession_type::text AS label, COUNT(*) AS count
         FROM profiles p
         JOIN member_education me ON me.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND me.profession_type IS NOT NULL
         GROUP BY me.profession_type ORDER BY count DESC
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -561,106 +599,142 @@ const getAdvancedReports = async (req, res) => {
         FROM profiles p
         JOIN member_education me ON me.profile_id = p.id
         JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND me.profession_type IS NOT NULL
         GROUP BY me.profession_type
         ORDER BY (COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') +
                   COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female')) DESC
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Insurance — health (yes/no/null from array field) ──
-      // The health_coverage column is an array. We treat:
-      // null or empty array = null/unknown
-      // array containing 'none' = no
-      // array with actual values (not 'none') = yes
+      // ── Insurance Health — FIX #9: Cast to text[] and include gender breakdown
       safe(`
         SELECT
-          COUNT(*) FILTER (
-            WHERE mi.health_coverage IS NOT NULL
-              AND cardinality(mi.health_coverage) > 0
-              AND NOT (mi.health_coverage @> ARRAY['none']::text[])
-          ) AS yes_count,
-          COUNT(*) FILTER (
-            WHERE mi.health_coverage IS NOT NULL
-              AND cardinality(mi.health_coverage) > 0
-              AND mi.health_coverage @> ARRAY['none']::text[]
-          ) AS no_count,
-          COUNT(*) FILTER (
-            WHERE mi.health_coverage IS NULL
-               OR cardinality(mi.health_coverage) = 0
-          ) AS null_count
+          COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0
+            AND NOT (mi.health_coverage::text[] @> ARRAY['none']::text[]))                                AS yes_count,
+          COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0
+            AND mi.health_coverage::text[] @> ARRAY['none']::text[])                                      AS no_count,
+          COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NULL OR cardinality(mi.health_coverage::text[]) = 0) AS null_count,
+          COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0
+            AND NOT (mi.health_coverage::text[] @> ARRAY['none']::text[])
+            AND LOWER(pd.gender::text) = 'male')                                                          AS male_yes,
+          COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0
+            AND NOT (mi.health_coverage::text[] @> ARRAY['none']::text[])
+            AND LOWER(pd.gender::text) = 'female')                                                        AS female_yes,
+          COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0
+            AND NOT (mi.health_coverage::text[] @> ARRAY['none']::text[])
+            AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_yes,
+          COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0
+            AND mi.health_coverage::text[] @> ARRAY['none']::text[]
+            AND LOWER(pd.gender::text) = 'male')                                                          AS male_no,
+          COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0
+            AND mi.health_coverage::text[] @> ARRAY['none']::text[]
+            AND LOWER(pd.gender::text) = 'female')                                                        AS female_no,
+          COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0
+            AND mi.health_coverage::text[] @> ARRAY['none']::text[]
+            AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_no
         FROM profiles p
         JOIN member_insurance mi ON mi.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        JOIN personal_details pd ON pd.profile_id = p.id
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Insurance — life ───────────────────────────────────
+      // ── Insurance Life
       safe(`
         SELECT
-          COUNT(*) FILTER (
-            WHERE mi.life_coverage IS NOT NULL
-              AND cardinality(mi.life_coverage) > 0
-              AND NOT (mi.life_coverage @> ARRAY['none']::text[])
-          ) AS yes_count,
-          COUNT(*) FILTER (
-            WHERE mi.life_coverage IS NOT NULL
-              AND cardinality(mi.life_coverage) > 0
-              AND mi.life_coverage @> ARRAY['none']::text[]
-          ) AS no_count,
-          COUNT(*) FILTER (
-            WHERE mi.life_coverage IS NULL
-               OR cardinality(mi.life_coverage) = 0
-          ) AS null_count
+          COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0
+            AND NOT (mi.life_coverage::text[] @> ARRAY['none']::text[]))                                  AS yes_count,
+          COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0
+            AND mi.life_coverage::text[] @> ARRAY['none']::text[])                                        AS no_count,
+          COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NULL OR cardinality(mi.life_coverage::text[]) = 0)   AS null_count,
+          COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0
+            AND NOT (mi.life_coverage::text[] @> ARRAY['none']::text[])
+            AND LOWER(pd.gender::text) = 'male')                                                          AS male_yes,
+          COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0
+            AND NOT (mi.life_coverage::text[] @> ARRAY['none']::text[])
+            AND LOWER(pd.gender::text) = 'female')                                                        AS female_yes,
+          COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0
+            AND NOT (mi.life_coverage::text[] @> ARRAY['none']::text[])
+            AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_yes,
+          COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0
+            AND mi.life_coverage::text[] @> ARRAY['none']::text[]
+            AND LOWER(pd.gender::text) = 'male')                                                          AS male_no,
+          COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0
+            AND mi.life_coverage::text[] @> ARRAY['none']::text[]
+            AND LOWER(pd.gender::text) = 'female')                                                        AS female_no,
+          COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0
+            AND mi.life_coverage::text[] @> ARRAY['none']::text[]
+            AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_no
         FROM profiles p
         JOIN member_insurance mi ON mi.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        JOIN personal_details pd ON pd.profile_id = p.id
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Insurance — term ───────────────────────────────────
+      // ── Insurance Term
       safe(`
         SELECT
-          COUNT(*) FILTER (
-            WHERE mi.term_coverage IS NOT NULL
-              AND cardinality(mi.term_coverage) > 0
-              AND NOT (mi.term_coverage @> ARRAY['none']::text[])
-          ) AS yes_count,
-          COUNT(*) FILTER (
-            WHERE mi.term_coverage IS NOT NULL
-              AND cardinality(mi.term_coverage) > 0
-              AND mi.term_coverage @> ARRAY['none']::text[]
-          ) AS no_count,
-          COUNT(*) FILTER (
-            WHERE mi.term_coverage IS NULL
-               OR cardinality(mi.term_coverage) = 0
-          ) AS null_count
+          COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0
+            AND NOT (mi.term_coverage::text[] @> ARRAY['none']::text[]))                                  AS yes_count,
+          COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0
+            AND mi.term_coverage::text[] @> ARRAY['none']::text[])                                        AS no_count,
+          COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NULL OR cardinality(mi.term_coverage::text[]) = 0)   AS null_count,
+          COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0
+            AND NOT (mi.term_coverage::text[] @> ARRAY['none']::text[])
+            AND LOWER(pd.gender::text) = 'male')                                                          AS male_yes,
+          COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0
+            AND NOT (mi.term_coverage::text[] @> ARRAY['none']::text[])
+            AND LOWER(pd.gender::text) = 'female')                                                        AS female_yes,
+          COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0
+            AND NOT (mi.term_coverage::text[] @> ARRAY['none']::text[])
+            AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_yes,
+          COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0
+            AND mi.term_coverage::text[] @> ARRAY['none']::text[]
+            AND LOWER(pd.gender::text) = 'male')                                                          AS male_no,
+          COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0
+            AND mi.term_coverage::text[] @> ARRAY['none']::text[]
+            AND LOWER(pd.gender::text) = 'female')                                                        AS female_no,
+          COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0
+            AND mi.term_coverage::text[] @> ARRAY['none']::text[]
+            AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_no
         FROM profiles p
         JOIN member_insurance mi ON mi.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        JOIN personal_details pd ON pd.profile_id = p.id
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Insurance — konkani card ───────────────────────────
+      // ── Insurance Konkani Card
       safe(`
         SELECT
-          COUNT(*) FILTER (
-            WHERE mi.konkani_card_coverage IS NOT NULL
-              AND cardinality(mi.konkani_card_coverage) > 0
-              AND NOT (mi.konkani_card_coverage @> ARRAY['none']::text[])
-          ) AS yes_count,
-          COUNT(*) FILTER (
-            WHERE mi.konkani_card_coverage IS NOT NULL
-              AND cardinality(mi.konkani_card_coverage) > 0
-              AND mi.konkani_card_coverage @> ARRAY['none']::text[]
-          ) AS no_count,
-          COUNT(*) FILTER (
-            WHERE mi.konkani_card_coverage IS NULL
-               OR cardinality(mi.konkani_card_coverage) = 0
-          ) AS null_count
+          COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0
+            AND NOT (mi.konkani_card_coverage::text[] @> ARRAY['none']::text[]))                          AS yes_count,
+          COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0
+            AND mi.konkani_card_coverage::text[] @> ARRAY['none']::text[])                                AS no_count,
+          COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NULL OR cardinality(mi.konkani_card_coverage::text[]) = 0) AS null_count,
+          COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0
+            AND NOT (mi.konkani_card_coverage::text[] @> ARRAY['none']::text[])
+            AND LOWER(pd.gender::text) = 'male')                                                          AS male_yes,
+          COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0
+            AND NOT (mi.konkani_card_coverage::text[] @> ARRAY['none']::text[])
+            AND LOWER(pd.gender::text) = 'female')                                                        AS female_yes,
+          COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0
+            AND NOT (mi.konkani_card_coverage::text[] @> ARRAY['none']::text[])
+            AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_yes,
+          COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0
+            AND mi.konkani_card_coverage::text[] @> ARRAY['none']::text[]
+            AND LOWER(pd.gender::text) = 'male')                                                          AS male_no,
+          COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0
+            AND mi.konkani_card_coverage::text[] @> ARRAY['none']::text[]
+            AND LOWER(pd.gender::text) = 'female')                                                        AS female_no,
+          COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0
+            AND mi.konkani_card_coverage::text[] @> ARRAY['none']::text[]
+            AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_no
         FROM profiles p
         JOIN member_insurance mi ON mi.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        JOIN personal_details pd ON pd.profile_id = p.id
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Documents ──────────────────────────────────────────
+      // ── Documents
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text) = 'yes')     AS yes_count,
@@ -668,8 +742,8 @@ const getAdvancedReports = async (req, res) => {
           COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text) = 'unknown'
                             OR md.aadhaar_coverage IS NULL)                     AS unknown_count
         FROM profiles p JOIN member_documents md ON md.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -678,8 +752,8 @@ const getAdvancedReports = async (req, res) => {
           COUNT(*) FILTER (WHERE LOWER(md.pan_coverage::text) = 'unknown'
                             OR md.pan_coverage IS NULL)                    AS unknown_count
         FROM profiles p JOIN member_documents md ON md.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -688,8 +762,8 @@ const getAdvancedReports = async (req, res) => {
           COUNT(*) FILTER (WHERE LOWER(md.voter_id_coverage::text) = 'unknown'
                             OR md.voter_id_coverage IS NULL)                    AS unknown_count
         FROM profiles p JOIN member_documents md ON md.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -698,8 +772,8 @@ const getAdvancedReports = async (req, res) => {
           COUNT(*) FILTER (WHERE LOWER(md.land_doc_coverage::text) = 'unknown'
                             OR md.land_doc_coverage IS NULL)                    AS unknown_count
         FROM profiles p JOIN member_documents md ON md.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -708,19 +782,19 @@ const getAdvancedReports = async (req, res) => {
           COUNT(*) FILTER (WHERE LOWER(md.dl_coverage::text) = 'unknown'
                             OR md.dl_coverage IS NULL)                    AS unknown_count
         FROM profiles p JOIN member_documents md ON md.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Religious ──────────────────────────────────────────
+      // ── Religious
       safe(`
         SELECT TRIM(rd.gotra) AS label, COUNT(*) AS count
         FROM profiles p
         JOIN religious_details rd ON rd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND rd.gotra IS NOT NULL AND TRIM(rd.gotra) != ''
         GROUP BY TRIM(rd.gotra)
         ORDER BY count DESC LIMIT 10
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -728,12 +802,12 @@ const getAdvancedReports = async (req, res) => {
           COUNT(*) AS count
         FROM profiles p
         JOIN religious_details rd ON rd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND (rd.kuladevata IS NOT NULL OR rd.kuladevata_other IS NOT NULL)
           AND COALESCE(NULLIF(TRIM(rd.kuladevata_other),''), TRIM(rd.kuladevata)) != ''
         GROUP BY 1
         ORDER BY count DESC LIMIT 10
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -742,22 +816,22 @@ const getAdvancedReports = async (req, res) => {
         FROM profiles p
         JOIN religious_details rd ON rd.profile_id = p.id
         LEFT JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND COALESCE(NULLIF(TRIM(rd.surname_in_use),''), TRIM(pd.surname_in_use)) IS NOT NULL
           AND COALESCE(NULLIF(TRIM(rd.surname_in_use),''), TRIM(pd.surname_in_use)) != ''
         GROUP BY 1
         ORDER BY count DESC LIMIT 10
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT TRIM(rd.pravara) AS label, COUNT(*) AS count
         FROM profiles p
         JOIN religious_details rd ON rd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
           AND rd.pravara IS NOT NULL AND TRIM(rd.pravara) != ''
         GROUP BY TRIM(rd.pravara)
         ORDER BY count DESC LIMIT 10
-      `, [sanghaId]),
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -772,8 +846,8 @@ const getAdvancedReports = async (req, res) => {
         FROM profiles p
         JOIN religious_details rd ON rd.profile_id = p.id
         LEFT JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
 
       safe(`
         SELECT
@@ -781,16 +855,16 @@ const getAdvancedReports = async (req, res) => {
           COUNT(*) FILTER (WHERE LOWER(rd.ancestral_challenge) IN ('no','false')
                             OR rd.ancestral_challenge IS NULL)                      AS without_challenge,
           COUNT(*) FILTER (WHERE rd.priest_name IS NOT NULL AND TRIM(rd.priest_name) != '') AS with_priest,
-          COUNT(*) FILTER (WHERE rd.demi_gods IS NOT NULL AND cardinality(rd.demi_gods) > 0) AS with_demi_gods,
+          COUNT(*) FILTER (WHERE rd.demi_gods IS NOT NULL AND cardinality(rd.demi_gods::text[]) > 0) AS with_demi_gods,
           COUNT(*) FILTER (WHERE rd.upanama_general IS NOT NULL AND TRIM(rd.upanama_general) != '') AS with_upanama,
           COUNT(*) AS total
         FROM profiles p
         JOIN religious_details rd ON rd.profile_id = p.id
-        WHERE p.sangha_id=$1 AND p.status='approved'
-      `, [sanghaId]),
+        WHERE p.sangha_id=$1 ${approvedDateFilter}
+      `, [sanghaId, ...drSubmitted.params]),
     ]);
 
-    // ─── Merge age/gender data ─────────────────────────────
+    // Merge age/gender data
     const fmAge = ageRows[0] || {};
     const pdAge = pdAgeRows[0] || {};
     const hasFmAge = (parseInt(fmAge.u18 || 0) + parseInt(fmAge.y35 || 0) +
@@ -825,7 +899,7 @@ const getAdvancedReports = async (req, res) => {
     const land    = landRows[0]    || {};
     const dl      = dlRows[0]      || {};
 
-    // ─── Normalize degree data into standard categories ────
+    // Normalize degree data
     const DEGREE_ORDER = [
       'High School',
       'Pre-University',
@@ -852,17 +926,17 @@ const getAdvancedReports = async (req, res) => {
       .filter(Boolean)
       .filter(d => d.male + d.female + d.other > 0);
 
-    // ─── Family income ─────────────────────────────────────
+    // Family income
     const familyIncomeSlabs = await (async () => {
       try {
         const rows = await pool.query(`
           SELECT ed.family_income::text AS label, COUNT(*) AS count
           FROM profiles p
           JOIN economic_details ed ON ed.profile_id = p.id
-          WHERE p.sangha_id=$1 AND p.status='approved'
+          WHERE p.sangha_id=$1 ${approvedDateFilter}
             AND ed.family_income IS NOT NULL
           GROUP BY ed.family_income ORDER BY count DESC
-        `, [sanghaId]);
+        `, [sanghaId, ...drSubmitted.params]);
         return rows.rows.map(r => ({ label: r.label, count: parseInt(r.count || 0) }));
       } catch (e) {
         console.warn('[AdvancedReports] familyIncomeSlabs skipped:', e.message);
@@ -877,15 +951,32 @@ const getAdvancedReports = async (req, res) => {
       SELECT COUNT(*) AS cnt
       FROM profiles p
       JOIN family_history fh ON fh.profile_id = p.id
-      WHERE p.sangha_id=$1 AND p.status='approved'
+      WHERE p.sangha_id=$1 ${approvedDateFilter}
         AND fh.common_relative_names IS NOT NULL
         AND TRIM(fh.common_relative_names) != ''
-    `, [sanghaId]);
+    `, [sanghaId, ...drSubmitted.params]);
     const withCommonRelatives = parseInt(commonRelRes[0]?.cnt || 0);
+
+    const statusBreakdown = statusGenderRows.map(r => ({
+      status: r.label,
+      count:  parseInt(r.total || 0),
+    }));
+
+    const statusGenderBreakdown = statusGenderRows.map(r => ({
+      status: r.label,
+      male:   parseInt(r.male   || 0),
+      female: parseInt(r.female || 0),
+      other:  parseInt(r.other  || 0),
+    }));
 
     res.json({
       totalApproved,
       totalPopulation,
+
+      appliedDateRange: { dateFrom: dateFrom || null, dateTo: dateTo || null },
+
+      statusBreakdown,
+      statusGenderBreakdown,
 
       demographics: {
         gender: {
@@ -980,40 +1071,63 @@ const getAdvancedReports = async (req, res) => {
         })),
       },
 
-      // Insurance now returns yes/no/null counts
+      // FIX #9: All insurance objects now include gender breakdown
       insurance: [
         {
-          label: 'Health',
-          yes:     parseInt(healthIns.yes_count  || 0),
-          no:      parseInt(healthIns.no_count   || 0),
-          unknown: parseInt(healthIns.null_count || 0),
-          // Keep covered/notCovered for backward compat
-          covered:    parseInt(healthIns.yes_count  || 0),
-          notCovered: parseInt(healthIns.no_count   || 0),
+          label:         'Health',
+          yes:           parseInt(healthIns.yes_count  || 0),
+          no:            parseInt(healthIns.no_count   || 0),
+          unknown:       parseInt(healthIns.null_count || 0),
+          covered:       parseInt(healthIns.yes_count  || 0),
+          notCovered:    parseInt(healthIns.no_count   || 0),
+          maleYes:       parseInt(healthIns.male_yes   || 0),
+          femaleYes:     parseInt(healthIns.female_yes || 0),
+          otherYes:      parseInt(healthIns.other_yes  || 0),
+          maleNo:        parseInt(healthIns.male_no    || 0),
+          femaleNo:      parseInt(healthIns.female_no  || 0),
+          otherNo:       parseInt(healthIns.other_no   || 0),
         },
         {
-          label: 'Life',
-          yes:     parseInt(lifeIns.yes_count  || 0),
-          no:      parseInt(lifeIns.no_count   || 0),
-          unknown: parseInt(lifeIns.null_count || 0),
-          covered:    parseInt(lifeIns.yes_count  || 0),
-          notCovered: parseInt(lifeIns.no_count   || 0),
+          label:         'Life',
+          yes:           parseInt(lifeIns.yes_count  || 0),
+          no:            parseInt(lifeIns.no_count   || 0),
+          unknown:       parseInt(lifeIns.null_count || 0),
+          covered:       parseInt(lifeIns.yes_count  || 0),
+          notCovered:    parseInt(lifeIns.no_count   || 0),
+          maleYes:       parseInt(lifeIns.male_yes   || 0),
+          femaleYes:     parseInt(lifeIns.female_yes || 0),
+          otherYes:      parseInt(lifeIns.other_yes  || 0),
+          maleNo:        parseInt(lifeIns.male_no    || 0),
+          femaleNo:      parseInt(lifeIns.female_no  || 0),
+          otherNo:       parseInt(lifeIns.other_no   || 0),
         },
         {
-          label: 'Term',
-          yes:     parseInt(termIns.yes_count  || 0),
-          no:      parseInt(termIns.no_count   || 0),
-          unknown: parseInt(termIns.null_count || 0),
-          covered:    parseInt(termIns.yes_count  || 0),
-          notCovered: parseInt(termIns.no_count   || 0),
+          label:         'Term',
+          yes:           parseInt(termIns.yes_count  || 0),
+          no:            parseInt(termIns.no_count   || 0),
+          unknown:       parseInt(termIns.null_count || 0),
+          covered:       parseInt(termIns.yes_count  || 0),
+          notCovered:    parseInt(termIns.no_count   || 0),
+          maleYes:       parseInt(termIns.male_yes   || 0),
+          femaleYes:     parseInt(termIns.female_yes || 0),
+          otherYes:      parseInt(termIns.other_yes  || 0),
+          maleNo:        parseInt(termIns.male_no    || 0),
+          femaleNo:      parseInt(termIns.female_no  || 0),
+          otherNo:       parseInt(termIns.other_no   || 0),
         },
         {
-          label: 'Konkani Card',
-          yes:     parseInt(konkaniIns.yes_count  || 0),
-          no:      parseInt(konkaniIns.no_count   || 0),
-          unknown: parseInt(konkaniIns.null_count || 0),
-          covered:    parseInt(konkaniIns.yes_count  || 0),
-          notCovered: parseInt(konkaniIns.no_count   || 0),
+          label:         'Konkani Card',
+          yes:           parseInt(konkaniIns.yes_count  || 0),
+          no:            parseInt(konkaniIns.no_count   || 0),
+          unknown:       parseInt(konkaniIns.null_count || 0),
+          covered:       parseInt(konkaniIns.yes_count  || 0),
+          notCovered:    parseInt(konkaniIns.no_count   || 0),
+          maleYes:       parseInt(konkaniIns.male_yes   || 0),
+          femaleYes:     parseInt(konkaniIns.female_yes || 0),
+          otherYes:      parseInt(konkaniIns.other_yes  || 0),
+          maleNo:        parseInt(konkaniIns.male_no    || 0),
+          femaleNo:      parseInt(konkaniIns.female_no  || 0),
+          otherNo:       parseInt(konkaniIns.other_no   || 0),
         },
       ],
 
@@ -1068,7 +1182,7 @@ const getAdvancedReports = async (req, res) => {
 const getExportData = async (req, res) => {
   try {
     const { id: userId } = req.user;
-    const { category, filter } = req.body;
+    const { category, filter, dateFrom, dateTo } = req.body;
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
@@ -1088,19 +1202,32 @@ const getExportData = async (req, res) => {
 
     let extraCols  = '';
     let joinClause = '';
-    let whereCond  = `WHERE p.sangha_id = $1 AND p.status = 'approved'`;
-    let params     = [sanghaId];
+
+    // FIX #3: Build WHERE clause in parts
+    const baseCond = `WHERE p.sangha_id = $1`;
+    let params = [sanghaId];
+    const df = buildDateFilter(dateFrom, dateTo, params.length, 'p.submitted_at');
+    if (df.clause) params = [...params, ...df.params];
+    const dateClause = df.clause;
+
+    let statusCond = `AND p.status = 'approved'`;
+    const paramOffset = params.length;
 
     switch (category) {
-
       case 'status': {
         const f = (filter || 'approved').toLowerCase();
         if (f === 'pending' || f === 'submitted') {
-          whereCond = `WHERE p.sangha_id = $1 AND p.status IN ('submitted', 'under_review')`;
+          statusCond = `AND p.status IN ('submitted', 'under_review')`;
         } else if (f === 'changes' || f === 'changes_requested') {
-          whereCond = `WHERE p.sangha_id = $1 AND p.status = 'changes_requested'`;
+          statusCond = `AND p.status = 'changes_requested'`;
+        } else if (f === 'rejected') {
+          statusCond = `AND p.status = 'rejected'`;
+        } else if (f === 'draft') {
+          statusCond = `AND p.status = 'draft'`;
+        } else if (f === 'all' || f === '') {
+          statusCond = '';
         } else {
-          whereCond = `WHERE p.sangha_id = $1 AND p.status = $2`;
+          statusCond = `AND p.status = $${paramOffset + 1}`;
           params.push(f);
         }
         break;
@@ -1108,9 +1235,9 @@ const getExportData = async (req, res) => {
 
       case 'city': {
         joinClause = `JOIN addresses a ON a.profile_id = p.id`;
-        extraCols  = `, TRIM(a.city) AS "City", a.district AS "District", a.state AS "State", a.pincode AS "Pincode"`;
+        extraCols = `, TRIM(a.city) AS "City", a.district AS "District", a.state AS "State", a.pincode AS "Pincode"`;
         if (filter) {
-          whereCond += ` AND LOWER(TRIM(a.city)) = LOWER($2)`;
+          statusCond += ` AND LOWER(TRIM(a.city)) = LOWER($${paramOffset + 1})`;
           params.push(filter);
         }
         break;
@@ -1119,33 +1246,32 @@ const getExportData = async (req, res) => {
       case 'gender': {
         extraCols = `, pd.gender::text AS "Gender", pd.date_of_birth AS "Date of Birth"`;
         if (filter) {
-          whereCond += ` AND LOWER(pd.gender::text) = LOWER($2)`;
+          statusCond += ` AND LOWER(pd.gender::text) = LOWER($${paramOffset + 1})`;
           params.push(filter);
         }
         break;
       }
 
       case 'age_group': {
-        extraCols = `, pd.gender::text AS "Gender",
-                      pd.date_of_birth AS "Date of Birth",
+        extraCols = `, pd.gender::text AS "Gender", pd.date_of_birth AS "Date of Birth",
                       EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth))::int AS "Age"`;
-        whereCond += ` AND pd.date_of_birth IS NOT NULL`;
+        statusCond += ` AND pd.date_of_birth IS NOT NULL`;
         const rangeMap = {
           '0–18':  `EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) < 19`,
           '19–35': `EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) BETWEEN 19 AND 35`,
           '36–60': `EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) BETWEEN 36 AND 60`,
           '60+':   `EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) > 60`,
         };
-        if (filter && rangeMap[filter]) whereCond += ` AND ${rangeMap[filter]}`;
+        if (filter && rangeMap[filter]) statusCond += ` AND ${rangeMap[filter]}`;
         break;
       }
 
       case 'income': {
         joinClause = `JOIN economic_details ed ON ed.profile_id = p.id`;
-        extraCols  = `, ed.self_income::text AS "Self Income (Individual)",
-                        ed.family_income::text AS "Family Income (Annual)"`;
+        extraCols = `, ed.self_income::text AS "Self Income (Individual)",
+                      ed.family_income::text AS "Family Income (Annual)"`;
         if (filter) {
-          whereCond += ` AND ed.family_income::text = $2`;
+          statusCond += ` AND ed.family_income::text = $${paramOffset + 1}`;
           params.push(filter);
         }
         break;
@@ -1153,13 +1279,13 @@ const getExportData = async (req, res) => {
 
       case 'asset': {
         joinClause = `JOIN economic_details ed ON ed.profile_id = p.id`;
-        extraCols  = `, ed.self_income::text AS "Self Income",
-                        ed.family_income::text AS "Family Income",
-                        ed.fac_own_house AS "Owns House",
-                        ed.fac_agricultural_land AS "Has Agricultural Land",
-                        ed.fac_car AS "Has 4-Wheeler",
-                        ed.fac_two_wheeler AS "Has 2-Wheeler",
-                        ed.fac_rented_house AS "Renting"`;
+        extraCols = `, ed.self_income::text AS "Self Income",
+                      ed.family_income::text AS "Family Income",
+                      ed.fac_own_house AS "Owns House",
+                      ed.fac_agricultural_land AS "Has Agricultural Land",
+                      ed.fac_car AS "Has 4-Wheeler",
+                      ed.fac_two_wheeler AS "Has 2-Wheeler",
+                      ed.fac_rented_house AS "Renting"`;
         const assetMap = {
           'Own House':         `ed.fac_own_house = true`,
           'Agricultural Land': `ed.fac_agricultural_land = true`,
@@ -1167,7 +1293,7 @@ const getExportData = async (req, res) => {
           '2-Wheeler':         `ed.fac_two_wheeler = true`,
           'Renting':           `ed.fac_rented_house = true`,
         };
-        if (filter && assetMap[filter]) whereCond += ` AND ${assetMap[filter]}`;
+        if (filter && assetMap[filter]) statusCond += ` AND ${assetMap[filter]}`;
         break;
       }
 
@@ -1183,17 +1309,16 @@ const getExportData = async (req, res) => {
         if (col) {
           extraCols = `, mi.member_name AS "Member Name",
                          mi.member_relation AS "Relation",
-                         array_to_string(${col}, ', ') AS "${filter} Coverage"`;
-          whereCond += ` AND ${col} IS NOT NULL
-                          AND cardinality(${col}) > 0
-                          AND NOT (${col} @> ARRAY['none']::text[])`;
+                         array_to_string(${col}::text[], ', ') AS "${filter} Coverage"`;
+          statusCond += ` AND ${col}::text[] IS NOT NULL AND cardinality(${col}::text[]) > 0
+                          AND NOT (${col}::text[] @> ARRAY['none']::text[])`;
         } else {
           extraCols = `, mi.member_name AS "Member Name",
                          mi.member_relation AS "Relation",
-                         array_to_string(mi.health_coverage,        ', ') AS "Health Coverage",
-                         array_to_string(mi.life_coverage,          ', ') AS "Life Coverage",
-                         array_to_string(mi.term_coverage,          ', ') AS "Term Coverage",
-                         array_to_string(mi.konkani_card_coverage,  ', ') AS "Konkani Card Coverage"`;
+                         array_to_string(mi.health_coverage::text[], ', ') AS "Health Coverage",
+                         array_to_string(mi.life_coverage::text[], ', ') AS "Life Coverage",
+                         array_to_string(mi.term_coverage::text[], ', ') AS "Term Coverage",
+                         array_to_string(mi.konkani_card_coverage::text[], ', ') AS "Konkani Card Coverage"`;
         }
         break;
       }
@@ -1212,7 +1337,7 @@ const getExportData = async (req, res) => {
           extraCols = `, md.member_name AS "Member Name",
                          md.member_relation AS "Relation",
                          ${col}::text AS "${filter} Status"`;
-          whereCond += ` AND LOWER(${col}::text) = 'yes'`;
+          statusCond += ` AND LOWER(${col}::text) = 'yes'`;
         } else {
           extraCols = `, md.member_name AS "Member Name",
                          md.member_relation AS "Relation",
@@ -1227,14 +1352,14 @@ const getExportData = async (req, res) => {
 
       case 'education': {
         joinClause = `JOIN member_education me ON me.profile_id = p.id`;
-        extraCols  = `, me.member_name AS "Member Name",
-                        me.member_relation AS "Relation",
-                        me.highest_education AS "Education Level",
-                        me.profession_type::text AS "Profession",
-                        me.is_currently_studying AS "Currently Studying",
-                        me.is_currently_working AS "Currently Working"`;
+        extraCols = `, me.member_name AS "Member Name",
+                      me.member_relation AS "Relation",
+                      me.highest_education AS "Education Level",
+                      me.profession_type::text AS "Profession",
+                      me.is_currently_studying AS "Currently Studying",
+                      me.is_currently_working AS "Currently Working"`;
         if (filter) {
-          whereCond += ` AND LOWER(me.highest_education) LIKE LOWER($2)`;
+          statusCond += ` AND LOWER(me.highest_education) LIKE LOWER($${paramOffset + 1})`;
           params.push(`%${filter}%`);
         }
         break;
@@ -1242,13 +1367,13 @@ const getExportData = async (req, res) => {
 
       case 'occupation': {
         joinClause = `JOIN member_education me ON me.profile_id = p.id`;
-        extraCols  = `, me.member_name AS "Member Name",
-                        me.member_relation AS "Relation",
-                        me.profession_type::text AS "Profession",
-                        me.highest_education AS "Education Level",
-                        me.is_currently_working AS "Currently Working"`;
+        extraCols = `, me.member_name AS "Member Name",
+                      me.member_relation AS "Relation",
+                      me.profession_type::text AS "Profession",
+                      me.highest_education AS "Education Level",
+                      me.is_currently_working AS "Currently Working"`;
         if (filter) {
-          whereCond += ` AND LOWER(me.profession_type::text) LIKE LOWER($2)`;
+          statusCond += ` AND LOWER(me.profession_type::text) LIKE LOWER($${paramOffset + 1})`;
           params.push(`%${filter}%`);
         }
         break;
@@ -1256,9 +1381,9 @@ const getExportData = async (req, res) => {
 
       case 'family_type': {
         joinClause = `JOIN family_info fi ON fi.profile_id = p.id`;
-        extraCols  = `, fi.family_type::text AS "Family Type"`;
+        extraCols = `, fi.family_type::text AS "Family Type"`;
         if (filter) {
-          whereCond += ` AND LOWER(fi.family_type::text) LIKE LOWER($2)`;
+          statusCond += ` AND LOWER(fi.family_type::text) LIKE LOWER($${paramOffset + 1})`;
           params.push(`%${filter}%`);
         }
         break;
@@ -1268,9 +1393,9 @@ const getExportData = async (req, res) => {
         extraCols = `, pd.is_married AS "Is Married", pd.date_of_birth AS "Date of Birth"`;
         const f = (filter || '').toLowerCase();
         if (f === 'married') {
-          whereCond += ` AND pd.is_married = true`;
+          statusCond += ` AND pd.is_married = true`;
         } else if (f === 'single') {
-          whereCond += ` AND pd.is_married = false`;
+          statusCond += ` AND pd.is_married = false`;
         }
         break;
       }
@@ -1281,26 +1406,26 @@ const getExportData = async (req, res) => {
       case 'surname':
       case 'ancestral': {
         joinClause = `JOIN religious_details rd ON rd.profile_id = p.id`;
-        extraCols  = `, rd.gotra AS "Gotra",
-                        rd.pravara AS "Pravara",
-                        COALESCE(NULLIF(TRIM(rd.kuladevata_other),''), rd.kuladevata) AS "Kuladevata",
-                        COALESCE(NULLIF(TRIM(rd.surname_in_use),''), pd.surname_in_use) AS "Surname in Use",
-                        rd.surname_as_per_gotra AS "Surname as per Gotra",
-                        rd.priest_name AS "Priest Name",
-                        rd.priest_location AS "Priest Location",
-                        rd.upanama_general AS "Upanama General",
-                        rd.upanama_proper AS "Upanama Proper",
-                        array_to_string(rd.demi_gods, ', ') AS "Demi Gods",
-                        rd.ancestral_challenge AS "Ancestral Challenge",
-                        rd.ancestral_challenge_notes AS "Ancestral Challenge Notes"`;
+        extraCols = `, rd.gotra AS "Gotra",
+                      rd.pravara AS "Pravara",
+                      COALESCE(NULLIF(TRIM(rd.kuladevata_other),''), rd.kuladevata) AS "Kuladevata",
+                      COALESCE(NULLIF(TRIM(rd.surname_in_use),''), pd.surname_in_use) AS "Surname in Use",
+                      rd.surname_as_per_gotra AS "Surname as per Gotra",
+                      rd.priest_name AS "Priest Name",
+                      rd.priest_location AS "Priest Location",
+                      rd.upanama_general AS "Upanama General",
+                      rd.upanama_proper AS "Upanama Proper",
+                      array_to_string(rd.demi_gods::text[], ', ') AS "Demi Gods",
+                      rd.ancestral_challenge AS "Ancestral Challenge",
+                      rd.ancestral_challenge_notes AS "Ancestral Challenge Notes"`;
         if (filter && category === 'gotra') {
-          whereCond += ` AND LOWER(TRIM(rd.gotra)) LIKE LOWER($2)`;
+          statusCond += ` AND LOWER(TRIM(rd.gotra)) LIKE LOWER($${paramOffset + 1})`;
           params.push(`%${filter}%`);
         } else if (filter && category === 'kuladevata') {
-          whereCond += ` AND LOWER(COALESCE(NULLIF(TRIM(rd.kuladevata_other),''), rd.kuladevata)) LIKE LOWER($2)`;
+          statusCond += ` AND LOWER(COALESCE(NULLIF(TRIM(rd.kuladevata_other),''), rd.kuladevata)) LIKE LOWER($${paramOffset + 1})`;
           params.push(`%${filter}%`);
         } else if (filter && category === 'pravara') {
-          whereCond += ` AND LOWER(TRIM(rd.pravara)) LIKE LOWER($2)`;
+          statusCond += ` AND LOWER(TRIM(rd.pravara)) LIKE LOWER($${paramOffset + 1})`;
           params.push(`%${filter}%`);
         }
         break;
@@ -1309,6 +1434,8 @@ const getExportData = async (req, res) => {
       default:
         break;
     }
+
+    const whereCond = `${baseCond} ${statusCond} ${dateClause}`;
 
     const sql = `
       ${BASE_SELECT}
@@ -1357,11 +1484,13 @@ const getExportData = async (req, res) => {
 const getFullExportData = async (req, res) => {
   try {
     const { id: userId } = req.user;
-    const { sections = [], includeAllStatuses = false } = req.body;
+    const { sections = [], includeAllStatuses = false, dateFrom, dateTo } = req.body;
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
     const statusFilter = includeAllStatuses ? '' : `AND p.status = 'approved'`;
+    const df = buildDateFilter(dateFrom, dateTo, 1, 'p.submitted_at');
+    const dateFilter = df.clause;
 
     const baseRows = await pool.query(
       `SELECT
@@ -1383,10 +1512,10 @@ const getFullExportData = async (req, res) => {
        FROM profiles p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
-       WHERE p.sangha_id = $1 ${statusFilter}
+       WHERE p.sangha_id = $1 ${statusFilter} ${dateFilter}
        ORDER BY "Full Name"
        LIMIT 5000`,
-      [sanghaId]
+      [sanghaId, ...df.params]
     );
 
     const rowMap = new Map();
@@ -1397,22 +1526,21 @@ const getFullExportData = async (req, res) => {
 
     if (profileIds.length === 0) return res.json([]);
 
-    // ── Economic Details ───────────────────────────────────
     if (sections.includes('economic-details')) {
       const ecRows = await pool.query(
         `SELECT
            profile_id,
-           self_income::text                                         AS "Self Income (Individual)",
-           family_income::text                                       AS "Family Income (Annual)",
-           fac_own_house                                             AS "Owns House",
-           fac_agricultural_land                                     AS "Has Agricultural Land",
-           fac_car                                                   AS "Has 4-Wheeler",
-           fac_two_wheeler                                           AS "Has 2-Wheeler",
-           fac_rented_house                                          AS "Renting",
-           inv_fixed_deposits                                        AS "Invests in Fixed Deposits",
-           inv_mutual_funds_sip                                      AS "Invests in Mutual Funds / SIP",
-           inv_shares_demat                                          AS "Invests in Shares / Demat",
-           inv_others                                                AS "Other Investments"
+           self_income::text AS "Self Income (Individual)",
+           family_income::text AS "Family Income (Annual)",
+           fac_own_house AS "Owns House",
+           fac_agricultural_land AS "Has Agricultural Land",
+           fac_car AS "Has 4-Wheeler",
+           fac_two_wheeler AS "Has 2-Wheeler",
+           fac_rented_house AS "Renting",
+           inv_fixed_deposits AS "Invests in Fixed Deposits",
+           inv_mutual_funds_sip AS "Invests in Mutual Funds / SIP",
+           inv_shares_demat AS "Invests in Shares / Demat",
+           inv_others AS "Other Investments"
          FROM economic_details
          WHERE profile_id = ANY($1)`,
         [profileIds]
@@ -1423,22 +1551,21 @@ const getFullExportData = async (req, res) => {
       }
     }
 
-    // ── Education & Profession ─────────────────────────────
     if (sections.includes('education-profession')) {
       const eduRows = await pool.query(
         `SELECT
            me.profile_id,
-           me.member_name                                            AS "Member Name",
-           me.member_relation                                        AS "Relation",
-           me.highest_education                                      AS "Education Level",
-           me.profession_type::text                                  AS "Profession",
-           me.is_currently_studying                                  AS "Currently Studying",
-           me.is_currently_working                                   AS "Currently Working",
+           me.member_name AS "Member Name",
+           me.member_relation AS "Relation",
+           me.highest_education AS "Education Level",
+           me.profession_type::text AS "Profession",
+           me.is_currently_studying AS "Currently Studying",
+           me.is_currently_working AS "Currently Working",
            (
              SELECT STRING_AGG(ml.language, ', ')
              FROM member_languages ml
              WHERE ml.member_education_id = me.id
-           )                                                         AS "Languages Known"
+           ) AS "Languages Known"
          FROM member_education me
          WHERE me.profile_id = ANY($1)
          ORDER BY me.sort_order`,
@@ -1450,29 +1577,27 @@ const getFullExportData = async (req, res) => {
           eduMap.set(edu.profile_id, edu);
         } else {
           const existing = eduMap.get(edu.profile_id);
-          existing["Member Name"]     = [existing["Member Name"],     edu["Member Name"]]    .filter(Boolean).join(' | ');
+          existing["Member Name"] = [existing["Member Name"], edu["Member Name"]].filter(Boolean).join(' | ');
           existing["Education Level"] = [existing["Education Level"], edu["Education Level"]].filter(Boolean).join(' | ');
-          existing["Profession"]      = [existing["Profession"],      edu["Profession"]]     .filter(Boolean).join(' | ');
+          existing["Profession"] = [existing["Profession"], edu["Profession"]].filter(Boolean).join(' | ');
           existing["Languages Known"] = [existing["Languages Known"], edu["Languages Known"]].filter(Boolean).join(' | ');
         }
       }
       for (const [pid, edu] of eduMap) {
         const r = rowMap.get(pid);
         if (r) {
-          r["Member Name"]        = edu["Member Name"];
-          r["Relation"]           = edu["Relation"];
-          r["Education Level"]    = edu["Education Level"];
-          r["Profession"]         = edu["Profession"];
+          r["Member Name"] = edu["Member Name"];
+          r["Relation"] = edu["Relation"];
+          r["Education Level"] = edu["Education Level"];
+          r["Profession"] = edu["Profession"];
           r["Currently Studying"] = edu["Currently Studying"];
-          r["Currently Working"]  = edu["Currently Working"];
-          r["Languages Known"]    = edu["Languages Known"];
+          r["Currently Working"] = edu["Currently Working"];
+          r["Languages Known"] = edu["Languages Known"];
         }
       }
     }
 
-    // ── Family Information + Insurance + Member Documents ──
     if (sections.includes('family-information')) {
-      // Family type
       const fiRows = await pool.query(
         `SELECT profile_id, family_type::text AS "Family Type"
          FROM family_info WHERE profile_id = ANY($1)`,
@@ -1483,11 +1608,10 @@ const getFullExportData = async (req, res) => {
         if (r) r["Family Type"] = fi["Family Type"];
       }
 
-      // Family members
       const fmRows = await pool.query(
         `SELECT
            profile_id,
-           STRING_AGG(name, ', ' ORDER BY sort_order)     AS "Family Member Name",
+           STRING_AGG(name, ', ' ORDER BY sort_order) AS "Family Member Name",
            STRING_AGG(relation, ', ' ORDER BY sort_order) AS "Family Member Relation"
          FROM family_members
          WHERE profile_id = ANY($1)
@@ -1497,19 +1621,18 @@ const getFullExportData = async (req, res) => {
       for (const fm of fmRows.rows) {
         const r = rowMap.get(fm.profile_id);
         if (r) {
-          r["Family Member Name"]     = fm["Family Member Name"];
+          r["Family Member Name"] = fm["Family Member Name"];
           r["Family Member Relation"] = fm["Family Member Relation"];
         }
       }
 
-      // Insurance
       const insRows = await pool.query(
         `SELECT
            profile_id,
-           array_to_string(health_coverage,       ', ') AS "Health Coverage",
-           array_to_string(life_coverage,         ', ') AS "Life Coverage",
-           array_to_string(term_coverage,         ', ') AS "Term Coverage",
-           array_to_string(konkani_card_coverage, ', ') AS "Konkani Card Coverage"
+           array_to_string(health_coverage::text[], ', ') AS "Health Coverage",
+           array_to_string(life_coverage::text[], ', ') AS "Life Coverage",
+           array_to_string(term_coverage::text[], ', ') AS "Term Coverage",
+           array_to_string(konkani_card_coverage::text[], ', ') AS "Konkani Card Coverage"
          FROM member_insurance
          WHERE profile_id = ANY($1)
          ORDER BY sort_order`,
@@ -1522,24 +1645,23 @@ const getFullExportData = async (req, res) => {
       for (const [pid, ins] of insMap) {
         const r = rowMap.get(pid);
         if (r) {
-          r["Health Coverage"]       = ins["Health Coverage"];
-          r["Life Coverage"]         = ins["Life Coverage"];
-          r["Term Coverage"]         = ins["Term Coverage"];
+          r["Health Coverage"] = ins["Health Coverage"];
+          r["Life Coverage"] = ins["Life Coverage"];
+          r["Term Coverage"] = ins["Term Coverage"];
           r["Konkani Card Coverage"] = ins["Konkani Card Coverage"];
         }
       }
 
-      // Member Documents — included in family-information section
       const docRows = await pool.query(
         `SELECT
            profile_id,
-           member_name        AS "Doc Member Name",
-           member_relation    AS "Doc Member Relation",
-           aadhaar_coverage::text  AS "Aadhaar",
-           pan_coverage::text      AS "PAN Card",
+           member_name AS "Doc Member Name",
+           member_relation AS "Doc Member Relation",
+           aadhaar_coverage::text AS "Aadhaar",
+           pan_coverage::text AS "PAN Card",
            voter_id_coverage::text AS "Voter ID",
            land_doc_coverage::text AS "Land Docs",
-           dl_coverage::text       AS "DL"
+           dl_coverage::text AS "DL"
          FROM member_documents
          WHERE profile_id = ANY($1)
          ORDER BY sort_order`,
@@ -1552,26 +1674,25 @@ const getFullExportData = async (req, res) => {
       for (const [pid, doc] of docMap) {
         const r = rowMap.get(pid);
         if (r) {
-          r["Doc Member Name"]     = doc["Doc Member Name"];
+          r["Doc Member Name"] = doc["Doc Member Name"];
           r["Doc Member Relation"] = doc["Doc Member Relation"];
-          r["Aadhaar"]             = doc["Aadhaar"];
-          r["PAN Card"]            = doc["PAN Card"];
-          r["Voter ID"]            = doc["Voter ID"];
-          r["Land Docs"]           = doc["Land Docs"];
-          r["DL"]                  = doc["DL"];
+          r["Aadhaar"] = doc["Aadhaar"];
+          r["PAN Card"] = doc["PAN Card"];
+          r["Voter ID"] = doc["Voter ID"];
+          r["Land Docs"] = doc["Land Docs"];
+          r["DL"] = doc["DL"];
         }
       }
     }
 
-    // ── Location Information ───────────────────────────────
     if (sections.includes('location-information')) {
       const addrRows = await pool.query(
         `SELECT
            profile_id,
-           TRIM(city)    AS "City",
-           district      AS "District",
-           state         AS "State",
-           pincode       AS "Pincode"
+           TRIM(city) AS "City",
+           district AS "District",
+           state AS "State",
+           pincode AS "Pincode"
          FROM addresses
          WHERE profile_id = ANY($1)
          LIMIT 5000`,
@@ -1584,32 +1705,31 @@ const getFullExportData = async (req, res) => {
       for (const [pid, addr] of addrMap) {
         const r = rowMap.get(pid);
         if (r) {
-          r["City"]     = addr["City"];
+          r["City"] = addr["City"];
           r["District"] = addr["District"];
-          r["State"]    = addr["State"];
-          r["Pincode"]  = addr["Pincode"];
+          r["State"] = addr["State"];
+          r["Pincode"] = addr["Pincode"];
         }
       }
     }
 
-    // ── Religious Details ──────────────────────────────────
     if (sections.includes('religious-details')) {
       const relRows = await pool.query(
         `SELECT
            rd.profile_id,
-           rd.gotra                                                              AS "Gotra",
-           rd.pravara                                                            AS "Pravara",
-           COALESCE(NULLIF(TRIM(rd.kuladevata_other),''), rd.kuladevata)        AS "Kuladevata",
-           COALESCE(NULLIF(TRIM(rd.surname_in_use),''), pd.surname_in_use)      AS "Surname in Use",
-           rd.surname_as_per_gotra                                              AS "Surname as per Gotra",
-           rd.priest_name                                                        AS "Priest Name",
-           rd.priest_location                                                    AS "Priest Location",
-           rd.upanama_general                                                    AS "Upanama General",
-           rd.upanama_proper                                                     AS "Upanama Proper",
-           array_to_string(rd.demi_gods, ', ')                                  AS "Demi Gods",
-           rd.ancestral_challenge                                                AS "Ancestral Challenge",
-           rd.ancestral_challenge_notes                                          AS "Ancestral Challenge Notes",
-           fh.common_relative_names                                              AS "Common Relative Names"
+           rd.gotra AS "Gotra",
+           rd.pravara AS "Pravara",
+           COALESCE(NULLIF(TRIM(rd.kuladevata_other),''), rd.kuladevata) AS "Kuladevata",
+           COALESCE(NULLIF(TRIM(rd.surname_in_use),''), pd.surname_in_use) AS "Surname in Use",
+           rd.surname_as_per_gotra AS "Surname as per Gotra",
+           rd.priest_name AS "Priest Name",
+           rd.priest_location AS "Priest Location",
+           rd.upanama_general AS "Upanama General",
+           rd.upanama_proper AS "Upanama Proper",
+           array_to_string(rd.demi_gods::text[], ', ') AS "Demi Gods",
+           rd.ancestral_challenge AS "Ancestral Challenge",
+           rd.ancestral_challenge_notes AS "Ancestral Challenge Notes",
+           fh.common_relative_names AS "Common Relative Names"
          FROM religious_details rd
          LEFT JOIN personal_details pd ON pd.profile_id = rd.profile_id
          LEFT JOIN family_history fh ON fh.profile_id = rd.profile_id
@@ -1620,12 +1740,6 @@ const getFullExportData = async (req, res) => {
         const r = rowMap.get(rel.profile_id);
         if (r) Object.assign(r, rel);
       }
-    }
-
-    // ── Personal Details (no doc columns — docs in family-information) ──
-    if (sections.includes('personal-details')) {
-      // Personal details are already in base select (gender, dob, is_married)
-      // No additional doc columns here — moved to family-information
     }
 
     const result = Array.from(rowMap.values()).map(row => {

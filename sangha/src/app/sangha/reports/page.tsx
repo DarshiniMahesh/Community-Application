@@ -1,4 +1,3 @@
-// Community-Application\sangha\src\app\sangha\reports\page.tsx
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
@@ -7,6 +6,7 @@ import { api } from "@/lib/api";
 import GeneralDashboard from "./GeneralDashboard";
 import AdvancedDashboard from "./AdvancedDashboard";
 import CustomReport from "./CustomReport";
+import DateRangePicker, { DEFAULT_DATE_RANGE, DateRange, toISO } from "./DateRangePicker";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +27,8 @@ export interface EnhancedReport {
 export interface AdvancedReport {
   totalApproved: number;
   totalPopulation: number;
+  statusBreakdown?: { status: string; count: number }[];
+  statusGenderBreakdown?: { status: string; male: number; female: number; other: number }[];
   demographics: {
     gender: { male: number; female: number; other: number };
     ageGroups: { label: string; count: number }[];
@@ -91,6 +93,9 @@ export default function ReportsPage() {
   const [advancedLoading, setAdvancedLoading] = useState(false);
   const [error, setError] = useState(false);
 
+  // Fix #1: shared date range state for Advanced tab
+  const [dateRange, setDateRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
+
   // Custom report: pre-selected sections from chart clicks
   const [customInitSections, setCustomInitSections] = useState<string[]>([]);
   const [customInitCategory, setCustomInitCategory] = useState<string | undefined>();
@@ -107,25 +112,49 @@ export default function ReportsPage() {
     }
   }, []);
 
-  const fetchAdvancedData = useCallback(async () => {
+  // Fix #1 + #6: fetchAdvancedData now accepts an optional range override and
+  // properly captures dateRange — no stale-closure suppression needed.
+  const fetchAdvancedData = useCallback(async (range?: DateRange) => {
     setAdvancedLoading(true);
     try {
-      const result = await api.get("/sangha/reports/advanced");
+      const r = range ?? dateRange;
+      const params =
+        r.preset === "allTime"
+          ? ""
+          : `?dateFrom=${toISO(r.from)}&dateTo=${toISO(r.to)}`;
+      const result = await api.get(`/sangha/reports/advanced${params}`);
       setAdvancedData(result);
     } catch {
       setAdvancedData(null);
     } finally {
       setAdvancedLoading(false);
     }
-  }, []);
+  }, [dateRange]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Fix #6: proper deps — no eslint-disable needed
   useEffect(() => {
     if (activeTab === "advanced" && !advancedData && !advancedLoading) {
       fetchAdvancedData();
     }
-  }, [activeTab]); // eslint-disable-line
+  }, [activeTab, advancedData, advancedLoading, fetchAdvancedData]);
+
+  // Fix #1: re-fetch when date range changes while on advanced tab
+  useEffect(() => {
+    if (activeTab === "advanced") {
+      fetchAdvancedData(dateRange);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange]);
+
+  // Fix #12: clear custom-report init state when navigating away from "custom" tab
+  useEffect(() => {
+    if (activeTab !== "custom") {
+      setCustomInitSections([]);
+      setCustomInitCategory(undefined);
+    }
+  }, [activeTab]);
 
   // Navigate to advanced tab with optional section scroll
   const goToAdvanced = useCallback((section?: string) => {
@@ -139,6 +168,11 @@ export default function ReportsPage() {
     setCustomInitSections(sections);
     setCustomInitCategory(category);
     setActiveTab("custom");
+  }, []);
+
+  // Fix #13: memoize so onSectionRendered reference is stable across renders
+  const handleSectionRendered = useCallback(() => {
+    setAdvancedSection(undefined);
   }, []);
 
   const tabs = [
@@ -161,23 +195,38 @@ export default function ReportsPage() {
           </p>
         </div>
 
-        {/* Tab Bar */}
-        <div className="flex gap-1 p-1 bg-white border border-slate-200 rounded-2xl w-fit shadow-sm">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                activeTab === tab.id
-                  ? "bg-sky-500 text-white shadow-md"
-                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
-              {activeTab === tab.id && <ChevronRight className="w-3 h-3 ml-0.5" />}
-            </button>
-          ))}
+        {/* Tab Bar + Date Picker (shown only on Advanced tab) */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex gap-1 p-1 bg-white border border-slate-200 rounded-2xl w-fit shadow-sm">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                  activeTab === tab.id
+                    ? "bg-sky-500 text-white shadow-md"
+                    : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+                {activeTab === tab.id && <ChevronRight className="w-3 h-3 ml-0.5" />}
+              </button>
+            ))}
+          </div>
+
+          {/* Fix #1: Date range picker shown for Advanced tab */}
+          {activeTab === "advanced" && (
+            <DateRangePicker
+              value={dateRange}
+              onChange={(range) => {
+                setDateRange(range);
+                // reset cached data so the effect above triggers a fresh fetch
+                setAdvancedData(null);
+              }}
+              showReset
+            />
+          )}
         </div>
 
         {/* Tab Content */}
@@ -192,12 +241,14 @@ export default function ReportsPage() {
           />
         )}
         {activeTab === "advanced" && (
+          // Fix #1: dateRange now passed; Fix #13: stable callback reference
           <AdvancedDashboard
             data={advancedData}
             loading={advancedLoading}
             initialSection={advancedSection}
+            dateRange={dateRange}
             onGoToCustomReport={goToCustomReport}
-            onSectionRendered={() => setAdvancedSection(undefined)}
+            onSectionRendered={handleSectionRendered}
           />
         )}
         {activeTab === "custom" && (
@@ -205,6 +256,7 @@ export default function ReportsPage() {
             initSections={customInitSections}
             initCategory={customInitCategory}
             onClearInit={() => { setCustomInitSections([]); setCustomInitCategory(undefined); }}
+            dateRange={dateRange}
           />
         )}
       </div>

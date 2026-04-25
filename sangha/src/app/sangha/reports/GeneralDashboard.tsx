@@ -11,12 +11,11 @@ import {
   TrendingUp, TrendingDown, Minus, Users, CheckCircle2, Clock,
   AlertCircle, FileEdit, RefreshCw, FileSpreadsheet, Loader2,
   ArrowRight, MapPin, GraduationCap, Wallet, Shield, Activity,
-  UserCheck, UserX, BookOpen,
+  UserCheck, UserX, BookOpen, BarChart2,
 } from "lucide-react";
 import { EnhancedReport } from "./page";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
 export function n(s: string | undefined | null): number {
   return parseInt(s ?? "0", 10) || 0;
 }
@@ -32,8 +31,8 @@ function TrendBadge({ current, previous }: { current: number; previous: number }
   if (previous === 0)
     return <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium"><TrendingUp className="w-3 h-3" />New activity</span>;
   const pct = Math.round(((current - previous) / previous) * 100);
-  if (pct > 0) return <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium"><TrendingUp className="w-3 h-3" />+{pct}% vs last month</span>;
-  if (pct < 0) return <span className="inline-flex items-center gap-1 text-xs text-rose-600 font-medium"><TrendingDown className="w-3 h-3" />{pct}% vs last month</span>;
+  if (pct > 0) return <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium"><TrendingUp className="w-3 h-3" />+{pct}% vs prev period</span>;
+  if (pct < 0) return <span className="inline-flex items-center gap-1 text-xs text-rose-600 font-medium"><TrendingDown className="w-3 h-3" />{pct}% vs prev period</span>;
   return <span className="inline-flex items-center gap-1 text-xs text-slate-500"><Minus className="w-3 h-3" />Unchanged</span>;
 }
 
@@ -68,8 +67,7 @@ function Skeleton({ className }: { className?: string }) {
   return <div className={`animate-pulse rounded-xl bg-slate-200 ${className ?? ""}`} />;
 }
 
-// ─── Section Card with Navigate Arrow ─────────────────────────────────────────
-
+// ─── Section Card ──────────────────────────────────────────────────────────────
 function SectionCard({
   icon: Icon, color, bg, title, value, pct,
   onArrow, arrowLabel,
@@ -127,8 +125,57 @@ function SectionCard({
   );
 }
 
-// ─── PROPS ────────────────────────────────────────────────────────────────────
+// ─── Status KPI Card (with Details + Excel) ────────────────────────────────────
+function StatusKpiCard({
+  icon: Icon, color, bg, label, value, pct, total,
+  onDetails, onExport,
+}: {
+  icon: any; color: string; bg: string; label: string;
+  value: number; pct: number; total: number;
+  onDetails: () => void; onExport: () => void;
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 hover:border-sky-200 transition-all hover:shadow-md">
+      <div className="flex items-start justify-between mb-3">
+        <div className={`p-2 rounded-xl ${bg}`}>
+          <Icon className="w-4 h-4" style={{ color }} />
+        </div>
+        <span className="text-xs font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-600">{pct}%</span>
+      </div>
 
+      <p className="text-3xl font-black tabular-nums" style={{ color }}>
+        {value.toLocaleString()}
+      </p>
+      <p className="text-sm font-semibold text-slate-800 mt-0.5">{label}</p>
+
+      <div className="mt-2 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+        <div className="h-1.5 rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: color }} />
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex gap-2 mt-3">
+        <button
+          onClick={onDetails}
+          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs border border-slate-200
+            text-slate-500 hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 transition-all font-medium"
+        >
+          <BarChart2 className="w-3 h-3" />
+          Details
+        </button>
+        <button
+          onClick={onExport}
+          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs border border-slate-200
+            text-slate-500 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all font-medium"
+        >
+          <FileSpreadsheet className="w-3 h-3" />
+          Excel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── PROPS ────────────────────────────────────────────────────────────────────
 interface Props {
   data: EnhancedReport | null;
   loading: boolean;
@@ -138,7 +185,9 @@ interface Props {
   onGoToCustomReport: (sections: string[], category?: string) => void;
 }
 
-export default function GeneralDashboard({ data, loading, error, onRefresh, onGoToAdvanced, onGoToCustomReport }: Props) {
+export default function GeneralDashboard({
+  data, loading, error, onRefresh, onGoToAdvanced, onGoToCustomReport,
+}: Props) {
 
   if (loading) {
     return (
@@ -182,48 +231,66 @@ export default function GeneralDashboard({ data, loading, error, onRefresh, onGo
     Rejections: n((d as any).rejections ?? "0"),
   }));
 
+  const statusKpiCards = [
+    {
+      icon: CheckCircle2, color: "#10b981", bg: "bg-emerald-50",
+      label: "Approved",        value: n(counts.approved),         status: "approved",
+    },
+    {
+      icon: Clock, color: "#f59e0b", bg: "bg-amber-50",
+      label: "Pending Review",  value: n(counts.pending),           status: "pending",
+    },
+    {
+      icon: UserCheck, color: "#f97316", bg: "bg-orange-50",
+      label: "Changes Needed",  value: n(counts.changes_requested), status: "changes_requested",
+    },
+    {
+      icon: UserX, color: "#ef4444", bg: "bg-red-50",
+      label: "Rejected",        value: n(counts.rejected),          status: "rejected",
+    },
+  ];
+
   const analyticsCards = [
     {
       icon: Users, color: "#0ea5e9", bg: "bg-sky-50",
       title: "Demographics", value: total,
-      section: "demographics", label: "View Demographics",
+      section: "demographics",
       excelSections: ["personal-details"],
     },
     {
       icon: MapPin, color: "#14b8a6", bg: "bg-teal-50",
       title: "Location Distribution", value: n(counts.approved),
-      section: "geographic", label: "View Location Analytics",
+      section: "geographic",
       excelSections: ["location-information"],
     },
     {
       icon: GraduationCap, color: "#8b5cf6", bg: "bg-violet-50",
       title: "Education & Profession", value: n(counts.approved),
-      section: "education", label: "View Education Analytics",
+      section: "education",
       excelSections: ["education-profession"],
     },
     {
       icon: Wallet, color: "#f59e0b", bg: "bg-amber-50",
       title: "Economic Details", value: n(counts.approved),
-      section: "economic", label: "View Economic Analytics",
+      section: "economic",
       excelSections: ["economic-details"],
     },
     {
       icon: Shield, color: "#10b981", bg: "bg-emerald-50",
       title: "Insurance Coverage", value: n(counts.approved),
-      section: "insurance", label: "View Insurance Analytics",
+      section: "insurance",
       excelSections: ["family-information"],
     },
     {
       icon: Activity, color: "#f43f5e", bg: "bg-rose-50",
       title: "Documentation Status", value: n(counts.approved),
-      section: "documents", label: "View Document Analytics",
+      section: "documents",
       excelSections: ["personal-details"],
     },
-    // ── NEW: Religious Details card ──────────────────────────────────────────
     {
       icon: BookOpen, color: "#a855f7", bg: "bg-purple-50",
       title: "Religious Details", value: n(counts.approved),
-      section: "religious", label: "View Religious Analytics",
+      section: "religious",
       excelSections: ["religious-details"],
     },
   ];
@@ -232,13 +299,14 @@ export default function GeneralDashboard({ data, loading, error, onRefresh, onGo
     <div className="space-y-6">
       {/* Top Actions */}
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onRefresh} className="gap-2 text-slate-600 hover:text-sky-600 hover:bg-slate-100">
+        <Button variant="ghost" size="sm" onClick={onRefresh}
+          className="gap-2 text-slate-600 hover:text-sky-600 hover:bg-slate-100">
           <RefreshCw className="w-4 h-4" />Refresh
         </Button>
         <Button
           variant="outline" size="sm"
           onClick={() => onGoToCustomReport(
-            ["personal-details", "economic-details", "education-profession", "family-information", "location-information", "religious-details"],
+            ["personal-details","economic-details","education-profession","family-information","location-information","religious-details"],
             "all"
           )}
           className="gap-2 border-slate-200 text-slate-600 hover:border-emerald-400 hover:text-emerald-700 bg-white shadow-sm"
@@ -266,61 +334,67 @@ export default function GeneralDashboard({ data, loading, error, onRefresh, onGo
             <div className="flex gap-3 flex-wrap">
               <div className="bg-white border border-slate-200 rounded-2xl px-5 py-4 text-center min-w-[100px] shadow-sm">
                 <p className="text-3xl font-bold text-slate-900">{n(trends.total_last30)}</p>
-                <p className="text-sky-600 text-xs mt-1 font-medium">Last 30 days</p>
+                <p className="text-sky-600 text-xs mt-1 font-medium">In period</p>
               </div>
               <div className="bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-center min-w-[100px]">
                 <p className="text-3xl font-bold text-slate-500">{n(trends.total_prev30)}</p>
-                <p className="text-slate-500 text-xs mt-1">Prev 30 days</p>
+                <p className="text-slate-500 text-xs mt-1">Prev period</p>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Status KPI Cards */}
+      {/* ── Status KPI Cards — with Details + Excel buttons ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { icon: CheckCircle2, color: "#10b981", bg: "bg-emerald-50", label: "Approved", value: n(counts.approved), section: "demographics" as const },
-          { icon: Clock, color: "#f59e0b", bg: "bg-amber-50", label: "Pending Review", value: n(counts.pending), section: "demographics" as const },
-          { icon: UserCheck, color: "#f97316", bg: "bg-orange-50", label: "Changes Needed", value: n(counts.changes_requested), section: "demographics" as const },
-          { icon: UserX, color: "#ef4444", bg: "bg-red-50", label: "Rejected", value: n(counts.rejected), section: "demographics" as const },
-        ].map(card => {
+        {statusKpiCards.map(card => {
           const pct = calcPct(card.value, total);
           return (
-            <div key={card.label} className="bg-white border border-slate-200 rounded-2xl p-5 hover:border-sky-200 transition-all hover:shadow-md">
-              <div className="flex items-start justify-between mb-4">
-                <div className={`p-2 rounded-xl ${card.bg}`}>
-                  <card.icon className="w-4 h-4" style={{ color: card.color }} />
-                </div>
-                <span className="text-xs font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-600">{pct}%</span>
-              </div>
-              <p className="text-3xl font-black tabular-nums" style={{ color: card.color }}>
-                {card.value.toLocaleString()}
-              </p>
-              <p className="text-sm font-semibold text-slate-800 mt-0.5">{card.label}</p>
-              <div className="mt-3 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                <div className="h-1.5 rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: card.color }} />
-              </div>
-            </div>
+            <StatusKpiCard
+              key={card.label}
+              icon={card.icon}
+              color={card.color}
+              bg={card.bg}
+              label={card.label}
+              value={card.value}
+              pct={pct}
+              total={total}
+              onDetails={() => onGoToAdvanced("status")}
+              onExport={() => onGoToCustomReport(["personal-details"], card.status)}
+            />
           );
         })}
       </div>
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        {/* Pie */}
+        {/* Pie — with Export button */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-sm font-semibold text-slate-800">Status Distribution</p>
               <p className="text-xs text-slate-500">Registration pipeline breakdown</p>
             </div>
-            <button
-              onClick={() => onGoToAdvanced("demographics")}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs border border-slate-200 text-slate-400 hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 transition-all"
-            >
-              <ArrowRight className="w-3.5 h-3.5" />Details
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Export button on pie */}
+              <button
+                onClick={() => onGoToCustomReport(["personal-details"], "all")}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs border border-slate-200 text-slate-400
+                  hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all"
+                title="Export to Custom Report"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Export</span>
+              </button>
+              <button
+                onClick={() => onGoToAdvanced("status")}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs border border-slate-200 text-slate-400
+                  hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 transition-all"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Details</span>
+              </button>
+            </div>
           </div>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
@@ -334,22 +408,25 @@ export default function GeneralDashboard({ data, loading, error, onRefresh, onGo
           </ResponsiveContainer>
         </div>
 
-        {/* Area Chart — includes Rejections */}
+        {/* Area Chart */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm lg:col-span-3">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <p className="text-sm font-semibold text-slate-800">Registration Trend — Last 30 Days</p>
-              <p className="text-xs text-slate-500">Registrations, approvals & rejections</p>
+              <p className="text-sm font-semibold text-slate-800">Registration Trend</p>
+              <p className="text-xs text-slate-500">Registrations, approvals & rejections over selected period</p>
             </div>
             <button
               onClick={() => onGoToAdvanced("demographics")}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs border border-slate-200 text-slate-400 hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 transition-all"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs border border-slate-200 text-slate-400
+                hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 transition-all"
             >
               <ArrowRight className="w-3.5 h-3.5" />Details
             </button>
           </div>
           {chartData.length === 0 ? (
-            <div className="h-[220px] flex items-center justify-center text-slate-400 text-sm">No activity in the last 30 days</div>
+            <div className="h-[220px] flex items-center justify-center text-slate-400 text-sm">
+              No activity in the selected period
+            </div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={chartData} margin={{ top: 5, right: 8, left: -24, bottom: 0 }}>
@@ -384,9 +461,9 @@ export default function GeneralDashboard({ data, loading, error, onRefresh, onGo
       {/* Quick Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: "Approval Rate", value: `${calcPct(counts.approved, total)}%`, sub: "of total profiles", color: "#10b981" },
-          { label: "Rejection Rate", value: `${calcPct(counts.rejected, total)}%`, sub: "of submitted profiles", color: "#ef4444" },
-          { label: "Incomplete Drafts", value: n(counts.draft).toLocaleString(), sub: "not yet submitted", color: "#64748b" },
+          { label: "Approval Rate",    value: `${calcPct(counts.approved, total)}%`,  sub: "of total profiles",      color: "#10b981" },
+          { label: "Rejection Rate",   value: `${calcPct(counts.rejected, total)}%`,  sub: "of submitted profiles",  color: "#ef4444" },
+          { label: "Incomplete Drafts",value: n(counts.draft).toLocaleString(),        sub: "not yet submitted",      color: "#64748b" },
         ].map(s => (
           <div key={s.label} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
             <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">{s.label}</p>
@@ -396,11 +473,13 @@ export default function GeneralDashboard({ data, loading, error, onRefresh, onGo
         ))}
       </div>
 
-      {/* Analytics Section Cards — each with arrow to advanced + export to custom report */}
+      {/* Analytics Section Cards */}
       <div>
         <div className="flex items-center gap-2 mb-4">
           <p className="text-base font-bold text-slate-900">Community Analytics Overview</p>
-          <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-full">Click arrows for detailed views</span>
+          <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-full">
+            Click arrows for detailed views
+          </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {analyticsCards.map(card => (
@@ -413,7 +492,7 @@ export default function GeneralDashboard({ data, loading, error, onRefresh, onGo
               value={card.value}
               pct={calcPct(card.value, total)}
               onArrow={() => onGoToAdvanced(card.section)}
-              arrowLabel={card.label}
+              arrowLabel={`View ${card.title}`}
               onExcel={() => onGoToCustomReport(card.excelSections, card.section)}
             />
           ))}

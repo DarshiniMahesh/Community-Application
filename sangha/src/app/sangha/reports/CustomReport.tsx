@@ -1,3 +1,4 @@
+// Community-Application\sangha\src\app\sangha\reports\CustomReport.tsx
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -5,9 +6,11 @@ import { createPortal } from "react-dom";
 import {
   FileSpreadsheet, Plus, Trash2, Filter, Download, ChevronDown,
   ChevronUp, Search, X, Loader2, AlertCircle, RefreshCw, Check,
-  SlidersHorizontal, Eye,
+  SlidersHorizontal, Eye, Calendar,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import type { DateRange } from "./DateRangePicker";
+import { toISO } from "./DateRangePicker";
 
 // ─── Section Definitions ──────────────────────────────────────────────────────
 export const SECTIONS: {
@@ -139,87 +142,54 @@ function buildMasterOrder(): string[] {
 }
 const MASTER_COL_ORDER = buildMasterOrder();
 
-const CATEGORY_SECTION_MAP: Record<string, string> = {
-  gender:        "personal-details",
-  age_group:     "personal-details",
-  marital:       "personal-details",
-  document:      "personal-details",
-  income:        "economic-details",
-  asset:         "economic-details",
-  education:     "education-profession",
-  occupation:    "education-profession",
-  family_type:   "family-information",
-  insurance:     "family-information",
-  city:          "location-information",
-  geographic:    "location-information",
-  demographics:  "personal-details",
-  economic:      "economic-details",
-  gotra:         "religious-details",
-  kuladevata:    "religious-details",
-  pravara:       "religious-details",
-  surname:       "religious-details",
-  all:           "personal-details",
-};
-
 interface TableRow { [key: string]: any; }
 interface ColumnFilter { column: string; value: string; }
 
 interface Props {
-  initSections: string[];
-  initCategory?: string;
-  onClearInit: () => void;
+  initSections:   string[];
+  initCategory?:  string;
+  onClearInit:    () => void;
+  dateRange?:     DateRange;
 }
 
 // ─── Portal-based Filter Dropdown ────────────────────────────────────────────
 interface FilterDropdownPortalProps {
-  col: string;
-  anchorRect: DOMRect;
-  uniqueVals: string[];
+  col:          string;
+  anchorRect:   DOMRect;
+  uniqueVals:   string[];
   activeValue?: string;
-  onSelect: (val: string) => void;
-  onClear: () => void;
-  onClose: () => void;
+  onSelect:     (val: string) => void;
+  onClear:      () => void;
+  onClose:      () => void;
 }
 
 function FilterDropdownPortal({
-  col,
-  anchorRect,
-  uniqueVals,
-  activeValue,
-  onSelect,
-  onClear,
-  onClose,
+  col, anchorRect, uniqueVals, activeValue, onSelect, onClear, onClose,
 }: FilterDropdownPortalProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Position: try to open below the anchor; if too close to bottom, open above
   const DROPDOWN_HEIGHT = 220;
   const spaceBelow = window.innerHeight - anchorRect.bottom;
   const openAbove  = spaceBelow < DROPDOWN_HEIGHT + 8 && anchorRect.top > DROPDOWN_HEIGHT;
 
   const style: React.CSSProperties = {
-    position:  "fixed",
-    left:      Math.min(anchorRect.left, window.innerWidth - 200),
-    width:     200,
-    zIndex:    9999,
+    position: "fixed",
+    left:     Math.min(anchorRect.left, window.innerWidth - 200),
+    width:    200,
+    zIndex:   9999,
     ...(openAbove
       ? { bottom: window.innerHeight - anchorRect.top + 4 }
       : { top: anchorRect.bottom + 4 }),
   };
 
-  // Close on click-outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) onClose();
     };
-    // Use capture so we fire before anything else
     document.addEventListener("mousedown", handler, true);
     return () => document.removeEventListener("mousedown", handler, true);
   }, [onClose]);
 
-  // Close on scroll (table scroll repositions the anchor)
   useEffect(() => {
     const handler = () => onClose();
     window.addEventListener("scroll", handler, true);
@@ -268,8 +238,8 @@ function FilterDropdownPortal({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 async function downloadExcel(rows: any[], filename: string): Promise<void> {
   const XLSX = await import("xlsx");
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
+  const ws   = XLSX.utils.json_to_sheet(rows);
+  const wb   = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, filename.slice(0, 31).replace(/[/\\?*[\]:]/g, "_"));
   XLSX.writeFile(wb, `${filename.replace(/[^\w\s\-]/g, "_")}-${new Date().toISOString().split("T")[0]}.xlsx`);
 }
@@ -290,8 +260,13 @@ function sortedCols(cols: string[]): string[] {
   return [...indexed, ...rest];
 }
 
+function fmtDate(d: Date | null): string {
+  if (!d) return "";
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
-export default function CustomReport({ initSections, initCategory, onClearInit }: Props) {
+export default function CustomReport({ initSections, initCategory, onClearInit, dateRange }: Props) {
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
   const [visibleColumns, setVisibleColumns]     = useState<string[]>(BASE_COLUMNS);
   const [columnFilters, setColumnFilters]       = useState<ColumnFilter[]>([]);
@@ -303,10 +278,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
   const [sidebarSearch, setSidebarSearch]       = useState("");
   const [includeAllStatuses, setIncludeAllStatuses] = useState(false);
   const [sectionOpen, setSectionOpen]           = useState<Record<string, boolean>>({});
-
-  // ── Filter dropdown state ─────────────────────────────────
-  // Stores which column's filter is open AND the DOMRect of the trigger button
-  const [openFilter, setOpenFilter] = useState<{ col: string; rect: DOMRect } | null>(null);
+  const [openFilter, setOpenFilter]             = useState<{ col: string; rect: DOMRect } | null>(null);
 
   // ── Apply init sections ───────────────────────────────────
   useEffect(() => {
@@ -335,29 +307,37 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
     setColumnFilters(prev => prev.filter(f => desired.has(f.column)));
   }, [selectedSections]);
 
-  // ── Fetch data ────────────────────────────────────────────
+  // ── Fetch data ─────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     if (selectedSections.length === 0) { setRows([]); return; }
     setLoading(true);
     setError(null);
+
+    // Build date range params
+    const dateParams = dateRange
+      ? { dateFrom: toISO(dateRange.from), dateTo: toISO(dateRange.to) }
+      : {};
+
     try {
       const result = await api.post("/sangha/reports/export/full", {
         sections: selectedSections,
         includeAllStatuses,
+        ...dateParams,
       }).catch(async () => {
         return await api.post("/sangha/reports/export", {
           category: "status",
-          filter: includeAllStatuses ? "" : "approved",
+          filter:   includeAllStatuses ? "" : "approved",
+          ...dateParams,
         });
       });
       setRows(Array.isArray(result) ? result : []);
-    } catch (e) {
+    } catch {
       setError("Failed to load data. Please try again.");
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [selectedSections, includeAllStatuses]);
+  }, [selectedSections, includeAllStatuses, dateRange]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -434,19 +414,29 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
     }
   };
 
-  // ── Open filter: capture button's DOMRect at click time ──
   const handleOpenFilter = (col: string, e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (openFilter?.col === col) {
-      setOpenFilter(null);
-      return;
-    }
+    if (openFilter?.col === col) { setOpenFilter(null); return; }
     const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
     setOpenFilter({ col, rect });
   };
 
-  const activeFilters = columnFilters.filter(f => f.value);
-  const getFilterVals = (col: string) => getUniqueValues(rows, col);
+  const activeFilters  = columnFilters.filter(f => f.value);
+  const getFilterVals  = (col: string) => getUniqueValues(rows, col);
+
+  // ── Date range label for toolbar badge ────────────────────
+  const dateRangeLabel = useMemo(() => {
+    if (!dateRange) return null;
+    if (dateRange.preset === "allTime") return "All time";
+    if (dateRange.preset === "last7")   return "Last 7 days";
+    if (dateRange.preset === "last30")  return "Last 30 days";
+    if (dateRange.preset === "last90")  return "Last 90 days";
+    if (dateRange.preset === "thisYear") return "This year";
+    if (dateRange.from && dateRange.to) {
+      return `${fmtDate(dateRange.from)} – ${fmtDate(dateRange.to)}`;
+    }
+    return null;
+  }, [dateRange]);
 
   return (
     <div className="flex gap-0 min-h-[80vh]">
@@ -623,6 +613,15 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
             )}
           </div>
 
+          {/* Date range badge */}
+          {dateRangeLabel && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-medium">
+              <Calendar className="w-3 h-3" />
+              {dateRangeLabel}
+            </span>
+          )}
+
+          {/* Active column filters */}
           {activeFilters.map(f => (
             <span
               key={f.column}
@@ -703,7 +702,6 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                     {visibleColumns.map(col => {
                       const activeFilter = columnFilters.find(f => f.column === col);
                       const isBase       = BASE_COLUMNS.includes(col);
-
                       return (
                         <th
                           key={col}
@@ -711,9 +709,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                         >
                           <div className="flex items-center gap-1.5">
                             <span>{col}</span>
-
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {/* Filter button — uses portal */}
                               <button
                                 onClick={e => handleOpenFilter(col, e)}
                                 className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${
@@ -723,8 +719,6 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                               >
                                 <Filter className="w-3 h-3" />
                               </button>
-
-                              {/* Delete column */}
                               {!isBase && (
                                 <button
                                   onClick={() => deleteColumn(col)}
@@ -735,7 +729,6 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                                 </button>
                               )}
                             </div>
-
                             {activeFilter && (
                               <span className="text-xs bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-medium max-w-[70px] truncate">
                                 {activeFilter.value}
@@ -772,8 +765,8 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
                         }
                         if (["Aadhaar", "PAN Card", "Voter ID", "Land Docs", "DL"].includes(col)) {
                           const v = String(val ?? "").toLowerCase();
-                          if (v === "yes")         cellClass = "text-emerald-600 font-medium";
-                          else if (v === "no")     cellClass = "text-rose-500";
+                          if (v === "yes")          cellClass = "text-emerald-600 font-medium";
+                          else if (v === "no")      cellClass = "text-rose-500";
                           else if (v === "unknown") cellClass = "text-slate-400";
                         }
                         if (typeof val === "boolean") {
@@ -804,7 +797,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit }
         )}
       </div>
 
-      {/* ── Portal filter dropdown (rendered outside all overflow contexts) ── */}
+      {/* ── Portal filter dropdown ─────────────────────────── */}
       {openFilter && (
         <FilterDropdownPortal
           col={openFilter.col}
