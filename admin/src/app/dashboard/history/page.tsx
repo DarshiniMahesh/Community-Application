@@ -22,7 +22,7 @@ interface UserLog {
 
 interface SanghaLog {
   id:           string;
-  name:  string;
+  name:         string;
   email:        string | null;
   phone:        string | null;
   location:     string | null;
@@ -32,19 +32,61 @@ interface SanghaLog {
   reviewed_at:  string | null;
 }
 
-function toUtc(d: string): Date {
-  const clean = d.endsWith('Z') ? d.slice(0, -1) : d;
-  return new Date(clean);
+// ─────────────────────────────────────────────────────────────
+// ROBUST DATE PARSING (The Fix)
+// ─────────────────────────────────────────────────────────────
+
+// 1. Parse string as Date object, enforcing UTC interpretation
+function parseAsUtc(dateStr: string | null): Date | null {
+  if (!dateStr) return null;
+  let s = dateStr.trim();
+  
+  // Regex to check if string already has a timezone (e.g., 'Z', '+05:30', '+00')
+  const hasTimezone = s.endsWith('Z') || /[+-]\d{2}(:?\d{2})?$/.test(s);
+  
+  // If no timezone info (e.g., "2026-04-23 14:20:00"), append 'Z' 
+  // so JS treats it as UTC time, not local browser time.
+  if (!hasTimezone) {
+    s += 'Z';
+  }
+  
+  const date = new Date(s);
+  return isNaN(date.getTime()) ? null : date;
 }
 
-
-function fmt(d: string | null) {
+// 2. Format as "DD/MM/YYYY, HH:MM:SS" (IST)
+function fmt(dateStr: string | null) {
+  const d = parseAsUtc(dateStr);
   if (!d) return '—';
-  // Strip Z so browser treats it as local time (IST on your machine)
-  const clean = d.endsWith('Z') ? d.slice(0, -1) : d;
-  return new Date(clean).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+  return d.toLocaleString('en-IN', { 
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit', 
+    month: '2-digit', 
+    year: 'numeric', 
+    hour: '2-digit', 
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false 
+  });
 }
 
+// 3. Format as Date Only "DD/MM/YYYY" (IST)
+function fmtDateOnly(dateStr: string | null) {
+  const d = parseAsUtc(dateStr);
+  if (!d) return '—';
+  return d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
+}
+
+// 4. Format as Time Only "HH:MM:SS" (IST)
+function fmtTimeOnly(dateStr: string | null) {
+  const d = parseAsUtc(dateStr);
+  if (!d) return '—';
+  return d.toLocaleTimeString('en-IN', { 
+    timeZone: 'Asia/Kolkata', 
+    hour12: false 
+  });
+}
+// ─────────────────────────────────────────────────────────────
 
 function isPending(s: string) {
   return s === 'submitted' || s === 'under_review';
@@ -65,9 +107,6 @@ export default function HistoryPage() {
       api.get('/api/admin/sangha/history'),
     ])
       .then(([users, sanghas]) => {
-        console.log('=== RAW TIME CHECK ===');
-  console.log('First user reviewed_at:', users[0]?.reviewed_at);
-  console.log('First sangha reviewed_at:', sanghas[0]?.reviewed_at);
         setUserLogs(Array.isArray(users)   ? users   : []);
         setSanghaLogs(Array.isArray(sanghas) ? sanghas : []);
         setError(null);
@@ -232,7 +271,7 @@ export default function HistoryPage() {
             <tbody>
               {currentUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: 40, color: 'var(--gray-400)' }}>
+                  <td colSpan={11} style={{ textAlign: 'center', padding: 40, color: 'var(--gray-400)' }}>
                     No records found
                   </td>
                 </tr>
@@ -261,21 +300,22 @@ export default function HistoryPage() {
                     <td style={{ fontSize: 12 }}>
                       {u.status === 'approved' ? (u.reviewed_by_name || 'Admin') : '—'}
                     </td>
+                    {/* FIX: Use fmtDateOnly */}
                     <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-  {u.status === 'approved'
-? u.reviewed_at : '—'}
-</td>
+                      {u.status === 'approved' ? fmtDateOnly(u.reviewed_at) : '—'}
+                    </td>
 
-<td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-  {u.status === 'approved'
-    ? toUtc(u.reviewed_at!).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })
-    : '—'}
-</td>
+                    {/* FIX: Use fmtTimeOnly */}
+                    <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
+                      {u.status === 'approved' ? fmtTimeOnly(u.reviewed_at) : '—'}
+                    </td>
+                    
                     <td style={{ fontSize: 12 }}>
                       {u.status === 'rejected' ? (u.reviewed_by_name || 'Admin') : '—'}
                     </td>
+                    {/* FIX: Use fmtDateOnly */}
                     <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-                      {u.status === 'rejected' ? fmt(u.reviewed_at) : '—'}
+                      {u.status === 'rejected' ? fmtDateOnly(u.reviewed_at) : '—'}
                     </td>
                   </tr>
                 ))
@@ -307,7 +347,7 @@ export default function HistoryPage() {
             <tbody>
               {currentSangha.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: 40, color: 'var(--gray-400)' }}>
+                  <td colSpan={11} style={{ textAlign: 'center', padding: 40, color: 'var(--gray-400)' }}>
                     No records found
                   </td>
                 </tr>
@@ -335,19 +375,19 @@ export default function HistoryPage() {
                         {s.status === 'pending_approval' ? 'pending' : s.status}
                       </span>
                     </td>
+                    {/* FIX: Use fmtDateOnly */}
                     <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-  {s.status === 'approved'
-  ? toUtc(s.reviewed_at!).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })
-    : '—'}
-</td>
+                      {s.status === 'approved' ? fmtDateOnly(s.reviewed_at) : '—'}
+                    </td>
 
-<td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-  {s.status === 'approved'
-  ? toUtc(s.reviewed_at!).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })
-    : '—'}
-</td>
+                    {/* FIX: Use fmtTimeOnly */}
+                    <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
+                      {s.status === 'approved' ? fmtTimeOnly(s.reviewed_at) : '—'}
+                    </td>
 
-
+                    <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>
+                      {s.status === 'rejected' ? fmtDateOnly(s.reviewed_at) : '—'}
+                    </td>
                   </tr>
                 ))
               )}

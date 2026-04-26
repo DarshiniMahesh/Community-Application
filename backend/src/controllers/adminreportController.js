@@ -353,7 +353,7 @@ const getEducationStats = async (req, res) => {
 // ─── GET /admin/reports/advanced/geo ─────────────────────────
 const getGeoStats = async (req, res) => {
   try {
-    const [byState, byDistrict, byPincode, byCity] = await Promise.all([
+    const [byState, byDistrict, byPincode, byCity, byCityGender, byPincodeGender] = await Promise.all([
       pool.query(
         `SELECT a.state, COUNT(*) AS count
          FROM addresses a JOIN profiles p ON p.id = a.profile_id
@@ -378,6 +378,24 @@ const getGeoStats = async (req, res) => {
          WHERE p.status='approved' AND a.city IS NOT NULL
          GROUP BY a.city ORDER BY count DESC LIMIT 15`
       ),
+      pool.query(
+        `SELECT a.city, pd.gender, COUNT(*) AS count
+         FROM addresses a
+         JOIN profiles p ON p.id = a.profile_id
+         JOIN personal_details pd ON pd.profile_id = p.id
+         WHERE p.status='approved' AND a.city IS NOT NULL
+         GROUP BY a.city, pd.gender
+         ORDER BY a.city, pd.gender`
+      ),
+      pool.query(
+        `SELECT a.pincode, pd.gender, COUNT(*) AS count
+         FROM addresses a
+         JOIN profiles p ON p.id = a.profile_id
+         JOIN personal_details pd ON pd.profile_id = p.id
+         WHERE p.status='approved' AND a.pincode IS NOT NULL
+         GROUP BY a.pincode, pd.gender
+         ORDER BY a.pincode, pd.gender`
+      ),
     ]);
 
     res.json({
@@ -385,6 +403,52 @@ const getGeoStats = async (req, res) => {
       by_district: byDistrict.rows,
       by_pincode:  byPincode.rows,
       by_city:     byCity.rows,
+      by_city_gender: byCityGender.rows,
+      by_pincode_gender: byPincodeGender.rows,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── GET /admin/reports/advanced/religious ───────────────────
+const getReligiousStats = async (req, res) => {
+  try {
+    const [gotraRows, kuladevataRows, pravaraRows] = await Promise.all([
+      pool.query(
+        `SELECT rd.gotra, pd.gender, COUNT(*) AS count
+         FROM religious_details rd
+         JOIN profiles p ON p.id = rd.profile_id
+         JOIN personal_details pd ON pd.profile_id = p.id
+         WHERE p.status='approved' AND rd.gotra IS NOT NULL AND TRIM(rd.gotra) <> ''
+         GROUP BY rd.gotra, pd.gender
+         ORDER BY COUNT(*) DESC`
+      ),
+      pool.query(
+        `SELECT COALESCE(rd.kuladevata, rd.kuladevata_other) AS kuladevata, pd.gender, COUNT(*) AS count
+         FROM religious_details rd
+         JOIN profiles p ON p.id = rd.profile_id
+         JOIN personal_details pd ON pd.profile_id = p.id
+         WHERE p.status='approved' AND COALESCE(rd.kuladevata, rd.kuladevata_other) IS NOT NULL
+         GROUP BY COALESCE(rd.kuladevata, rd.kuladevata_other), pd.gender
+         ORDER BY COUNT(*) DESC`
+      ),
+      pool.query(
+        `SELECT rd.pravara, pd.gender, COUNT(*) AS count
+         FROM religious_details rd
+         JOIN profiles p ON p.id = rd.profile_id
+         JOIN personal_details pd ON pd.profile_id = p.id
+         WHERE p.status='approved' AND rd.pravara IS NOT NULL AND TRIM(rd.pravara) <> ''
+         GROUP BY rd.pravara, pd.gender
+         ORDER BY COUNT(*) DESC`
+      ),
+    ]);
+
+    res.json({
+      gotra_gender: gotraRows.rows,
+      kuladevata_gender: kuladevataRows.rows,
+      pravara_gender: pravaraRows.rows,
     });
   } catch (err) {
     console.error(err);
@@ -735,6 +799,101 @@ const getExportData = async (req, res) => {
   }
 };
 
+// ─── GET /admin/reports/sangha-analytics ─────────────────────
+const getSanghaAnalytics = async (req, res) => {
+  try {
+    const towns = [].concat(req.query.towns ?? []);
+    const limit = parseInt(req.query.limit ?? '3');
+
+    const townFilter = towns.length > 0
+      ? `AND LOWER(COALESCE(s.city, s.village_town, s.district)) = ANY(ARRAY[${towns.map((_, i) => `$${i + 1}`).join(',')}]::text[])`
+      : '';
+    const params = towns.map((t) => t.toLowerCase());
+
+    const topTowns = await pool.query(
+      `SELECT
+         COALESCE(s.city, s.village_town, s.district) AS town,
+         s.state,
+         COUNT(DISTINCT s.id)                         AS sangha_count,
+         COUNT(DISTINCT sm.id)                        AS member_count
+       FROM sanghas s
+       LEFT JOIN sangha_members sm ON sm.sangha_id = s.id
+       WHERE s.status = 'approved'
+       ${townFilter}
+       GROUP BY COALESCE(s.city, s.village_town, s.district), s.state
+       ORDER BY sangha_count DESC
+       LIMIT $${params.length + 1}`,
+      [...params, limit]
+    );
+
+    const ageAnalytics = await pool.query(
+      `SELECT
+         COALESCE(s.city, s.village_town, s.district) AS town,
+         CASE
+           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) < 18            THEN 'Under 18'
+           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) BETWEEN 18 AND 30 THEN '18 – 30'
+           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) BETWEEN 31 AND 45 THEN '31 – 45'
+           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) BETWEEN 46 AND 60 THEN '46 – 60'
+           ELSE 'Above 60'
+         END AS age_group,
+         COUNT(*) AS count
+       FROM sangha_members sm
+       JOIN sanghas s ON s.id = sm.sangha_id
+       WHERE s.status = 'approved' AND sm.dob IS NOT NULL
+       ${townFilter}
+       GROUP BY town, age_group
+       ORDER BY town, age_group`,
+      params
+    );
+
+    const memberTypeAnalytics = await pool.query(
+      `SELECT
+         COALESCE(s.city, s.village_town, s.district) AS town,
+         sm.member_type,
+         COUNT(*) AS count
+       FROM sangha_members sm
+       JOIN sanghas s ON s.id = sm.sangha_id
+       WHERE s.status = 'approved'
+       ${townFilter}
+       GROUP BY town, sm.member_type
+       ORDER BY town`,
+      params
+    );
+
+    const economicByTown = await pool.query(
+      `SELECT
+         COALESCE(s.city, s.village_town, s.district) AS town,
+         COUNT(DISTINCT p.id)                         AS approved_user_count,
+         COUNT(DISTINCT sm_member.id)                 AS sangha_member_count
+       FROM sanghas s
+       LEFT JOIN profiles p ON p.sangha_id = s.id AND p.status = 'approved'
+       LEFT JOIN sangha_members sm_member ON sm_member.sangha_id = s.id
+       WHERE s.status = 'approved'
+       ${townFilter}
+       GROUP BY COALESCE(s.city, s.village_town, s.district)
+       ORDER BY sangha_member_count DESC`,
+      params
+    );
+
+    const availableTowns = await pool.query(
+      `SELECT DISTINCT COALESCE(city, village_town, district) AS town, state
+       FROM sanghas WHERE status = 'approved' AND COALESCE(city, village_town, district) IS NOT NULL
+       ORDER BY town LIMIT 50`
+    );
+
+    res.json({
+      top_towns: topTowns.rows,
+      age_analytics: ageAnalytics.rows,
+      member_type: memberTypeAnalytics.rows,
+      economic_by_town: economicByTown.rows,
+      available_towns: availableTowns.rows,
+    });
+  } catch (err) {
+    console.error('sanghaAnalytics error:', err);
+    res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+};
+
 module.exports = {
   getGeneralOverview,
   getDateRegistration,
@@ -744,10 +903,12 @@ module.exports = {
   getAgeGroups,
   getEducationStats,
   getGeoStats,
+  getReligiousStats,
   getIncomeStats,
   getEconomicStats,
   getInsuranceStats,
   getDocumentStats,
   getGenderStatusDetail,
   getExportData,
+  getSanghaAnalytics,
 };

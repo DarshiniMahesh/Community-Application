@@ -1,10 +1,18 @@
+// Community-Application\backend\src\controllers\sanghareportscontroller.js
 const pool = require('../config/db');
 
 // ─── Helper: Get sangha ID from user ID ────────────────────────────────────
 async function getSanghaId(userId) {
+  console.log("👉 getSanghaId called with userId:", userId);
   const res = await pool.query(
     'SELECT id FROM sanghas WHERE sangha_auth_id=$1', [userId]
   );
+   console.log("👉 DB result:", res.rows);
+
+  const sanghaId = res.rows[0]?.id || null;
+
+  console.log("👉 Extracted sanghaId:", sanghaId);
+
   return res.rows[0]?.id || null;
 }
 
@@ -108,6 +116,8 @@ const getEnhancedReports = async (req, res) => {
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
     const { dateFrom, dateTo } = req.query;
+    console.log("dateFrom:", dateFrom);
+    console.log("dateTo:", dateTo);
     const df = buildDateFilter(dateFrom, dateTo, 1, 'p.created_at');
 
     const [currentCounts, trendData, dailyRegs] = await Promise.all([
@@ -166,29 +176,43 @@ const getEnhancedReports = async (req, res) => {
 // ════════════════════════════════════════════════════════════
 const getAdvancedReports = async (req, res) => {
   try {
+    console.log("==== getAdvancedReports HIT ====");
+    console.log("User:", req.user);
+    console.log("Query Params:", req.query);
     const { id: userId } = req.user;
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
     const { dateFrom, dateTo } = req.query;
+
+    // ── Date filters for outer queries (alias: p) ──
     const drSubmitted = buildDateFilter(dateFrom, dateTo, 1, 'p.submitted_at');
+
+    // ── FIX: Date filter for the population subquery inner alias (p2) ──
+    // Uses the same param positions as drSubmitted — just different table alias.
+    const drSubmittedP2 = buildDateFilter(dateFrom, dateTo, 1, 'p2.submitted_at');
+
     const approvedDateFilter  = `AND p.status='approved'${drSubmitted.clause}`;
     const allStatusDateFilter = drSubmitted.clause;
 
     const totalRes = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM profiles WHERE sangha_id=$1 ${approvedDateFilter}`,
+      `SELECT COUNT(*) AS cnt FROM profiles p WHERE sangha_id=$1 ${approvedDateFilter}`,
       [sanghaId, ...drSubmitted.params]
     );
     const totalApproved = parseInt(totalRes.rows[0]?.cnt || 0);
 
-    // FIX #2: Simplified population query — use drSubmitted params directly in subquery
+    // ── FIX: Use drSubmittedP2.clause inside the subquery so it references p2.submitted_at
+    //         instead of the outer p.submitted_at which caused the grouping error.
     const populationRes = await pool.query(
       `SELECT
          COUNT(DISTINCT p.id) AS family_count,
          COALESCE((
-           SELECT COUNT(*) FROM family_members fm
+           SELECT COUNT(*)
+           FROM family_members fm
            JOIN profiles p2 ON p2.id = fm.profile_id
-           WHERE p2.sangha_id=$1 AND p2.status='approved' ${drSubmitted.clause}
+           WHERE p2.sangha_id=$1
+             AND p2.status='approved'
+             ${drSubmittedP2.clause}
          ), 0) AS member_count
        FROM profiles p
        WHERE p.sangha_id=$1 ${approvedDateFilter}`,
@@ -242,7 +266,6 @@ const getAdvancedReports = async (req, res) => {
       employmentRows,
       employmentGenderRows,
 
-      // FIX #9: Insurance queries now include gender breakdowns
       healthInsRows,
       lifeInsRows,
       termInsRows,
@@ -606,7 +629,7 @@ const getAdvancedReports = async (req, res) => {
                   COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female')) DESC
       `, [sanghaId, ...drSubmitted.params]),
 
-      // ── Insurance Health — FIX #9: Cast to text[] and include gender breakdown
+      // ── Insurance Health
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0
@@ -1071,7 +1094,6 @@ const getAdvancedReports = async (req, res) => {
         })),
       },
 
-      // FIX #9: All insurance objects now include gender breakdown
       insurance: [
         {
           label:         'Health',
@@ -1203,7 +1225,6 @@ const getExportData = async (req, res) => {
     let extraCols  = '';
     let joinClause = '';
 
-    // FIX #3: Build WHERE clause in parts
     const baseCond = `WHERE p.sangha_id = $1`;
     let params = [sanghaId];
     const df = buildDateFilter(dateFrom, dateTo, params.length, 'p.submitted_at');

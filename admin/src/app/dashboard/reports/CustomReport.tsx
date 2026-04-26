@@ -2,17 +2,17 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 const getHeaders = () => ({
   'Content-Type': 'application/json',
-  Authorization: `Bearer ${typeof window !== 'undefined' ? (localStorage.getItem('token') ?? '') : ''}`,
+  Authorization: `Bearer ${typeof window !== 'undefined' ? (sessionStorage.getItem('admin_token') ?? '') : ''}`,
 });
 
 // ─── Types ────────────────────────────────────────────────────
 type ColDef = { key: string; label: string; filterable?: boolean };
 type RowData = Record<string, string | number | boolean | null>;
 
-type SectionKey = 'personal' | 'economic' | 'education' | 'family' | 'documents' | 'insurance';
+type SectionKey = 'personal' | 'economic' | 'education' | 'family' | 'location' | 'religious';
 
 interface SectionConfig {
   key: SectionKey;
@@ -29,9 +29,9 @@ const SECTIONS: SectionConfig[] = [
     icon: '👤',
     color: '#ff6b00',
     columns: [
-      { key: 'full_name',       label: 'Full Name',       filterable: true },
-      { key: 'email',           label: 'Email',           filterable: true },
-      { key: 'phone',           label: 'Phone',           filterable: true },
+      { key: 'full_name',       label: 'Full Name',       filterable: false },
+      { key: 'email',           label: 'Email',           filterable: false },
+      { key: 'phone',           label: 'Phone',           filterable: false },
       { key: 'gender',          label: 'Gender',          filterable: true },
       { key: 'date_of_birth',   label: 'Date of Birth',   filterable: true },
       { key: 'status',          label: 'Status',          filterable: true },
@@ -88,41 +88,35 @@ const SECTIONS: SectionConfig[] = [
     ],
   },
   {
-    key: 'documents',
-    label: 'Document Details',
-    icon: '📄',
-    color: '#d97706',
+    key: 'location',
+    label: 'Location Information',
+    icon: '📍',
+    color: '#0ea5a6',
     columns: [
-      { key: 'member_name',         label: 'Member Name',    filterable: true },
-      { key: 'member_relation',     label: 'Relation',       filterable: true },
-      { key: 'aadhaar_coverage',    label: 'Aadhaar',        filterable: true },
-      { key: 'pan_coverage',        label: 'PAN Card',       filterable: true },
-      { key: 'voter_id_coverage',   label: 'Voter ID',       filterable: true },
-      { key: 'land_doc_coverage',   label: 'Land Records',   filterable: true },
-      { key: 'dl_coverage',         label: "Driver's Lic.",  filterable: true },
+      { key: 'city',         label: 'City',         filterable: true },
+      { key: 'district',     label: 'District',     filterable: true },
+      { key: 'state',        label: 'State',        filterable: true },
+      { key: 'pincode',      label: 'Pincode',      filterable: true },
     ],
   },
   {
-    key: 'insurance',
-    label: 'Insurance Details',
-    icon: '🛡️',
-    color: '#dc2626',
+    key: 'religious',
+    label: 'Religious Details',
+    icon: '🕉️',
+    color: '#f97316',
     columns: [
-      { key: 'member_name',          label: 'Member Name',      filterable: true },
-      { key: 'member_relation',      label: 'Relation',         filterable: true },
-      { key: 'health_coverage',      label: 'Health Insurance', filterable: true },
-      { key: 'life_coverage',        label: 'Life Insurance',   filterable: true },
-      { key: 'term_coverage',        label: 'Term Insurance',   filterable: true },
-      { key: 'konkani_card_coverage',label: 'Konkani Card',     filterable: true },
+      { key: 'gotra',         label: 'Gotra',         filterable: true },
+      { key: 'pravara',       label: 'Pravara',       filterable: true },
+      { key: 'kuladevata',    label: 'Kuladevata',    filterable: true },
     ],
   },
 ];
 
 // Always-included base columns
 const BASE_COLS: ColDef[] = [
-  { key: 'full_name', label: 'Full Name',  filterable: true },
-  { key: 'email',     label: 'Email',      filterable: true },
-  { key: 'phone',     label: 'Phone',      filterable: true },
+  { key: 'full_name', label: 'Full Name',  filterable: false },
+  { key: 'email',     label: 'Email',      filterable: false },
+  { key: 'phone',     label: 'Phone',      filterable: false },
   { key: 'gender',    label: 'Gender',     filterable: true },
   { key: 'status',    label: 'Status',     filterable: true },
 ];
@@ -199,8 +193,8 @@ export default function CustomReport({ initialCategory }: Props) {
     economic:  [],
     education: [],
     family:    [],
-    documents: [],
-    insurance: [],
+    location: [],
+    religious: [],
   });
   // Raw fetched data
   const [rawData, setRawData] = useState<RowData[]>([]);
@@ -213,6 +207,8 @@ export default function CustomReport({ initialCategory }: Props) {
   const [allStatuses, setAllStatuses] = useState(true);
   // Search
   const [search, setSearch] = useState('');
+  // Data scope
+  const [scope, setScope] = useState<'users' | 'sanghas' | 'both'>('both');
 
   // On mount: if initialCategory provided, auto-add that section
   useEffect(() => {
@@ -233,7 +229,7 @@ export default function CustomReport({ initialCategory }: Props) {
   useEffect(() => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSections, allStatuses]);
+  }, [activeSections, allStatuses, scope]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -243,10 +239,20 @@ export default function CustomReport({ initialCategory }: Props) {
       if (!allStatuses) params.set('status', 'approved');
       activeSections.forEach(s => params.append('sections', s));
 
-      const res = await fetch(`${API_BASE}/admin/reports/custom?${params}`, { headers: getHeaders() });
-      if (res.ok) {
-        const json = await res.json();
-        setRawData(json.data ?? []);
+      const userPromise = fetch(`${API_BASE}/admin/reports/custom?${params}`, { headers: getHeaders() })
+        .then(r => r.ok ? r.json() : { data: [] })
+        .then(j => (j.data ?? []).map((x: any) => ({ ...x, __scope_type: 'user' })));
+      const sanghaPromise = fetch(`${API_BASE}/admin/reports/export?category=sangha`, { headers: getHeaders() })
+        .then(r => r.ok ? r.json() : { data: [] })
+        .then(j => (j.data ?? []).map((x: any) => ({ ...x, __scope_type: 'sangha' })));
+
+      if (scope === 'users') {
+        setRawData(await userPromise);
+      } else if (scope === 'sanghas') {
+        setRawData(await sanghaPromise);
+      } else {
+        const [uRows, sRows] = await Promise.all([userPromise, sanghaPromise]);
+        setRawData([...uRows, ...sRows]);
       }
     } catch (e) {
       console.error(e);
@@ -287,15 +293,32 @@ export default function CustomReport({ initialCategory }: Props) {
   const computeCols = (): ColDef[] => {
     const cols: ColDef[] = [];
     const added = new Set<string>();
+    const pushCol = (c: ColDef) => {
+      if (!added.has(c.key)) {
+        cols.push(c);
+        added.add(c.key);
+      }
+    };
+    BASE_COLS.forEach(pushCol);
+    if (scope !== 'users') {
+      [
+        { key: 'sangha_name', label: 'Sangha Name', filterable: true },
+        { key: 'district', label: 'District', filterable: true },
+        { key: 'state', label: 'State', filterable: true },
+        { key: 'is_blocked', label: 'Blocked', filterable: true },
+      ].forEach(pushCol);
+    }
     activeSections.forEach(sk => {
       const section = SECTIONS.find(s => s.key === sk)!;
       section.columns.forEach(c => {
-        if (visibleCols[sk].includes(c.key) && !added.has(c.key)) {
-          cols.push(c);
-          added.add(c.key);
-        }
+        if (visibleCols[sk].includes(c.key)) pushCol(c);
       });
     });
+    const nameIdx = cols.findIndex(c => c.key === 'full_name');
+    if (nameIdx > 0) {
+      const [nameCol] = cols.splice(nameIdx, 1);
+      cols.unshift(nameCol);
+    }
     return cols;
   };
 
@@ -381,6 +404,26 @@ export default function CustomReport({ initialCategory }: Props) {
           </div>
           <div style={{ fontSize: 10, color: 'var(--gray-400)' }}>
             {allStatuses ? 'Include rejected, pending, drafts' : 'Approved only'}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 10, color: 'var(--gray-500)', fontWeight: 700, marginBottom: 4 }}>SCOPE</div>
+            <select
+              value={scope}
+              onChange={(e) => setScope(e.target.value as 'users' | 'sanghas' | 'both')}
+              style={{
+                width: '100%',
+                fontSize: 11,
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                padding: '5px 6px',
+                background: 'var(--surface)',
+                color: 'var(--gray-600)',
+              }}
+            >
+              <option value="both">Users + Sanghas</option>
+              <option value="users">Users only</option>
+              <option value="sanghas">Sanghas only</option>
+            </select>
           </div>
         </div>
 

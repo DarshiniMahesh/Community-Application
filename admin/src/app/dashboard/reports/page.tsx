@@ -1,257 +1,349 @@
-// Community-Application\backend\src\controllers\customReportController.js
-const pool = require('../config/db');
+//Community-Application\admin\src\app\dashboard\reports\page.tsx
+"use client";
 
-/**
- * GET /admin/reports/custom
- * Query params:
- *   - sections[]  : one or more of personal, economic, education, family, documents, insurance
- *   - status      : 'approved' | omit for all statuses
- *
- * Always returns personal base columns. Joins additional tables per section.
- */
-const getCustomReport = async (req, res) => {
-  try {
-    const sections = [].concat(req.query.sections ?? ['personal']);
-    const statusFilter = req.query.status; // e.g. 'approved', or absent for all
+import { useEffect, useState, useCallback } from "react";
+import { LayoutDashboard, BarChart2, FileSpreadsheet, ChevronRight, Sparkles } from "lucide-react";
+import { api } from "@/lib/api";
+import GeneralDashboard from "./GeneralDashboard";
+import AdvancedDashboard from "./AdvancedDashboard";
+import CustomReport from "./CustomReport";
 
-    const statusClause = statusFilter
-      ? `AND p.status = '${statusFilter}'`
-      : `AND p.status IN ('approved','rejected','pending','changes_requested','draft')`;
+export interface OverviewData {
+  date_range: { start_date: string; end_date: string };
+  sangha: {
+    registered: number;
+    approved: number;
+    rejected: number;
+    pending: number;
+  };
+  users: {
+    registered: number;
+    approved: number;
+    rejected: number;
+    changes_requested: number;
+  };
+  by_reviewer: {
+    admin_approved: number;
+    sangha_approved: number;
+    admin_rejected: number;
+    sangha_rejected: number;
+  };
+  gender_status: Array<{ gender: string; status: string; count: number | string }>;
+}
 
-    // ── Always join personal ──────────────────────────────────
-    let selectCols = `
-      CONCAT(pd.first_name, ' ', pd.last_name)     AS full_name,
-      u.email,
-      u.phone,
-      pd.gender,
-      pd.date_of_birth,
-      p.status,
-      p.submitted_at,
-      p.reviewed_at
-    `;
-    let joins = `
-      JOIN users u         ON u.id = p.user_id
-      JOIN personal_details pd ON pd.profile_id = p.id
-    `;
-    let extraSelects = [];
+export interface DateRegData {
+  date_range: { start_date: string; end_date: string };
+  user_registrations: Array<{ date: string; count: number | string }>;
+  sangha_registrations: Array<{ date: string; count: number | string }>;
+}
 
-    if (sections.includes('economic')) {
-      joins += `LEFT JOIN economic_details ed ON ed.profile_id = p.id\n`;
-      extraSelects.push(`
-        ed.self_income::text    AS self_income,
-        ed.family_income::text  AS family_income,
-        ed.fac_own_house,
-        ed.fac_agricultural_land,
-        ed.fac_two_wheeler,
-        ed.fac_car,
-        ed.fac_rented_house,
-        ed.inv_fixed_deposits,
-        ed.inv_mutual_funds_sip,
-        ed.inv_shares_demat,
-        ed.inv_others
-      `);
+type TabId = "general" | "advanced" | "custom";
+
+const tabs = [
+  {
+    id: "general" as TabId,
+    label: "General Dashboard",
+    icon: LayoutDashboard,
+    desc: "Overview & KPIs",
+    color: "#F97316",
+    bg: "from-orange-500 to-amber-400",
+  },
+  {
+    id: "advanced" as TabId,
+    label: "Advanced Analytics",
+    icon: BarChart2,
+    desc: "Deep insights",
+    color: "#0EA5E9",
+    bg: "from-sky-500 to-cyan-400",
+  },
+  {
+    id: "custom" as TabId,
+    label: "Custom Report",
+    icon: FileSpreadsheet,
+    desc: "Export & filter",
+    color: "#8B5CF6",
+    bg: "from-violet-500 to-purple-400",
+  },
+];
+
+export default function ReportsPage() {
+  const [activeTab, setActiveTab] = useState<TabId>("general");
+  const [overview, setOverview] = useState<OverviewData | null>(null);
+  const [dateReg, setDateReg] = useState<DateRegData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [advancedSection, setAdvancedSection] = useState<string | undefined>();
+  const [customCategory, setCustomCategory] = useState<string | undefined>();
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const [overviewJson, dateRegJson] = await Promise.all([
+        api.get(`/admin/reports/general/overview?start_date=${startDate}&end_date=${endDate}`),
+        api.get(`/admin/reports/general/date-registration?start_date=${startDate}&end_date=${endDate}`),
+      ]);
+      setOverview(overviewJson);
+      setDateReg(dateRegJson);
+    } catch {
+      setOverview(null);
+      setDateReg(null);
+      setError(true);
+    } finally {
+      setLoading(false);
     }
+  }, [startDate, endDate]);
 
-    if (sections.includes('education')) {
-      // Use LATERAL to get first education row per profile
-      joins += `LEFT JOIN LATERAL (
-        SELECT member_name, member_relation, highest_education,
-               profession_type::text AS profession_type,
-               self_employed_type::text AS self_employed_type,
-               industry, is_currently_studying, is_currently_working
-        FROM member_education WHERE profile_id = p.id ORDER BY sort_order LIMIT 1
-      ) medu ON TRUE\n`;
-      extraSelects.push(`
-        medu.member_name            AS edu_member_name,
-        medu.member_relation        AS edu_member_relation,
-        medu.highest_education,
-        medu.profession_type,
-        medu.self_employed_type,
-        medu.industry,
-        medu.is_currently_studying,
-        medu.is_currently_working
-      `);
-    }
+  useEffect(() => {
+    const now = new Date();
+    const end = now.toISOString().split("T")[0];
+    const past = new Date(now);
+    past.setDate(past.getDate() - 30);
+    const start = past.toISOString().split("T")[0];
+    setStartDate(start);
+    setEndDate(end);
+  }, []);
 
-    if (sections.includes('family')) {
-      // LATERAL to get first family member per profile
-      joins += `LEFT JOIN LATERAL (
-        SELECT relation, name, gender AS fm_gender, age, dob, disability
-        FROM family_members WHERE profile_id = p.id ORDER BY sort_order LIMIT 1
-      ) fm ON TRUE\n`;
-      extraSelects.push(`
-        fm.relation      AS fm_relation,
-        fm.name          AS fm_name,
-        fm.fm_gender,
-        fm.age           AS fm_age,
-        fm.dob           AS fm_dob,
-        fm.disability    AS fm_disability
-      `);
-    }
+  useEffect(() => {
+    if (!startDate || !endDate) return;
+    fetchData();
+  }, [fetchData, startDate, endDate]);
 
-    if (sections.includes('documents')) {
-      joins += `LEFT JOIN LATERAL (
-        SELECT member_name, member_relation,
-               aadhaar_coverage::text, pan_coverage::text,
-               voter_id_coverage::text, land_doc_coverage::text, dl_coverage::text
-        FROM member_documents WHERE profile_id = p.id ORDER BY sort_order LIMIT 1
-      ) mdoc ON TRUE\n`;
-      extraSelects.push(`
-        mdoc.member_name          AS doc_member_name,
-        mdoc.member_relation      AS doc_member_relation,
-        mdoc.aadhaar_coverage,
-        mdoc.pan_coverage,
-        mdoc.voter_id_coverage,
-        mdoc.land_doc_coverage,
-        mdoc.dl_coverage
-      `);
-    }
+  const goToAdvanced = useCallback((section?: string) => {
+    setAdvancedSection(section);
+    setActiveTab("advanced");
+  }, []);
 
-    if (sections.includes('insurance')) {
-      joins += `LEFT JOIN LATERAL (
-        SELECT member_name, member_relation,
-               health_coverage, life_coverage, term_coverage, konkani_card_coverage
-        FROM member_insurance WHERE profile_id = p.id ORDER BY sort_order LIMIT 1
-      ) mins ON TRUE\n`;
-      extraSelects.push(`
-        mins.member_name             AS ins_member_name,
-        mins.member_relation         AS ins_member_relation,
-        mins.health_coverage::text,
-        mins.life_coverage::text,
-        mins.term_coverage::text,
-        mins.konkani_card_coverage::text
-      `);
-    }
+  const goToCustomReport = useCallback((_sections: string[], category?: string) => {
+    setCustomCategory(category);
+    setActiveTab("custom");
+  }, []);
 
-    const allSelect = [selectCols, ...extraSelects].join(',');
+  const activeTabData = tabs.find((t) => t.id === activeTab)!;
 
-    const query = `
-      SELECT ${allSelect}
-      FROM profiles p
-      ${joins}
-      WHERE u.is_deleted = FALSE
-      ${statusClause}
-      ORDER BY p.submitted_at DESC NULLS LAST
-      LIMIT 2000
-    `;
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Syne:wght@700;800&display=swap');
 
-    const result = await pool.query(query);
+        .reports-root {
+          font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+          background: #F0F6FF;
+          min-height: 100vh;
+        }
 
-    res.json({
-      total: result.rows.length,
-      sections,
-      data: result.rows,
-    });
-  } catch (err) {
-    console.error('customReport error:', err);
-    res.status(500).json({ message: 'Server error', detail: err.message });
-  }
-};
+        .page-header-bg {
+          background: linear-gradient(135deg, #FFFFFF 0%, #FFF7F0 40%, #F0F9FF 100%);
+          border-bottom: 1px solid #E8F0FE;
+          position: relative;
+          overflow: hidden;
+        }
+        .page-header-bg::before {
+          content: '';
+          position: absolute;
+          top: -60px; right: -60px;
+          width: 240px; height: 240px;
+          border-radius: 50%;
+          background: radial-gradient(circle, #FED7AA22 0%, transparent 70%);
+        }
+        .page-header-bg::after {
+          content: '';
+          position: absolute;
+          bottom: -40px; left: 20%;
+          width: 180px; height: 180px;
+          border-radius: 50%;
+          background: radial-gradient(circle, #BAE6FD22 0%, transparent 70%);
+        }
 
-/**
- * GET /admin/reports/sangha-analytics
- * Town-wise sangha analytics with filters.
- * Query params:
- *   - towns[]  : filter by one or more towns/cities (optional)
- *   - limit    : default 3 (top N towns)
- */
-const getSanghaAnalytics = async (req, res) => {
-  try {
-    const towns = [].concat(req.query.towns ?? []);
-    const limit = parseInt(req.query.limit ?? '3');
+        .tab-pill {
+          position: relative;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 10px 20px;
+          border-radius: 14px;
+          cursor: pointer;
+          transition: all 0.25s ease;
+          border: 1.5px solid transparent;
+          background: transparent;
+          font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+        }
+        .tab-pill:hover:not(.active) {
+          background: white;
+          border-color: #E2E8F0;
+          transform: translateY(-1px);
+        }
+        .tab-pill.active {
+          background: white;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
+          transform: translateY(-1px);
+        }
+        .tab-pill .tab-icon-wrap {
+          width: 34px; height: 34px;
+          border-radius: 10px;
+          display: flex; align-items: center; justify-content: center;
+          transition: all 0.25s ease;
+        }
+        .tab-indicator {
+          position: absolute;
+          bottom: -2px; left: 50%; transform: translateX(-50%);
+          height: 3px; width: 36px;
+          border-radius: 2px 2px 0 0;
+          opacity: 0;
+          transition: opacity 0.25s;
+        }
+        .tab-pill.active .tab-indicator { opacity: 1; }
 
-    const townFilter = towns.length > 0
-      ? `AND LOWER(COALESCE(s.city, s.village_town, s.district)) = ANY(ARRAY[${towns.map((_, i) => `$${i + 1}`).join(',')}]::text[])`
-      : '';
-    const params = towns.map(t => t.toLowerCase());
+        .content-fade-in {
+          animation: fadeSlideIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @keyframes fadeSlideIn {
+          from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
 
-    // Top towns by sangha count
-    const topTowns = await pool.query(
-      `SELECT
-         COALESCE(s.city, s.village_town, s.district) AS town,
-         s.state,
-         COUNT(DISTINCT s.id)                         AS sangha_count,
-         COUNT(DISTINCT sm.id)                        AS member_count
-       FROM sanghas s
-       LEFT JOIN sangha_members sm ON sm.sangha_id = s.id
-       WHERE s.status = 'approved'
-       ${townFilter}
-       GROUP BY COALESCE(s.city, s.village_town, s.district), s.state
-       ORDER BY sangha_count DESC
-       LIMIT $${params.length + 1}`,
-      [...params, limit]
-    );
+        .breadcrumb-chip {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 3px 10px; border-radius: 20px;
+          font-size: 11px; font-weight: 600;
+          background: rgba(255,255,255,0.8);
+          border: 1px solid #E2E8F0;
+          color: #64748B;
+        }
+      `}</style>
 
-    // Member age-wise analytics across those towns
-    const ageAnalytics = await pool.query(
-      `SELECT
-         COALESCE(s.city, s.village_town, s.district) AS town,
-         CASE
-           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) < 18            THEN 'Under 18'
-           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) BETWEEN 18 AND 30 THEN '18 – 30'
-           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) BETWEEN 31 AND 45 THEN '31 – 45'
-           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) BETWEEN 46 AND 60 THEN '46 – 60'
-           ELSE 'Above 60'
-         END AS age_group,
-         COUNT(*) AS count
-       FROM sangha_members sm
-       JOIN sanghas s ON s.id = sm.sangha_id
-       WHERE s.status = 'approved' AND sm.dob IS NOT NULL
-       ${townFilter}
-       GROUP BY town, age_group
-       ORDER BY town, age_group`,
-      params
-    );
+      <div className="reports-root">
+        {/* ── Page Header ── */}
+        <div className="page-header-bg px-6 py-6">
+          <div style={{ maxWidth: 1400, margin: "0 auto", position: "relative", zIndex: 1 }}>
+            {/* Breadcrumb */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+              <span className="breadcrumb-chip">
+                <BarChart2 size={10} />
+                Admin
+              </span>
+              <ChevronRight size={12} style={{ color: "#CBD5E1" }} />
+              <span className="breadcrumb-chip" style={{ borderColor: activeTabData.color + "44", color: activeTabData.color }}>
+                Analytics & Reports
+              </span>
+            </div>
 
-    // Part-time vs full-time per town
-    const memberTypeAnalytics = await pool.query(
-      `SELECT
-         COALESCE(s.city, s.village_town, s.district) AS town,
-         sm.member_type,
-         COUNT(*) AS count
-       FROM sangha_members sm
-       JOIN sanghas s ON s.id = sm.sangha_id
-       WHERE s.status = 'approved'
-       ${townFilter}
-       GROUP BY town, sm.member_type
-       ORDER BY town`,
-      params
-    );
+            {/* Title Row */}
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+              <div>
+                <h1 style={{
+                  fontFamily: "'Syne', sans-serif",
+                  fontSize: 28, fontWeight: 800, color: "#0F172A",
+                  letterSpacing: "-0.5px", margin: 0, lineHeight: 1.2,
+                }}>
+                  Analytics &amp;{" "}
+                  <span style={{ background: "linear-gradient(90deg, #F97316, #FB923C)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+                    Reports
+                  </span>
+                </h1>
+                <p style={{ color: "#64748B", fontSize: 13.5, marginTop: 4, display: "flex", alignItems: "center", gap: 5 }}>
+                  <Sparkles size={13} style={{ color: "#F97316" }} />
+                  Deep insights into users and sanghas across the full admin dataset
+                </p>
+              </div>
 
-    // Economic status of users in those towns (approved profiles)
-    const economicByTown = await pool.query(
-      `SELECT
-         COALESCE(s.city, s.village_town, s.district) AS town,
-         COUNT(DISTINCT p.id)                         AS approved_user_count,
-         COUNT(DISTINCT sm_member.id)                 AS sangha_member_count
-       FROM sanghas s
-       LEFT JOIN profiles p ON p.sangha_id = s.id AND p.status = 'approved'
-       LEFT JOIN sangha_members sm_member ON sm_member.sangha_id = s.id
-       WHERE s.status = 'approved'
-       ${townFilter}
-       GROUP BY COALESCE(s.city, s.village_town, s.district)
-       ORDER BY sangha_member_count DESC`,
-      params
-    );
+              {/* Live badge */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "6px 14px", borderRadius: 20,
+                background: "white",
+                border: "1px solid #E2E8F0",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+              }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#10B981", display: "block", animation: "pulse 2s infinite" }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Live Data</span>
+              </div>
+            </div>
 
-    // Available towns (for filter dropdown)
-    const availableTowns = await pool.query(
-      `SELECT DISTINCT COALESCE(city, village_town, district) AS town, state
-       FROM sanghas WHERE status = 'approved' AND COALESCE(city, village_town, district) IS NOT NULL
-       ORDER BY town LIMIT 50`
-    );
+            {/* ── Tab Bar ── */}
+            <div style={{
+              display: "flex", gap: 4, marginTop: 20,
+              padding: 4,
+              background: "#F1F5F9",
+              borderRadius: 18,
+              width: "fit-content",
+              border: "1px solid #E2E8F0",
+            }}>
+              {tabs.map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`tab-pill ${isActive ? "active" : ""}`}
+                    style={{ outline: "none" }}
+                  >
+                    <div
+                      className="tab-icon-wrap"
+                      style={{
+                        background: isActive ? `linear-gradient(135deg, ${tab.color}22, ${tab.color}11)` : "transparent",
+                      }}
+                    >
+                      <tab.icon
+                        size={16}
+                        style={{ color: isActive ? tab.color : "#94A3B8", transition: "color 0.25s" }}
+                      />
+                    </div>
+                    <div style={{ textAlign: "left" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: isActive ? "#0F172A" : "#64748B", lineHeight: 1.2 }}>
+                        {tab.label}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: isActive ? tab.color : "#94A3B8", fontWeight: 500, lineHeight: 1 }}>
+                        {tab.desc}
+                      </div>
+                    </div>
+                    {isActive && (
+                      <div style={{
+                        width: 6, height: 6, borderRadius: "50%",
+                        background: `linear-gradient(135deg, ${tab.color}, ${tab.color}99)`,
+                        marginLeft: 2,
+                      }} />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
 
-    res.json({
-      top_towns:           topTowns.rows,
-      age_analytics:       ageAnalytics.rows,
-      member_type:         memberTypeAnalytics.rows,
-      economic_by_town:    economicByTown.rows,
-      available_towns:     availableTowns.rows,
-    });
-  } catch (err) {
-    console.error('sanghaAnalytics error:', err);
-    res.status(500).json({ message: 'Server error', detail: err.message });
-  }
-};
-
-module.exports = { getCustomReport, getSanghaAnalytics };
+        {/* ── Content Area ── */}
+        <div style={{ maxWidth: 1400, margin: "0 auto", padding: "28px 24px" }}>
+          <div className="content-fade-in" key={activeTab}>
+            {activeTab === "general" && (
+              <GeneralDashboard
+                overview={overview}
+                dateReg={dateReg}
+                startDate={startDate}
+                endDate={endDate}
+                onDateChange={(nextStart, nextEnd) => {
+                  setStartDate(nextStart);
+                  setEndDate(nextEnd);
+                }}
+                loading={loading}
+                error={error}
+                onRefresh={fetchData}
+                onGoToAdvanced={goToAdvanced}
+                onGoToCustomReport={goToCustomReport}
+              />
+            )}
+            {activeTab === "advanced" && (
+              <AdvancedDashboard
+                initialSection={advancedSection}
+                onGoToCustomReport={goToCustomReport}
+                onSectionRendered={() => setAdvancedSection(undefined)}
+              />
+            )}
+            {activeTab === "custom" && <CustomReport initialCategory={customCategory} />}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}

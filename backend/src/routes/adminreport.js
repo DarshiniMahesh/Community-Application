@@ -8,7 +8,7 @@ const express = require('express');
 const router  = express.Router();
 const { authenticate, requireRole } = require('../middlewares/auth');
 const rc  = require('../controllers/adminreportController');
-const crc = require('../controllers/customReportController');
+const acc = require('../controllers/adminCustomReportController');
 
 // All report routes require admin auth
 router.use(authenticate);
@@ -28,6 +28,7 @@ router.get('/advanced/population',              rc.getPopulationStats);
 router.get('/advanced/age-groups',              rc.getAgeGroups);
 router.get('/advanced/education',               rc.getEducationStats);
 router.get('/advanced/geo',                     rc.getGeoStats);
+router.get('/advanced/religious',               rc.getReligiousStats);
 router.get('/advanced/income',                  rc.getIncomeStats);
 router.get('/advanced/economic',                rc.getEconomicStats);
 router.get('/advanced/insurance',               rc.getInsuranceStats);
@@ -41,10 +42,10 @@ router.get('/export',                           rc.getExportData);
 
 // ── Custom Report ────────────────────────────────────────────
 // ?sections[]=personal&sections[]=economic&status=approved
-router.get('/custom',                           crc.getCustomReport);
+router.get('/custom',                           acc.getCustomReport);
 
 // ── Sangha Analytics ─────────────────────────────────────────
 // ?towns[]=Mangalore&limit=3
-router.get('/sangha-analytics',                 crc.getSanghaAnalytics);
+router.get('/sangha-analytics',                 rc.getSanghaAnalytics);
 
 module.exports = router;
