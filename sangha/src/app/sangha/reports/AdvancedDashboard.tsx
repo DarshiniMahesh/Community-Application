@@ -616,56 +616,27 @@ export default function AdvancedDashboard({
 
         {/* ══ 0. STATUS OVERVIEW ═══════════════════════════════ */}
         <section>
-          <SectionHeader id="adv-status" icon={CheckCircle}
-            title="Status Overview"
-            subtitle="Registration status breakdown — approved, pending, rejected, changes requested"
-            color="#6366f1" />
+  <SectionHeader id="adv-status" icon={CheckCircle}
+    title="Status Overview"
+    subtitle="Registration status breakdown — approved,  rejected, changes requested"
+    color="#6366f1" />
 
-          {statusBreakdown.length > 0 ? (
-            <>
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
-                {statusBreakdown.map((s) => {
-                  const pct = statusTotal > 0 ? Math.round((s.count / statusTotal) * 100) : 0;
-                  const color = STATUS_COLORS[s.status] ?? "#94a3b8";
-                  const label = STATUS_LABELS[s.status] ?? s.status;
-                  const genderDataForStatus = statusGenderBreakdown.find(sg => sg.status === s.status);
-                  return (
-                    <div key={s.status} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold" style={{ color }}>{label}</span>
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: color + "18", color }}>{pct}%</span>
-                      </div>
-                      <p className="text-2xl font-black text-slate-900">{s.count.toLocaleString()}</p>
-                      {genderDataForStatus && (genderDataForStatus.male > 0 || genderDataForStatus.female > 0) && (
-                        <div className="flex gap-3 mt-2 text-xs text-slate-500">
-                          <span><span className="font-medium" style={{ color: GENDER_COLORS.male }}>M</span> {(genderDataForStatus.male || 0).toLocaleString()}</span>
-                          <span><span className="font-medium" style={{ color: GENDER_COLORS.female }}>F</span> {(genderDataForStatus.female || 0).toLocaleString()}</span>
-                          {(genderDataForStatus.other || 0) > 0 && <span><span className="font-medium" style={{ color: GENDER_COLORS.other }}>O</span> {genderDataForStatus.other.toLocaleString()}</span>}
-                        </div>
-                      )}
-                      <div className="mt-2 h-1 rounded-full bg-slate-100 overflow-hidden">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {statusGenderBarData.length > 0 && (
-                <ChartCard title="Status by Gender" subtitle="Male (blue) · Female (pink) — registration status breakdown"
-                  onExport={() => onGoToCustomReport(["personal-details"], "demographics")}>
-                  <GenderStackedBar data={statusGenderBarData} height={200} />
-                </ChartCard>
-              )}
-            </>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm text-center">
-                <p className="text-xs font-semibold mb-1" style={{ color: "#10b981" }}>Approved</p>
-                <p className="text-3xl font-black text-slate-900">{data.totalApproved.toLocaleString()}</p>
-              </div>
-            </div>
-          )}
-        </section>
+  {statusGenderBarData.length > 0 ? (
+    <ChartCard title="Status by Gender" subtitle="Male (blue) · Female (pink) — registration status breakdown"
+      onExport={() => onGoToCustomReport(["personal-details"], "demographics")}>
+      <GenderStackedBar data={statusGenderBarData} height={200} />
+    </ChartCard>
+  ) : statusBreakdown.length > 0 ? (
+    <ChartCard title="Status Breakdown" subtitle="Registration status counts">
+      <GenderStackedBar data={statusBreakdown.map(s => ({ label: STATUS_LABELS[s.status] ?? s.status, male: s.count, female: 0 }))} height={200} />
+    </ChartCard>
+  ) : (
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm text-center">
+      <p className="text-xs font-semibold mb-1" style={{ color: "#10b981" }}>Approved</p>
+      <p className="text-3xl font-black text-slate-900">{data.totalApproved.toLocaleString()}</p>
+    </div>
+  )}
+</section>
 
         {/* ══ 1. DEMOGRAPHICS ══════════════════════════════════ */}
         <section>

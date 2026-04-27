@@ -281,7 +281,23 @@ const getAdvancedReports = async (req, res) => {
       safe(`SELECT COUNT(*) FILTER (WHERE LOWER(fi.family_type::text) LIKE '%nuclear%') AS nuclear, COUNT(*) FILTER (WHERE LOWER(fi.family_type::text) LIKE '%joint%') AS joint FROM profiles p JOIN family_info fi ON fi.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
       safe(`SELECT COUNT(*) FILTER (WHERE pd.is_married = true) AS married, COUNT(*) FILTER (WHERE pd.is_married = false) AS single FROM profiles p JOIN personal_details pd ON pd.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
       safe(`SELECT CASE WHEN pd.is_married = true THEN 'Married' ELSE 'Single' END AS label, COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') AS male, COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female') AS female, COUNT(*) FILTER (WHERE pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other FROM profiles p JOIN personal_details pd ON pd.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter} AND pd.is_married IS NOT NULL GROUP BY pd.is_married ORDER BY pd.is_married DESC`, [sanghaId, ...drSubmitted.params]),
-      safe(`SELECT me.highest_education AS label, COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') AS male, COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female') AS female, COUNT(*) FILTER (WHERE pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other FROM profiles p JOIN member_education me ON me.profile_id = p.id JOIN personal_details pd ON pd.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter} AND me.highest_education IS NOT NULL AND TRIM(me.highest_education) != '' GROUP BY me.highest_education ORDER BY (COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') + COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female')) DESC LIMIT 50`, [sanghaId, ...drSubmitted.params]),
+      safe(`
+  SELECT
+    mes.degree_type AS label,
+    COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male')   AS male,
+    COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female') AS female,
+    COUNT(*) FILTER (WHERE pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+  FROM profiles p
+  JOIN member_education me   ON me.profile_id = p.id
+  JOIN member_educations mes ON mes.member_education_id = me.id
+  JOIN personal_details pd   ON pd.profile_id = p.id
+  WHERE p.sangha_id=$1 ${approvedDateFilter}
+    AND mes.degree_type IS NOT NULL
+    AND TRIM(mes.degree_type) != ''
+  GROUP BY mes.degree_type
+  ORDER BY (COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') + COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female')) DESC
+  LIMIT 50
+`, [sanghaId, ...drSubmitted.params]),
       safe(`SELECT me.profession_type::text AS label, COUNT(*) AS count FROM profiles p JOIN member_education me ON me.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter} AND me.profession_type IS NOT NULL GROUP BY me.profession_type ORDER BY count DESC LIMIT 10`, [sanghaId, ...drSubmitted.params]),
       safe(`SELECT me.profession_type::text AS label, COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') AS male, COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female') AS female, COUNT(*) FILTER (WHERE pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other FROM profiles p JOIN member_education me ON me.profile_id = p.id JOIN personal_details pd ON pd.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter} AND me.profession_type IS NOT NULL GROUP BY me.profession_type ORDER BY (COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') + COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female')) DESC LIMIT 10`, [sanghaId, ...drSubmitted.params]),
       safe(`SELECT COUNT(*) FILTER (WHERE me.is_currently_studying = true) AS yes_count, COUNT(*) FILTER (WHERE me.is_currently_studying = false) AS no_count FROM profiles p JOIN member_education me ON me.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
