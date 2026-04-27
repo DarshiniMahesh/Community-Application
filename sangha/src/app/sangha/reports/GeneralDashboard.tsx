@@ -253,7 +253,7 @@ export default function GeneralDashboard({
   const analyticsCards = [
     {
       icon: Users, color: "#0ea5e9", bg: "bg-sky-50",
-      title: "Demographics", value: total,
+      title: "personal information", value: total,
       section: "demographics",
       excelSections: ["personal-details"],
     },
@@ -323,7 +323,7 @@ export default function GeneralDashboard({
         <div className="relative px-7 py-8">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
             <div>
-              <p className="text-sky-600 text-xs font-bold uppercase tracking-[0.2em] mb-3">Total Families Registered</p>
+              <p className="text-sky-600 text-xs font-bold uppercase tracking-[0.2em] mb-3">Total users Registered</p>
               <p className="text-7xl font-black tabular-nums leading-none text-slate-900 tracking-tight">
                 {total.toLocaleString()}
               </p>

@@ -650,11 +650,11 @@ export default function AdvancedDashboard({
             <p className="text-sky-100 text-xs font-bold uppercase tracking-widest mb-2">Total Population</p>
             <p className="text-5xl font-black">{(data.totalPopulation || 0).toLocaleString()}</p>
             <div className="flex items-center gap-6 mt-4">
-              <div><p className="text-xl font-bold">{total.toLocaleString()}</p><p className="text-sky-200 text-xs">Families</p></div>
+              <div><p className="text-xl font-bold">{total.toLocaleString()}</p><p className="text-sky-200 text-xs">Users</p></div>
               <div className="w-px h-8 bg-white/20" />
               <div><p className="text-xl font-bold">{Math.max(0, (data.totalPopulation || 0) - total).toLocaleString()}</p><p className="text-sky-200 text-xs">Family members</p></div>
               <div className="w-px h-8 bg-white/20" />
-              <div><p className="text-xl font-bold">{total > 0 ? ((data.totalPopulation || 0) / total).toFixed(1) : "—"}</p><p className="text-sky-200 text-xs">Avg per family</p></div>
+              
             </div>
           </div>
 
@@ -711,13 +711,13 @@ export default function AdvancedDashboard({
             </ChartCard>
           </div>
 
-          <ChartCard title="Age Group Distribution" subtitle="Male (blue) · Female (pink) — across all registered members"
+          <ChartCard title="Age Group Distribution" subtitle="Male (blue) · Female (pink). other (grey) "
             onExport={() => onGoToCustomReport(["personal-details"], "age_group")}>
             <GenderStackedBar data={ageBarData} height={200} />
           </ChartCard>
 
           {maritalBarData.length > 0 && (
-            <ChartCard title="Marital Status" subtitle="Male (blue) · Female (pink) — registered heads breakdown"
+            <ChartCard title="Marital Status" subtitle="Male (blue) · Female (pink)"
               className="mt-5" onExport={() => onGoToCustomReport(["personal-details"], "marital")}>
               <GenderStackedBar data={maritalBarData} height={160} />
             </ChartCard>
@@ -1066,7 +1066,7 @@ export default function AdvancedDashboard({
                         </button>
                       </div>
                       <p className="text-3xl font-black text-slate-900">{pct}%</p>
-                      <p className="text-xs text-slate-400 mb-3">verified</p>
+                      <p className="text-xs text-slate-400 mb-3"></p>
                       <div className="space-y-1">
                         {[
                           { label: "Yes", val: doc.yes,     color: "#22c55e" },
@@ -1121,24 +1121,14 @@ export default function AdvancedDashboard({
               {/* ── Summary KPIs ── */}
               {religious.summary && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-                  {[
-                    { label: "Unique Gotras",          value: religious.summary.uniqueGotras       || 0, color: "#a855f7" },
-                    { label: "Unique Kuladevatas",     value: religious.summary.uniqueKuladevatas  || 0, color: "#7c3aed" },
-                    { label: "Ancestral Challenges",   value: religious.summary.ancestralChallenges || 0, color: "#f43f5e" },
-                    { label: "Unique Surnames in Use", value: religious.summary.uniqueSurnames      || 0, color: "#0ea5e9" },
-                  ].map(s => (
-                    <div key={s.label} className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
-                      <p className="text-xs text-slate-400 font-medium mb-1">{s.label}</p>
-                      <p className="text-3xl font-black" style={{ color: s.color }}>{s.value.toLocaleString()}</p>
-                    </div>
-                  ))}
+                  
                 </div>
               )}
 
               {/* ── Row 1: Gotra + Kuladevata ── */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {gotraData.length > 0 && (
-                  <ChartCard title="Top Gotras" subtitle="Most common gotras in the community"
+                  <ChartCard title=" Gotras" subtitle="Most common gotras in the community"
                     onExport={() => onGoToCustomReport(["religious-details"], "gotra")}>
                     <SimpleBarChart data={gotraData} colorPalette={RELIGIOUS_COLORS}
                       height={Math.max(220, gotraData.length * 30)} />
@@ -1201,21 +1191,7 @@ export default function AdvancedDashboard({
                   subtitle="Families with ancestral challenges, priest info, upanama, demi gods & common relative names"
                   className="mt-5"
                   onExport={() => onGoToCustomReport(["religious-details"], "ancestral")}>
-                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                    {[
-                      { label: "With Ancestral Challenge",    value: religious.ancestralStats.withChallenge       || 0, color: "#f43f5e" },
-                      { label: "Without Ancestral Challenge", value: religious.ancestralStats.withoutChallenge    || 0, color: "#10b981" },
-                      { label: "With Priest Info",            value: religious.ancestralStats.withPriest          || 0, color: "#a855f7" },
-                      { label: "With Common Relative Names",  value: religious.ancestralStats.withCommonRelatives || 0, color: "#0ea5e9" },
-                      { label: "With Upanama",                value: religious.ancestralStats.withUpanama         || 0, color: "#f59e0b" },
-                      { label: "With Demi Gods",              value: religious.ancestralStats.withDemiGods        || 0, color: "#6366f1" },
-                    ].map(s => (
-                      <div key={s.label} className="bg-slate-50 border border-slate-100 rounded-xl p-4 text-center">
-                        <p className="text-xs text-slate-400 font-medium mb-1">{s.label}</p>
-                        <p className="text-2xl font-black" style={{ color: s.color }}>{s.value.toLocaleString()}</p>
-                      </div>
-                    ))}
-                  </div>
+                 
 
                   {/* Ancestral Challenge pie */}
                   {(religious.ancestralStats.withChallenge || 0) + (religious.ancestralStats.withoutChallenge || 0) > 0 && (
@@ -1242,18 +1218,7 @@ export default function AdvancedDashboard({
                           </PieChart>
                         </ResponsiveContainer>
                         <div className="flex flex-col justify-center gap-3">
-                          {[
-                            { label: "With Priest Info",   value: religious.ancestralStats.withPriest    || 0, color: "#a855f7", icon: "🛕" },
-                            { label: "With Upanama",       value: religious.ancestralStats.withUpanama   || 0, color: "#f59e0b", icon: "📿" },
-                            { label: "With Demi Gods",     value: religious.ancestralStats.withDemiGods  || 0, color: "#6366f1", icon: "🔱" },
-                          ].map(s => (
-                            <div key={s.label} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-xl">
-                              <span className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                                <span>{s.icon}</span>{s.label}
-                              </span>
-                              <span className="text-sm font-black" style={{ color: s.color }}>{s.value.toLocaleString()}</span>
-                            </div>
-                          ))}
+                          
                         </div>
                       </div>
                     </div>
