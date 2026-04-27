@@ -1,4 +1,4 @@
-//Community-Application\sangha\src\app\sangha\reports\AdvancedDashboard.tsx
+// Community-Application\sangha\src\app\sangha\reports\AdvancedDashboard.tsx
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
@@ -22,8 +22,10 @@ export const GENDER_COLORS = {
 };
 
 const RELIGIOUS_COLORS = ["#a855f7", "#c084fc", "#d8b4fe", "#7c3aed", "#6d28d9", "#581c87", "#e879f9", "#f0abfc"];
+const DEMI_GOD_COLORS  = ["#f59e0b", "#fbbf24", "#fcd34d", "#f97316", "#fb923c", "#fdba74", "#d97706", "#b45309"];
 const GEO_BAR_COLORS   = ["#0d9488", "#14b8a6", "#2dd4bf", "#5eead4", "#99f6e4", "#0891b2", "#06b6d4", "#22d3ee"];
 
+// All 7 standard degree levels — always shown in this order
 const DEGREE_ORDER = [
   'High School',
   'Pre-University',
@@ -166,12 +168,6 @@ function GenderStackedBar({
         <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
         <Tooltip content={<BarTooltipContent />} />
         <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
-        {/*
-          Fix #8: In a stacked bar chart rendered left-to-right (stackId="g"),
-          male is the BOTTOM bar → round bottom corners [0,0,4,4].
-          If there is no "other" bar, female is on TOP → round top corners [4,4,0,0].
-          If "other" exists, other is the topmost bar → it gets [4,4,0,0] and female gets none.
-        */}
         <Bar dataKey="male"   name="Male"   fill={GENDER_COLORS.male}   stackId="g" radius={[0, 0, 4, 4]} />
         <Bar dataKey="female" name="Female" fill={GENDER_COLORS.female} stackId="g" radius={hasOther ? [0, 0, 0, 0] : [4, 4, 0, 0]} />
         {hasOther && (
@@ -205,12 +201,43 @@ function GenderStackedBarVertical({
         <YAxis dataKey="label" type="category" width={185} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
         <Tooltip content={<BarTooltipContent />} />
         <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
-        {/* Vertical layout: male is leftmost (bottom), female/other are stacked right */}
         <Bar dataKey="male"   name="Male"   fill={GENDER_COLORS.male}   stackId="g" radius={[0, 0, 0, 0]} />
         <Bar dataKey="female" name="Female" fill={GENDER_COLORS.female} stackId="g" radius={hasOther ? [0, 0, 0, 0] : [0, 4, 4, 0]} />
         {hasOther && (
           <Bar dataKey="other" name="Other" fill={GENDER_COLORS.other} stackId="g" radius={[0, 4, 4, 0]} />
         )}
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── Simple horizontal bar chart ──────────────────────────────────────────────
+function SimpleBarChart({
+  data, colorPalette, height = 220, valueKey = "count",
+}: {
+  data: { label: string; count: number }[];
+  colorPalette: string[];
+  height?: number;
+  valueKey?: string;
+}) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex items-center justify-center text-slate-400 text-sm" style={{ height }}>
+        No data available
+      </div>
+    );
+  }
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <BarChart layout="vertical" data={data} margin={{ left: 8, right: 30, top: 5, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+        <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
+        <YAxis dataKey="label" type="category" width={130} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+        <Tooltip content={<BarTooltipContent />} />
+        <Bar dataKey="count" name="Count" radius={[0, 6, 6, 0]}>
+          {data.map((_: any, i: number) => <Cell key={i} fill={colorPalette[i % colorPalette.length]} />)}
+          <LabelList dataKey="count" position="right" style={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }} />
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   );
@@ -260,7 +287,6 @@ function InsuranceGenderCard({
               <Cell key={i} fill={d.color} />
             ))}
           </Pie>
-          {/* Fix #5: pass a render-function so Recharts injects active/payload correctly */}
           <Tooltip content={(props) => <PieTooltipContent {...props} total={totalAll} />} />
         </PieChart>
       </ResponsiveContainer>
@@ -367,8 +393,6 @@ export default function AdvancedDashboard({
   const filterRef  = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Fix #13: onSectionRendered is now memoized in page.tsx so it's safe to add here.
-  // No eslint-disable needed.
   useEffect(() => {
     if (initialSection && data) {
       const el = document.getElementById(`adv-${initialSection}`);
@@ -381,7 +405,6 @@ export default function AdvancedDashboard({
     }
   }, [initialSection, data, onSectionRendered]);
 
-  // ── Close geo filter on outside click ──────────────────
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (filterRef.current && !filterRef.current.contains(e.target as Node))
@@ -391,7 +414,6 @@ export default function AdvancedDashboard({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── Scroll-spy for sidebar nav ─────────────────────────
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -435,21 +457,18 @@ export default function AdvancedDashboard({
   const { demographics: dem, education: edu, economic: eco } = data;
   const total = data.totalApproved;
 
-  // ── Status breakdown data ──────────────────────────────
+  // ── Status ─────────────────────────────────────────────────
   const statusBreakdown: Array<{ status: string; count: number }> = data.statusBreakdown || [];
-  const statusTotal = statusBreakdown.reduce((acc: number, s: { status: string; count: number }) => acc + (s.count || 0), 0);
-
+  const statusTotal = statusBreakdown.reduce((acc, s) => acc + (s.count || 0), 0);
   const statusGenderBreakdown: Array<{ status: string; male: number; female: number; other: number }> = data.statusGenderBreakdown || [];
-
-  const statusGenderBarData = statusGenderBreakdown.map((s: { status: string; male: number; female: number; other: number }) => ({
+  const statusGenderBarData = statusGenderBreakdown.map(s => ({
     label:  STATUS_LABELS[s.status] ?? s.status,
     male:   s.male   || 0,
     female: s.female || 0,
     other:  s.other  || 0,
-    color:  STATUS_COLORS[s.status] ?? "#94a3b8",
   }));
 
-  // ── Gender pie ─────────────────────────────────────────
+  // ── Gender pie ─────────────────────────────────────────────
   const genderTotal = dem.gender.male + dem.gender.female + dem.gender.other;
   const genderData  = [
     { name: "Male",   value: dem.gender.male,   color: GENDER_COLORS.male   },
@@ -457,21 +476,21 @@ export default function AdvancedDashboard({
     { name: "Other",  value: dem.gender.other,  color: GENDER_COLORS.other  },
   ].filter(x => x.value > 0);
 
-  // ── Family type ────────────────────────────────────────
+  // ── Family type ────────────────────────────────────────────
   const ftTotal = (dem.familyType.nuclear + dem.familyType.joint) || 1;
   const ftData  = [
     { name: "Nuclear", value: dem.familyType.nuclear, color: "#10b981" },
     { name: "Joint",   value: dem.familyType.joint,   color: "#8b5cf6" },
   ].filter(x => x.value > 0);
 
-  // ── Age × Gender ──────────────────────────────────────
+  // ── Age × Gender ──────────────────────────────────────────
   const ageGenderData = (dem.ageGroupsGender || []).map((a: any) => ({
     label: a.label, male: a.male || 0, female: a.female || 0, other: a.other || 0,
   }));
   const ageBarData = ageGenderData.length > 0 ? ageGenderData
     : dem.ageGroups.map((a: any) => ({ label: a.label, male: a.count, female: 0, other: 0 }));
 
-  // ── Marital × Gender ───────────────────────────────────
+  // ── Marital × Gender ───────────────────────────────────────
   const maritalGenderData = (dem.maritalStatusGender || []).map((m: any) => ({
     label: m.label, male: m.male || 0, female: m.female || 0, other: m.other || 0,
   }));
@@ -480,17 +499,19 @@ export default function AdvancedDashboard({
   }));
   const maritalBarData = maritalGenderData.length > 0 ? maritalGenderData : maritalFallback;
 
-  // ── Degrees ────────────────────────────────────────────
+  // ── Degrees — all 7 standard levels always shown ───────────
   const rawDegreesGender = (edu.degreesGender || []).map((d: any) => ({
     label: d.label, male: d.male || 0, female: d.female || 0, other: d.other || 0,
   }));
-  const degreeMap = new Map(rawDegreesGender.map((d: any) => [d.label, d]));
-  const degreesBarData = [
-    ...DEGREE_ORDER.map(label => degreeMap.get(label)).filter(Boolean),
-    ...rawDegreesGender.filter((d: any) => !DEGREE_ORDER.includes(d.label)),
-  ] as { label: string; male: number; female: number; other: number }[];
+  const degreeMapFromData = new Map(rawDegreesGender.map((d: any) => [d.label, d]));
 
-  // ── Profession × Gender ────────────────────────────────
+  // Always include all 7 degrees (even those with 0 counts)
+  const degreesBarData: { label: string; male: number; female: number; other?: number }[] = DEGREE_ORDER.map(label => {
+    const existing = degreeMapFromData.get(label);
+    return existing ?? { label, male: 0, female: 0, other: 0 };
+  });
+
+  // ── Profession × Gender ────────────────────────────────────
   const professionGenderData = (edu.professionsGender || []).map((p: any) => ({
     label: p.label, male: p.male || 0, female: p.female || 0, other: p.other || 0,
   }));
@@ -499,7 +520,7 @@ export default function AdvancedDashboard({
   }));
   const professionBarData = professionGenderData.length > 0 ? professionGenderData : professionFallback;
 
-  // ── Studying & Working ─────────────────────────────────
+  // ── Studying & Working ─────────────────────────────────────
   const studyingBarData = [
     { label: "Studying — Yes", male: edu.studying.maleYes || 0, female: edu.studying.femaleYes || 0, other: edu.studying.otherYes || 0 },
     { label: "Studying — No",  male: edu.studying.maleNo  || 0, female: edu.studying.femaleNo  || 0, other: edu.studying.otherNo  || 0 },
@@ -509,7 +530,7 @@ export default function AdvancedDashboard({
     { label: "Working — No",  male: edu.working.maleNo  || 0, female: edu.working.femaleNo  || 0, other: edu.working.otherNo  || 0 },
   ];
 
-  // ── Assets ─────────────────────────────────────────────
+  // ── Assets ─────────────────────────────────────────────────
   const assetBarData = eco.assets.map(a => ({
     name: a.label,
     "Owned %": a.total > 0 ? Math.round((a.owned / a.total) * 100) : 0,
@@ -518,7 +539,7 @@ export default function AdvancedDashboard({
     label: a.label, male: a.male || 0, female: a.female || 0, other: a.other || 0,
   }));
 
-  // ── Employment × Gender ────────────────────────────────
+  // ── Employment × Gender ────────────────────────────────────
   const employmentGenderData = (eco.employmentGender || []).map((e: any) => ({
     label: e.label, male: e.male || 0, female: e.female || 0, other: e.other || 0,
   }));
@@ -527,24 +548,27 @@ export default function AdvancedDashboard({
   }));
   const employmentBarData = employmentGenderData.length > 0 ? employmentGenderData : employmentFallback;
 
-  // ── Geographic ─────────────────────────────────────────
+  // ── Geographic ─────────────────────────────────────────────
   const geoGenderData = (data.geographicGender || [])
     .filter((g: any) => selectedCities.length === 0 ? true : selectedCities.includes(g.city))
     .sort((a: any, b: any) => (b.male + b.female) - (a.male + a.female))
     .slice(0, selectedCities.length > 0 ? undefined : 8)
     .map((g: any) => ({ label: g.city, male: g.male || 0, female: g.female || 0, other: g.other || 0 }));
 
-  // ── Documents ──────────────────────────────────────────
+  // ── Documents ──────────────────────────────────────────────
   const docCompare = data.documents.map(d => ({
     name: d.label, Yes: d.yes, No: d.no, Unknown: d.unknown,
   }));
 
-  // ── Religious ──────────────────────────────────────────
-  const religious   = data.religious || {};
-  const gotraData   = (religious.gotras      || []).slice(0, 10);
-  const kuldevData  = (religious.kuladevatas || []).slice(0, 10);
-  const surnameData = (religious.surnames    || []).slice(0, 10);
-  const pravaraData = (religious.pravaras    || []).slice(0, 10);
+  // ── Religious ──────────────────────────────────────────────
+  const religious      = data.religious || {};
+  const gotraData      = (religious.gotras         || []).slice(0, 10);
+  const kuldevData     = (religious.kuladevatas    || []).slice(0, 10);
+  const surnameData    = (religious.surnames       || []).slice(0, 10);
+  const pravaraData    = (religious.pravaras       || []).slice(0, 10);
+  const upanamaGenData = (religious.upanamaGenerals || []).slice(0, 20);
+  const upanaPropData  = (religious.upanamaPropers  || []).slice(0, 20);
+  const demiGodData    = (religious.demiGods        || []).slice(0, 25);
 
   return (
     <div className="flex gap-0">
@@ -600,75 +624,45 @@ export default function AdvancedDashboard({
           {statusBreakdown.length > 0 ? (
             <>
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
-                {statusBreakdown.map((s: { status: string; count: number }) => {
+                {statusBreakdown.map((s) => {
                   const pct = statusTotal > 0 ? Math.round((s.count / statusTotal) * 100) : 0;
                   const color = STATUS_COLORS[s.status] ?? "#94a3b8";
                   const label = STATUS_LABELS[s.status] ?? s.status;
-                  const genderDataForStatus = statusGenderBreakdown.find((sg: { status: string; male: number; female: number; other: number }) => sg.status === s.status);
+                  const genderDataForStatus = statusGenderBreakdown.find(sg => sg.status === s.status);
                   return (
-                    <div
-                      key={s.status}
-                      className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow"
-                    >
+                    <div key={s.status} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-semibold" style={{ color }}>{label}</span>
-                        <span
-                          className="text-xs font-bold px-2 py-0.5 rounded-full"
-                          style={{ backgroundColor: color + "18", color }}
-                        >
-                          {pct}%
-                        </span>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: color + "18", color }}>{pct}%</span>
                       </div>
                       <p className="text-2xl font-black text-slate-900">{s.count.toLocaleString()}</p>
                       {genderDataForStatus && (genderDataForStatus.male > 0 || genderDataForStatus.female > 0) && (
                         <div className="flex gap-3 mt-2 text-xs text-slate-500">
-                          <span>
-                            <span className="font-medium" style={{ color: GENDER_COLORS.male }}>M</span>{" "}
-                            {(genderDataForStatus.male || 0).toLocaleString()}
-                          </span>
-                          <span>
-                            <span className="font-medium" style={{ color: GENDER_COLORS.female }}>F</span>{" "}
-                            {(genderDataForStatus.female || 0).toLocaleString()}
-                          </span>
-                          {(genderDataForStatus.other || 0) > 0 && (
-                            <span>
-                              <span className="font-medium" style={{ color: GENDER_COLORS.other }}>O</span>{" "}
-                              {genderDataForStatus.other.toLocaleString()}
-                            </span>
-                          )}
+                          <span><span className="font-medium" style={{ color: GENDER_COLORS.male }}>M</span> {(genderDataForStatus.male || 0).toLocaleString()}</span>
+                          <span><span className="font-medium" style={{ color: GENDER_COLORS.female }}>F</span> {(genderDataForStatus.female || 0).toLocaleString()}</span>
+                          {(genderDataForStatus.other || 0) > 0 && <span><span className="font-medium" style={{ color: GENDER_COLORS.other }}>O</span> {genderDataForStatus.other.toLocaleString()}</span>}
                         </div>
                       )}
                       <div className="mt-2 h-1 rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{ width: `${pct}%`, backgroundColor: color }}
-                        />
+                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
                       </div>
                     </div>
                   );
                 })}
               </div>
-
               {statusGenderBarData.length > 0 && (
-                <ChartCard
-                  title="Status by Gender"
-                  subtitle="Male (blue) · Female (pink) — registration status breakdown"
-                  onExport={() => onGoToCustomReport(["personal-details"], "demographics")}
-                >
+                <ChartCard title="Status by Gender" subtitle="Male (blue) · Female (pink) — registration status breakdown"
+                  onExport={() => onGoToCustomReport(["personal-details"], "demographics")}>
                   <GenderStackedBar data={statusGenderBarData} height={200} />
                 </ChartCard>
               )}
             </>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {[
-                { label: "Approved",  count: data.totalApproved,     color: "#10b981" },
-              ].map(s => (
-                <div key={s.label} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm text-center">
-                  <p className="text-xs font-semibold mb-1" style={{ color: s.color }}>{s.label}</p>
-                  <p className="text-3xl font-black text-slate-900">{s.count.toLocaleString()}</p>
-                </div>
-              ))}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm text-center">
+                <p className="text-xs font-semibold mb-1" style={{ color: "#10b981" }}>Approved</p>
+                <p className="text-3xl font-black text-slate-900">{data.totalApproved.toLocaleString()}</p>
+              </div>
             </div>
           )}
         </section>
@@ -685,34 +679,17 @@ export default function AdvancedDashboard({
             <p className="text-sky-100 text-xs font-bold uppercase tracking-widest mb-2">Total Population</p>
             <p className="text-5xl font-black">{(data.totalPopulation || 0).toLocaleString()}</p>
             <div className="flex items-center gap-6 mt-4">
-              <div>
-                <p className="text-xl font-bold">{total.toLocaleString()}</p>
-                <p className="text-sky-200 text-xs">Families</p>
-              </div>
+              <div><p className="text-xl font-bold">{total.toLocaleString()}</p><p className="text-sky-200 text-xs">Families</p></div>
               <div className="w-px h-8 bg-white/20" />
-              <div>
-                <p className="text-xl font-bold">
-                  {Math.max(0, (data.totalPopulation || 0) - total).toLocaleString()}
-                </p>
-                <p className="text-sky-200 text-xs">Family members</p>
-              </div>
+              <div><p className="text-xl font-bold">{Math.max(0, (data.totalPopulation || 0) - total).toLocaleString()}</p><p className="text-sky-200 text-xs">Family members</p></div>
               <div className="w-px h-8 bg-white/20" />
-              <div>
-                <p className="text-xl font-bold">
-                  {total > 0 ? ((data.totalPopulation || 0) / total).toFixed(1) : "—"}
-                </p>
-                <p className="text-sky-200 text-xs">Avg per family</p>
-              </div>
+              <div><p className="text-xl font-bold">{total > 0 ? ((data.totalPopulation || 0) / total).toFixed(1) : "—"}</p><p className="text-sky-200 text-xs">Avg per family</p></div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
-            {/* Gender Pie — Fix #5: render-function for tooltip */}
-            <ChartCard
-              title="Gender Distribution"
-              subtitle="Male (blue) · Female (pink) · Other (grey)"
-              onExport={() => onGoToCustomReport(["personal-details"], "gender")}
-            >
+            <ChartCard title="Gender Distribution" subtitle="Male (blue) · Female (pink) · Other (grey)"
+              onExport={() => onGoToCustomReport(["personal-details"], "gender")}>
               {genderData.length === 0 ? (
                 <div className="h-48 flex items-center justify-center text-slate-400 text-sm">No gender data</div>
               ) : (
@@ -723,7 +700,6 @@ export default function AdvancedDashboard({
                         paddingAngle={3} dataKey="value" strokeWidth={2} stroke="#ffffff">
                         {genderData.map((e, i) => <Cell key={i} fill={e.color} />)}
                       </Pie>
-                      {/* Fix #5: render-function pattern */}
                       <Tooltip content={(props) => <PieTooltipContent {...props} total={genderTotal} />} />
                       <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
                     </PieChart>
@@ -733,9 +709,7 @@ export default function AdvancedDashboard({
                       <div key={d.name} className="flex-1 rounded-xl p-2.5 text-center bg-slate-50 border border-slate-100">
                         <p className="text-xs font-medium text-slate-500">{d.name}</p>
                         <p className="text-lg font-black" style={{ color: d.color }}>{d.value.toLocaleString()}</p>
-                        <p className="text-xs text-slate-400">
-                          {genderTotal > 0 ? Math.round(d.value / genderTotal * 100) : 0}%
-                        </p>
+                        <p className="text-xs text-slate-400">{genderTotal > 0 ? Math.round(d.value / genderTotal * 100) : 0}%</p>
                       </div>
                     ))}
                   </div>
@@ -743,19 +717,14 @@ export default function AdvancedDashboard({
               )}
             </ChartCard>
 
-            {/* Family Type — Fix #5 */}
-            <ChartCard
-              title="Family Type"
-              subtitle="Nuclear vs Joint families"
-              onExport={() => onGoToCustomReport(["family-information"], "family_type")}
-            >
+            <ChartCard title="Family Type" subtitle="Nuclear vs Joint families"
+              onExport={() => onGoToCustomReport(["family-information"], "family_type")}>
               <ResponsiveContainer width="100%" height={100}>
                 <PieChart>
                   <Pie data={ftData} cx="50%" cy="50%" innerRadius={35} outerRadius={48}
                     paddingAngle={4} dataKey="value" strokeWidth={2} stroke="#ffffff">
                     {ftData.map((e, i) => <Cell key={i} fill={e.color} />)}
                   </Pie>
-                  {/* Fix #5: render-function pattern */}
                   <Tooltip content={(props) => <PieTooltipContent {...props} total={ftTotal} />} />
                 </PieChart>
               </ResponsiveContainer>
@@ -763,9 +732,7 @@ export default function AdvancedDashboard({
                 {ftData.map(d => (
                   <div key={d.name} className="flex-1 rounded-xl p-3 text-center bg-slate-50">
                     <p className="text-xs font-medium" style={{ color: d.color }}>{d.name}</p>
-                    <p className="text-xl font-black" style={{ color: d.color }}>
-                      {Math.round(d.value / ftTotal * 100)}%
-                    </p>
+                    <p className="text-xl font-black" style={{ color: d.color }}>{Math.round(d.value / ftTotal * 100)}%</p>
                     <p className="text-xs text-slate-500">{d.value.toLocaleString()}</p>
                   </div>
                 ))}
@@ -773,21 +740,14 @@ export default function AdvancedDashboard({
             </ChartCard>
           </div>
 
-          <ChartCard
-            title="Age Group Distribution"
-            subtitle="Male (blue) · Female (pink) — across all registered members"
-            onExport={() => onGoToCustomReport(["personal-details"], "age_group")}
-          >
+          <ChartCard title="Age Group Distribution" subtitle="Male (blue) · Female (pink) — across all registered members"
+            onExport={() => onGoToCustomReport(["personal-details"], "age_group")}>
             <GenderStackedBar data={ageBarData} height={200} />
           </ChartCard>
 
           {maritalBarData.length > 0 && (
-            <ChartCard
-              title="Marital Status"
-              subtitle="Male (blue) · Female (pink) — registered heads breakdown"
-              className="mt-5"
-              onExport={() => onGoToCustomReport(["personal-details"], "marital")}
-            >
+            <ChartCard title="Marital Status" subtitle="Male (blue) · Female (pink) — registered heads breakdown"
+              className="mt-5" onExport={() => onGoToCustomReport(["personal-details"], "marital")}>
               <GenderStackedBar data={maritalBarData} height={160} />
             </ChartCard>
           )}
@@ -797,30 +757,21 @@ export default function AdvancedDashboard({
         <section>
           <SectionHeader id="adv-education" icon={GraduationCap}
             title="Education & Occupation"
-            subtitle="Degrees, professions, study/work status"
+            subtitle="All 7 degree levels, professions, study/work status"
             color="#8b5cf6" />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <ChartCard
-              title="Highest Degree Level"
-              subtitle="Male (blue) · Female (pink) — educational attainment"
-              onExport={() => onGoToCustomReport(["education-profession"], "education")}
-            >
-              {degreesBarData.length === 0 ? (
-                <div className="h-48 flex items-center justify-center text-slate-400 text-sm">No education data</div>
-              ) : (
-                <GenderStackedBarVertical
-                  data={degreesBarData}
-                  height={Math.max(260, degreesBarData.length * 36)}
-                />
-              )}
+            <ChartCard title="Highest Degree Level" subtitle="All 7 levels — Male (blue) · Female (pink)"
+              onExport={() => onGoToCustomReport(["education-profession"], "education")}>
+              {/* Always show all 7 degree levels */}
+              <GenderStackedBarVertical
+                data={degreesBarData}
+                height={Math.max(280, DEGREE_ORDER.length * 38)}
+              />
             </ChartCard>
 
-            <ChartCard
-              title="Profession Breakdown"
-              subtitle="Male (blue) · Female (pink) — employment type"
-              onExport={() => onGoToCustomReport(["education-profession"], "occupation")}
-            >
+            <ChartCard title="Profession Breakdown" subtitle="Male (blue) · Female (pink) — employment type"
+              onExport={() => onGoToCustomReport(["education-profession"], "occupation")}>
               <GenderStackedBarVertical
                 data={professionBarData}
                 height={Math.max(220, professionBarData.length * 32)}
@@ -829,18 +780,12 @@ export default function AdvancedDashboard({
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
-            <ChartCard
-              title="Currently Studying"
-              subtitle="Male (blue) · Female (pink)"
-              onExport={() => onGoToCustomReport(["education-profession"], "education")}
-            >
+            <ChartCard title="Currently Studying" subtitle="Male (blue) · Female (pink)"
+              onExport={() => onGoToCustomReport(["education-profession"], "education")}>
               <GenderStackedBar data={studyingBarData} height={150} />
             </ChartCard>
-            <ChartCard
-              title="Currently Working"
-              subtitle="Male (blue) · Female (pink)"
-              onExport={() => onGoToCustomReport(["education-profession"], "occupation")}
-            >
+            <ChartCard title="Currently Working" subtitle="Male (blue) · Female (pink)"
+              onExport={() => onGoToCustomReport(["education-profession"], "occupation")}>
               <GenderStackedBar data={workingBarData} height={150} />
             </ChartCard>
           </div>
@@ -855,41 +800,29 @@ export default function AdvancedDashboard({
 
           <div className="flex items-center gap-3 flex-wrap mb-4">
             <div className="relative" ref={filterRef}>
-              <button
-                onClick={() => setFilterOpen(p => !p)}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white
-                  hover:border-teal-400 hover:bg-teal-50 text-slate-600 text-sm font-medium transition-all shadow-sm"
-              >
+              <button onClick={() => setFilterOpen(p => !p)}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:border-teal-400 hover:bg-teal-50 text-slate-600 text-sm font-medium transition-all shadow-sm">
                 <Filter className="w-4 h-4" />
                 Filter Cities
-                {selectedCities.length > 0 && (
-                  <span className="bg-teal-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold">
-                    {selectedCities.length}
-                  </span>
-                )}
+                {selectedCities.length > 0 && <span className="bg-teal-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold">{selectedCities.length}</span>}
               </button>
               {filterOpen && (
                 <div className="absolute left-0 top-full mt-2 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl w-64 max-h-72 overflow-y-auto p-3">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-1">Select Cities</p>
                   {data.geographic.map(g => (
-                    <label key={g.city}
-                      className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-sm text-slate-700">
-                      <input type="checkbox"
-                        checked={selectedCities.includes(g.city)}
+                    <label key={g.city} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-sm text-slate-700">
+                      <input type="checkbox" checked={selectedCities.includes(g.city)}
                         onChange={() => setSelectedCities(prev =>
                           prev.includes(g.city) ? prev.filter(c => c !== g.city) : [...prev, g.city]
                         )}
-                        className="accent-teal-500 rounded"
-                      />
+                        className="accent-teal-500 rounded" />
                       <span className="flex-1 truncate capitalize">{g.city}</span>
                       <span className="text-xs text-slate-400 shrink-0 bg-slate-100 rounded-full px-2 py-0.5">{g.count}</span>
                     </label>
                   ))}
                   {selectedCities.length > 0 && (
-                    <button
-                      onClick={() => setSelectedCities([])}
-                      className="mt-2 w-full text-xs text-rose-500 hover:text-rose-700 font-medium py-1.5 rounded-lg hover:bg-rose-50 transition-colors"
-                    >
+                    <button onClick={() => setSelectedCities([])}
+                      className="mt-2 w-full text-xs text-rose-500 hover:text-rose-700 font-medium py-1.5 rounded-lg hover:bg-rose-50 transition-colors">
                       Clear selection
                     </button>
                   )}
@@ -897,8 +830,7 @@ export default function AdvancedDashboard({
               )}
             </div>
             {selectedCities.map(city => (
-              <span key={city}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-700 text-xs font-medium">
+              <span key={city} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-700 text-xs font-medium">
                 <span className="capitalize">{city}</span>
                 <button onClick={() => setSelectedCities(prev => prev.filter(c => c !== city))}>×</button>
               </span>
@@ -908,8 +840,7 @@ export default function AdvancedDashboard({
           <ChartCard
             title={selectedCities.length === 0 ? "Top Cities by Family Count" : `${selectedCities.length} Cities Selected`}
             subtitle="Male (blue) · Female (pink) — geographic spread of registered families"
-            onExport={() => onGoToCustomReport(["location-information"], "city")}
-          >
+            onExport={() => onGoToCustomReport(["location-information"], "city")}>
             {geoGenderData.length > 0 ? (
               <GenderStackedBar data={geoGenderData} height={260} />
             ) : filteredGeo.length === 0 ? (
@@ -923,9 +854,7 @@ export default function AdvancedDashboard({
                   <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} width={28} />
                   <Tooltip content={<BarTooltipContent />} cursor={{ fill: "#f0fdfa" }} />
                   <Bar dataKey="count" radius={[8, 8, 0, 0]} maxBarSize={72} name="Families">
-                    {filteredGeo.map((_e, idx) => (
-                      <Cell key={idx} fill={GEO_BAR_COLORS[idx % GEO_BAR_COLORS.length]} />
-                    ))}
+                    {filteredGeo.map((_e, idx) => <Cell key={idx} fill={GEO_BAR_COLORS[idx % GEO_BAR_COLORS.length]} />)}
                     <LabelList dataKey="count" position="top" style={{ fontSize: 11, fontWeight: 700, fill: "#0d9488" }} />
                   </Bar>
                 </BarChart>
@@ -946,11 +875,8 @@ export default function AdvancedDashboard({
               No income data available.
             </div>
           ) : (
-            <ChartCard
-              title="Family Income Distribution"
-              subtitle="Annual household income brackets"
-              onExport={() => onGoToCustomReport(["economic-details"], "income")}
-            >
+            <ChartCard title="Family Income Distribution" subtitle="Annual household income brackets"
+              onExport={() => onGoToCustomReport(["economic-details"], "income")}>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={eco.incomeSlabs} margin={{ left: -20, right: 5, top: 5, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -958,9 +884,7 @@ export default function AdvancedDashboard({
                   <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
                   <Tooltip content={<BarTooltipContent />} />
                   <Bar dataKey="count" name="Families" radius={[6, 6, 0, 0]}>
-                    {eco.incomeSlabs.map((_, i) => (
-                      <Cell key={i} fill={`hsl(${42 + i * 5}, 90%, ${55 - i * 2}%)`} />
-                    ))}
+                    {eco.incomeSlabs.map((_, i) => <Cell key={i} fill={`hsl(${42 + i * 5}, 90%, ${55 - i * 2}%)`} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -981,8 +905,7 @@ export default function AdvancedDashboard({
               return (
                 <div key={asset.label}
                   className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm hover:border-orange-300 transition-all cursor-pointer"
-                  onClick={() => onGoToCustomReport(["economic-details"], "asset")}
-                >
+                  onClick={() => onGoToCustomReport(["economic-details"], "asset")}>
                   <p className="text-xs text-slate-500 font-medium mb-3">{asset.label}</p>
                   <div className="relative w-16 h-16 mx-auto">
                     <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
@@ -1001,12 +924,8 @@ export default function AdvancedDashboard({
             })}
           </div>
 
-          <ChartCard
-            title="Asset Ownership by Gender"
-            subtitle="Male (blue) · Female (pink) · Other (grey) — who owns which assets"
-            className="mt-5"
-            onExport={() => onGoToCustomReport(["economic-details"], "asset")}
-          >
+          <ChartCard title="Asset Ownership by Gender" subtitle="Male (blue) · Female (pink) · Other (grey)"
+            className="mt-5" onExport={() => onGoToCustomReport(["economic-details"], "asset")}>
             {assetsGenderData.length > 0 ? (
               <>
                 <GenderStackedBar data={assetsGenderData} height={200} />
@@ -1019,9 +938,7 @@ export default function AdvancedDashboard({
                           <th className="pb-2 font-medium">Asset</th>
                           <th className="pb-2 font-medium text-right" style={{ color: GENDER_COLORS.male }}>Male</th>
                           <th className="pb-2 font-medium text-right" style={{ color: GENDER_COLORS.female }}>Female</th>
-                          {assetsGenderData.some(a => (a.other || 0) > 0) && (
-                            <th className="pb-2 font-medium text-right" style={{ color: GENDER_COLORS.other }}>Other</th>
-                          )}
+                          {assetsGenderData.some(a => (a.other || 0) > 0) && <th className="pb-2 font-medium text-right" style={{ color: GENDER_COLORS.other }}>Other</th>}
                           <th className="pb-2 font-medium text-right text-slate-400">Total</th>
                         </tr>
                       </thead>
@@ -1031,9 +948,7 @@ export default function AdvancedDashboard({
                             <td className="py-1.5 font-medium text-slate-700">{a.label}</td>
                             <td className="py-1.5 text-right font-bold" style={{ color: GENDER_COLORS.male }}>{a.male.toLocaleString()}</td>
                             <td className="py-1.5 text-right font-bold" style={{ color: GENDER_COLORS.female }}>{a.female.toLocaleString()}</td>
-                            {assetsGenderData.some(x => (x.other || 0) > 0) && (
-                              <td className="py-1.5 text-right font-bold" style={{ color: GENDER_COLORS.other }}>{(a.other || 0).toLocaleString()}</td>
-                            )}
+                            {assetsGenderData.some(x => (x.other || 0) > 0) && <td className="py-1.5 text-right font-bold" style={{ color: GENDER_COLORS.other }}>{(a.other || 0).toLocaleString()}</td>}
                             <td className="py-1.5 text-right text-slate-500">{(a.male + a.female + (a.other || 0)).toLocaleString()}</td>
                           </tr>
                         ))}
@@ -1056,12 +971,8 @@ export default function AdvancedDashboard({
           </ChartCard>
 
           {employmentBarData.length > 0 && (
-            <ChartCard
-              title="Employment Sector Breakdown"
-              subtitle="Male (blue) · Female (pink) — Govt, Private, Self-Employed, Entrepreneurs"
-              className="mt-5"
-              onExport={() => onGoToCustomReport(["education-profession"], "occupation")}
-            >
+            <ChartCard title="Employment Sector Breakdown" subtitle="Male (blue) · Female (pink) — Govt, Private, Self-Employed, Entrepreneurs"
+              className="mt-5" onExport={() => onGoToCustomReport(["education-profession"], "occupation")}>
               <GenderStackedBar data={employmentBarData} height={200} />
             </ChartCard>
           )}
@@ -1086,59 +997,36 @@ export default function AdvancedDashboard({
                       <p className="text-3xl font-black text-slate-900">{yesPct}%</p>
                       <p className="text-xs text-slate-400 mb-2">covered</p>
                       <div className="flex justify-center gap-3 text-xs">
-                        <span className="font-bold" style={{ color: GENDER_COLORS.male }}>
-                          M {((ins as any).maleYes || 0).toLocaleString()}
-                        </span>
-                        <span className="font-bold" style={{ color: GENDER_COLORS.female }}>
-                          F {((ins as any).femaleYes || 0).toLocaleString()}
-                        </span>
-                        {((ins as any).otherYes || 0) > 0 && (
-                          <span className="font-bold" style={{ color: GENDER_COLORS.other }}>
-                            O {((ins as any).otherYes || 0).toLocaleString()}
-                          </span>
-                        )}
+                        <span className="font-bold" style={{ color: GENDER_COLORS.male }}>M {((ins as any).maleYes || 0).toLocaleString()}</span>
+                        <span className="font-bold" style={{ color: GENDER_COLORS.female }}>F {((ins as any).femaleYes || 0).toLocaleString()}</span>
+                        {((ins as any).otherYes || 0) > 0 && <span className="font-bold" style={{ color: GENDER_COLORS.other }}>O {((ins as any).otherYes || 0).toLocaleString()}</span>}
                       </div>
                     </div>
                   );
                 })}
               </div>
-
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {data.insurance.map(ins => (
-                  <InsuranceGenderCard
-                    key={ins.label}
+                  <InsuranceGenderCard key={ins.label}
                     ins={{
-                      label:         ins.label,
-                      maleYes:       (ins as any).maleYes       || 0,
-                      femaleYes:     (ins as any).femaleYes     || 0,
-                      otherYes:      (ins as any).otherYes      || 0,
-                      maleNo:        (ins as any).maleNo        || 0,
-                      femaleNo:      (ins as any).femaleNo      || 0,
-                      otherNo:       (ins as any).otherNo       || 0,
-                      maleUnknown:   (ins as any).maleUnknown   || 0,
-                      femaleUnknown: (ins as any).femaleUnknown || 0,
-                      otherUnknown:  (ins as any).otherUnknown  || 0,
-                      yes:     ins.yes     || 0,
-                      no:      ins.no      || 0,
-                      unknown: ins.unknown || 0,
+                      label: ins.label,
+                      maleYes: (ins as any).maleYes || 0, femaleYes: (ins as any).femaleYes || 0, otherYes: (ins as any).otherYes || 0,
+                      maleNo: (ins as any).maleNo || 0, femaleNo: (ins as any).femaleNo || 0, otherNo: (ins as any).otherNo || 0,
+                      maleUnknown: (ins as any).maleUnknown || 0, femaleUnknown: (ins as any).femaleUnknown || 0, otherUnknown: (ins as any).otherUnknown || 0,
+                      yes: ins.yes || 0, no: ins.no || 0, unknown: ins.unknown || 0,
                     }}
                     onExport={() => onGoToCustomReport(["family-information"], "insurance")}
                   />
                 ))}
               </div>
-
-              <ChartCard
-                title="Insurance Coverage Overview"
-                subtitle="Male (blue) · Female (pink) — Yes coverage across all insurance types"
-                className="mt-5"
-                onExport={() => onGoToCustomReport(["family-information"], "insurance")}
-              >
+              <ChartCard title="Insurance Coverage Overview" subtitle="Male (blue) · Female (pink) — Yes coverage across all types"
+                className="mt-5" onExport={() => onGoToCustomReport(["family-information"], "insurance")}>
                 <GenderStackedBar
                   data={data.insurance.map(ins => ({
-                    label:  ins.label,
-                    male:   (ins as any).maleYes   || 0,
+                    label: ins.label,
+                    male: (ins as any).maleYes || 0,
                     female: (ins as any).femaleYes || 0,
-                    other:  (ins as any).otherYes  || 0,
+                    other: (ins as any).otherYes || 0,
                   }))}
                   height={180}
                 />
@@ -1169,11 +1057,9 @@ export default function AdvancedDashboard({
                       className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm hover:border-rose-300 transition-all">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs text-slate-500 font-medium flex-1 text-center">{doc.label}</p>
-                        <button
-                          title={`Export ${doc.label} verified members`}
+                        <button title={`Export ${doc.label} verified members`}
                           onClick={() => onGoToCustomReport(["personal-details"], "document")}
-                          className="shrink-0 p-1 rounded-lg border border-slate-100 text-slate-300 hover:border-emerald-300 hover:text-emerald-600 hover:bg-emerald-50 transition-all"
-                        >
+                          className="shrink-0 p-1 rounded-lg border border-slate-100 text-slate-300 hover:border-emerald-300 hover:text-emerald-600 hover:bg-emerald-50 transition-all">
                           <FileSpreadsheet className="w-3 h-3" />
                         </button>
                       </div>
@@ -1195,7 +1081,6 @@ export default function AdvancedDashboard({
                   );
                 })}
               </div>
-
               <ChartCard title="Document Verification Comparison" subtitle="Yes / No / Unknown across all documents" className="mt-5">
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={docCompare} margin={{ left: -20, right: 5, top: 5, bottom: 5 }}>
@@ -1222,15 +1107,16 @@ export default function AdvancedDashboard({
         <section>
           <SectionHeader id="adv-religious" icon={BookOpen}
             title="Religious Details"
-            subtitle="Gotra, Kuladevata, Surnames, Pravara, Upanama, Ancestral Details"
+            subtitle="Gotra, Kuladevata, Surnames, Pravara, Upanama (General & Proper), Demi Gods, Ancestral Details"
             color="#a855f7" />
 
-          {!gotraData.length && !kuldevData.length && !surnameData.length ? (
+          {!gotraData.length && !kuldevData.length && !surnameData.length && !upanamaGenData.length && !demiGodData.length ? (
             <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center text-slate-400 text-sm">
               No religious data available.
             </div>
           ) : (
             <>
+              {/* ── Summary KPIs ── */}
               {religious.summary && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
                   {[
@@ -1247,83 +1133,72 @@ export default function AdvancedDashboard({
                 </div>
               )}
 
+              {/* ── Row 1: Gotra + Kuladevata ── */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {gotraData.length > 0 && (
                   <ChartCard title="Top Gotras" subtitle="Most common gotras in the community"
                     onExport={() => onGoToCustomReport(["religious-details"], "gotra")}>
-                    <ResponsiveContainer width="100%" height={Math.max(220, gotraData.length * 28)}>
-                      <BarChart layout="vertical" data={gotraData} margin={{ left: 8, right: 20, top: 5, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                        <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
-                        <YAxis dataKey="label" type="category" width={120} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                        <Tooltip content={<BarTooltipContent />} />
-                        <Bar dataKey="count" name="Families" radius={[0, 6, 6, 0]}>
-                          {gotraData.map((_: any, i: number) => <Cell key={i} fill={RELIGIOUS_COLORS[i % RELIGIOUS_COLORS.length]} />)}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <SimpleBarChart data={gotraData} colorPalette={RELIGIOUS_COLORS}
+                      height={Math.max(220, gotraData.length * 30)} />
                   </ChartCard>
                 )}
-
                 {kuldevData.length > 0 && (
                   <ChartCard title="Kuladevata Distribution" subtitle="Family deity distribution"
                     onExport={() => onGoToCustomReport(["religious-details"], "kuladevata")}>
-                    <ResponsiveContainer width="100%" height={Math.max(220, kuldevData.length * 28)}>
-                      <BarChart layout="vertical" data={kuldevData} margin={{ left: 8, right: 20, top: 5, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                        <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
-                        <YAxis dataKey="label" type="category" width={120} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                        <Tooltip content={<BarTooltipContent />} />
-                        <Bar dataKey="count" name="Families" radius={[0, 6, 6, 0]}>
-                          {kuldevData.map((_: any, i: number) => <Cell key={i} fill={RELIGIOUS_COLORS[(i + 3) % RELIGIOUS_COLORS.length]} />)}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartCard>
-                )}
-
-                {surnameData.length > 0 && (
-                  <ChartCard title="Surnames in Use" subtitle="Most common surnames across the community"
-                    onExport={() => onGoToCustomReport(["religious-details"], "surname")}>
-                    <ResponsiveContainer width="100%" height={Math.max(220, surnameData.length * 28)}>
-                      <BarChart layout="vertical" data={surnameData} margin={{ left: 8, right: 20, top: 5, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                        <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
-                        <YAxis dataKey="label" type="category" width={120} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                        <Tooltip content={<BarTooltipContent />} />
-                        <Bar dataKey="count" name="Families" radius={[0, 6, 6, 0]}>
-                          {surnameData.map((_: any, i: number) => <Cell key={i} fill={RELIGIOUS_COLORS[(i + 1) % RELIGIOUS_COLORS.length]} />)}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartCard>
-                )}
-
-                {pravaraData.length > 0 && (
-                  <ChartCard title="Pravara Distribution" subtitle="Pravara lineages in the community"
-                    onExport={() => onGoToCustomReport(["religious-details"], "pravara")}>
-                    <ResponsiveContainer width="100%" height={Math.max(220, pravaraData.length * 28)}>
-                      <BarChart layout="vertical" data={pravaraData} margin={{ left: 8, right: 20, top: 5, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                        <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
-                        <YAxis dataKey="label" type="category" width={120} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                        <Tooltip content={<BarTooltipContent />} />
-                        <Bar dataKey="count" name="Families" radius={[0, 6, 6, 0]}>
-                          {pravaraData.map((_: any, i: number) => <Cell key={i} fill={RELIGIOUS_COLORS[(i + 5) % RELIGIOUS_COLORS.length]} />)}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <SimpleBarChart data={kuldevData} colorPalette={RELIGIOUS_COLORS.slice(3)}
+                      height={Math.max(220, kuldevData.length * 30)} />
                   </ChartCard>
                 )}
               </div>
 
+              {/* ── Row 2: Surname + Pravara ── */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
+                
+                
+                {pravaraData.length > 0 && (
+                  <ChartCard title="Pravara Distribution" subtitle="Pravara lineages in the community"
+                    onExport={() => onGoToCustomReport(["religious-details"], "pravara")}>
+                    <SimpleBarChart data={pravaraData} colorPalette={RELIGIOUS_COLORS.slice(5)}
+                      height={Math.max(220, pravaraData.length * 30)} />
+                  </ChartCard>
+                )}
+              </div>
+
+              {/* ── Row 3: Upanama General + Upanama Proper ── */}
+              {(upanamaGenData.length > 0 || upanaPropData.length > 0) && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
+                  {upanamaGenData.length > 0 && (
+                    <ChartCard title="Upanama (General)" subtitle="General upanama / title distribution"
+                      onExport={() => onGoToCustomReport(["religious-details"], "ancestral")}>
+                      <SimpleBarChart data={upanamaGenData} colorPalette={["#6366f1","#818cf8","#a5b4fc","#4f46e5","#7c3aed","#8b5cf6"]}
+                        height={Math.max(220, upanamaGenData.length * 28)} />
+                    </ChartCard>
+                  )}
+                  {upanaPropData.length > 0 && (
+                    <ChartCard title="Upanama (Proper)" subtitle="Proper upanama / clan name distribution"
+                      onExport={() => onGoToCustomReport(["religious-details"], "ancestral")}>
+                      <SimpleBarChart data={upanaPropData} colorPalette={["#0891b2","#06b6d4","#22d3ee","#0e7490","#155e75","#164e63"]}
+                        height={Math.max(220, upanaPropData.length * 28)} />
+                    </ChartCard>
+                  )}
+                </div>
+              )}
+
+              {/* ── Demi God distribution ── */}
+              {demiGodData.length > 0 && (
+                <ChartCard title="Demi God (Daiva) Distribution" subtitle="Family ancestral demi gods / daivas worshipped"
+                  className="mt-5" onExport={() => onGoToCustomReport(["religious-details"], "ancestral")}>
+                  <SimpleBarChart data={demiGodData} colorPalette={DEMI_GOD_COLORS}
+                    height={Math.max(260, demiGodData.length * 32)} />
+                </ChartCard>
+              )}
+
+              {/* ── Ancestral stats ── */}
               {religious.ancestralStats && (
-                <ChartCard
-                  title="Ancestral & Spiritual Details"
-                  subtitle="Families with ancestral challenges & known common relative names"
+                <ChartCard title="Ancestral & Spiritual Details"
+                  subtitle="Families with ancestral challenges, priest info, upanama, demi gods & common relative names"
                   className="mt-5"
-                  onExport={() => onGoToCustomReport(["religious-details"], "ancestral")}
-                >
+                  onExport={() => onGoToCustomReport(["religious-details"], "ancestral")}>
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                     {[
                       { label: "With Ancestral Challenge",    value: religious.ancestralStats.withChallenge       || 0, color: "#f43f5e" },
@@ -1339,6 +1214,48 @@ export default function AdvancedDashboard({
                       </div>
                     ))}
                   </div>
+
+                  {/* Ancestral Challenge pie */}
+                  {(religious.ancestralStats.withChallenge || 0) + (religious.ancestralStats.withoutChallenge || 0) > 0 && (
+                    <div className="mt-5 border-t border-slate-100 pt-5">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Ancestral Challenge Breakdown</p>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                        <ResponsiveContainer width="100%" height={160}>
+                          <PieChart>
+                            <Pie
+                              data={[
+                                { name: "With Challenge",    value: religious.ancestralStats.withChallenge    || 0, color: "#f43f5e" },
+                                { name: "Without Challenge", value: religious.ancestralStats.withoutChallenge || 0, color: "#10b981" },
+                              ].filter(d => d.value > 0)}
+                              cx="50%" cy="50%" innerRadius={45} outerRadius={65}
+                              paddingAngle={4} dataKey="value" strokeWidth={2} stroke="#ffffff">
+                              {[
+                                { color: "#f43f5e" },
+                                { color: "#10b981" },
+                              ].map((d, i) => <Cell key={i} fill={d.color} />)}
+                            </Pie>
+                            <Tooltip content={(props) => <PieTooltipContent {...props}
+                              total={(religious.ancestralStats?.withChallenge || 0) + (religious.ancestralStats?.withoutChallenge || 0)} />} />
+                            <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="flex flex-col justify-center gap-3">
+                          {[
+                            { label: "With Priest Info",   value: religious.ancestralStats.withPriest    || 0, color: "#a855f7", icon: "🛕" },
+                            { label: "With Upanama",       value: religious.ancestralStats.withUpanama   || 0, color: "#f59e0b", icon: "📿" },
+                            { label: "With Demi Gods",     value: religious.ancestralStats.withDemiGods  || 0, color: "#6366f1", icon: "🔱" },
+                          ].map(s => (
+                            <div key={s.label} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-xl">
+                              <span className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                                <span>{s.icon}</span>{s.label}
+                              </span>
+                              <span className="text-sm font-black" style={{ color: s.color }}>{s.value.toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </ChartCard>
               )}
             </>

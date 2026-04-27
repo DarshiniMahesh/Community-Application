@@ -458,20 +458,7 @@ export default function GeneralDashboard({
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: "Approval Rate",    value: `${calcPct(counts.approved, total)}%`,  sub: "of total profiles",      color: "#10b981" },
-          { label: "Rejection Rate",   value: `${calcPct(counts.rejected, total)}%`,  sub: "of submitted profiles",  color: "#ef4444" },
-          { label: "Incomplete Drafts",value: n(counts.draft).toLocaleString(),        sub: "not yet submitted",      color: "#64748b" },
-        ].map(s => (
-          <div key={s.label} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">{s.label}</p>
-            <p className="text-3xl font-black mt-1" style={{ color: s.color }}>{s.value}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{s.sub}</p>
-          </div>
-        ))}
-      </div>
+     
 
       {/* Analytics Section Cards */}
       <div>
