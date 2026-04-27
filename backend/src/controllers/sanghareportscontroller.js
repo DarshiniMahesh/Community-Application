@@ -534,7 +534,7 @@ const getExportData = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// FULL EXPORT DATA  (now includes _profile_id for frontend)
+// FULL EXPORT DATA  (includes _profile_id for frontend)
 // ════════════════════════════════════════════════════════════
 const getFullExportData = async (req, res) => {
   try {
@@ -611,37 +611,8 @@ const getFullExportData = async (req, res) => {
       }
     }
 
-    if (sections.includes('family-information')) {
-      const fiRows = await pool.query(`SELECT profile_id, family_type::text AS "Family Type" FROM family_info WHERE profile_id = ANY($1)`, [profileIds]);
-      for (const fi of fiRows.rows) { const r = rowMap.get(fi.profile_id); if (r) r["Family Type"] = fi["Family Type"]; }
-
-      const fmRows = await pool.query(
-        `SELECT profile_id, STRING_AGG(name,', ' ORDER BY sort_order) AS "Family Member Name", STRING_AGG(relation,', ' ORDER BY sort_order) AS "Family Member Relation"
-         FROM family_members WHERE profile_id = ANY($1) GROUP BY profile_id`,
-        [profileIds]
-      );
-      for (const fm of fmRows.rows) { const r = rowMap.get(fm.profile_id); if (r) { r["Family Member Name"]=fm["Family Member Name"]; r["Family Member Relation"]=fm["Family Member Relation"]; } }
-
-      const insRows = await pool.query(
-        `SELECT profile_id, array_to_string(health_coverage::text[],', ') AS "Health Coverage", array_to_string(life_coverage::text[],', ') AS "Life Coverage", array_to_string(term_coverage::text[],', ') AS "Term Coverage", array_to_string(konkani_card_coverage::text[],', ') AS "Konkani Card Coverage"
-         FROM member_insurance WHERE profile_id = ANY($1) ORDER BY sort_order`,
-        [profileIds]
-      );
-      const insMap = new Map();
-      for (const ins of insRows.rows) { if (!insMap.has(ins.profile_id)) insMap.set(ins.profile_id, ins); }
-      for (const [pid, ins] of insMap) { const r = rowMap.get(pid); if (r) { r["Health Coverage"]=ins["Health Coverage"]; r["Life Coverage"]=ins["Life Coverage"]; r["Term Coverage"]=ins["Term Coverage"]; r["Konkani Card Coverage"]=ins["Konkani Card Coverage"]; } }
-
-      const docRows = await pool.query(
-        `SELECT profile_id, member_name AS "Doc Member Name", member_relation AS "Doc Member Relation",
-           aadhaar_coverage::text AS "Aadhaar", pan_coverage::text AS "PAN Card",
-           voter_id_coverage::text AS "Voter ID", land_doc_coverage::text AS "Land Docs", dl_coverage::text AS "DL"
-         FROM member_documents WHERE profile_id = ANY($1) ORDER BY sort_order`,
-        [profileIds]
-      );
-      const docMap = new Map();
-      for (const d of docRows.rows) { if (!docMap.has(d.profile_id)) docMap.set(d.profile_id, d); }
-      for (const [pid, doc] of docMap) { const r = rowMap.get(pid); if (r) { r["Doc Member Name"]=doc["Doc Member Name"]; r["Doc Member Relation"]=doc["Doc Member Relation"]; r["Aadhaar"]=doc["Aadhaar"]; r["PAN Card"]=doc["PAN Card"]; r["Voter ID"]=doc["Voter ID"]; r["Land Docs"]=doc["Land Docs"]; r["DL"]=doc["DL"]; } }
-    }
+    // family-information section: no columns added to main table rows
+    // (handled separately via getFamilyMembersData endpoint)
 
     if (sections.includes('location-information')) {
       const addrRows = await pool.query(`SELECT profile_id, TRIM(city) AS "City", district AS "District", state AS "State", pincode AS "Pincode" FROM addresses WHERE profile_id = ANY($1) LIMIT 5000`, [profileIds]);
@@ -687,7 +658,7 @@ const getFullExportData = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════
-// FAMILY MEMBERS DATA  (new endpoint)
+// FAMILY MEMBERS DATA  — now includes education details
 // ════════════════════════════════════════════════════════════
 const getFamilyMembersData = async (req, res) => {
   try {
@@ -714,7 +685,7 @@ const getFamilyMembersData = async (req, res) => {
 
     if (validIds.length === 0) return res.json([]);
 
-    // ── Family members (including Self row saved from step 3) ─────────────────
+    // ── Family members ─────────────────────────────────────────────────────
     const fmRes = await pool.query(
       `SELECT
          fm.profile_id,
@@ -731,7 +702,7 @@ const getFamilyMembersData = async (req, res) => {
       [validIds]
     );
 
-    // ── Insurance ─────────────────────────────────────────────────────────────
+    // ── Insurance ─────────────────────────────────────────────────────────
     const insRes = await pool.query(
       `SELECT
          profile_id, member_name, member_relation, sort_order,
@@ -745,7 +716,7 @@ const getFamilyMembersData = async (req, res) => {
       [validIds]
     );
 
-    // ── Documents ─────────────────────────────────────────────────────────────
+    // ── Documents ─────────────────────────────────────────────────────────
     const docRes = await pool.query(
       `SELECT
          profile_id, member_name, member_relation, sort_order,
@@ -760,17 +731,63 @@ const getFamilyMembersData = async (req, res) => {
       [validIds]
     );
 
-    // Group insurance + documents by profile_id
+    // ── Education (member_education + member_educations + member_languages) ─
+    // We join on profile_id and match by member_name / sort_order
+    const eduRes = await pool.query(
+      `SELECT
+         me.profile_id,
+         me.member_name,
+         me.member_relation,
+         me.sort_order,
+         me.is_currently_studying   AS "Currently Studying",
+         me.is_currently_working    AS "Currently Working",
+         me.profession_type::text   AS "Type of Profession",
+         me.industry                AS "Industry / Field",
+         -- Aggregate all degree rows for this member_education record
+         STRING_AGG(DISTINCT mes.degree_name, ' | ' ORDER BY mes.degree_name)  AS "Degree Name",
+         STRING_AGG(DISTINCT mes.degree_type, ' | ' ORDER BY mes.degree_type)  AS "Type of Degree",
+         STRING_AGG(DISTINCT mes.university,  ' | ' ORDER BY mes.university)   AS "University",
+         MIN(TO_CHAR(mes.start_date,'DD-Mon-YYYY'))  AS "Start Date",
+         MAX(TO_CHAR(mes.end_date,'DD-Mon-YYYY'))    AS "End Date",
+         STRING_AGG(DISTINCT mes.certificate, ' | ' ORDER BY mes.certificate)  AS "Certificate",
+         -- Languages
+         (SELECT STRING_AGG(ml.language, ', ' ORDER BY ml.language)
+          FROM member_languages ml WHERE ml.member_education_id = me.id)        AS "Languages Known"
+       FROM member_education me
+       LEFT JOIN member_educations mes ON mes.member_education_id = me.id
+       WHERE me.profile_id = ANY($1)
+       GROUP BY me.id, me.profile_id, me.member_name, me.member_relation, me.sort_order,
+                me.is_currently_studying, me.is_currently_working,
+                me.profession_type, me.industry
+       ORDER BY me.profile_id, me.sort_order`,
+      [validIds]
+    );
+
+    // Group all lookups by profile_id
     const insMap = {};
-    insRes.rows.forEach(r => { if (!insMap[r.profile_id]) insMap[r.profile_id] = []; insMap[r.profile_id].push(r); });
+    insRes.rows.forEach(r => {
+      if (!insMap[r.profile_id]) insMap[r.profile_id] = [];
+      insMap[r.profile_id].push(r);
+    });
 
     const docMap = {};
-    docRes.rows.forEach(r => { if (!docMap[r.profile_id]) docMap[r.profile_id] = []; docMap[r.profile_id].push(r); });
+    docRes.rows.forEach(r => {
+      if (!docMap[r.profile_id]) docMap[r.profile_id] = [];
+      docMap[r.profile_id].push(r);
+    });
 
-    // Merge: match by name+relation first, fall back to sort_order
+    const eduMap = {};
+    eduRes.rows.forEach(r => {
+      if (!eduMap[r.profile_id]) eduMap[r.profile_id] = [];
+      eduMap[r.profile_id].push(r);
+    });
+
+    // ── Merge everything ───────────────────────────────────────────────────
+    // Match by member_name + member_relation first, fall back to sort_order
     const result = fmRes.rows.map(fm => {
       const profileIns  = insMap[fm.profile_id] || [];
       const profileDocs = docMap[fm.profile_id] || [];
+      const profileEdu  = eduMap[fm.profile_id] || [];
 
       const ins = profileIns.find(i =>
         i.member_name === fm["Family Member Name"] && i.member_relation === fm["Relation"]
@@ -780,24 +797,46 @@ const getFamilyMembersData = async (req, res) => {
         d.member_name === fm["Family Member Name"] && d.member_relation === fm["Relation"]
       ) || profileDocs.find(d => d.sort_order === fm.sort_order) || {};
 
+      const edu = profileEdu.find(e =>
+        e.member_name === fm["Family Member Name"] && e.member_relation === fm["Relation"]
+      ) || profileEdu.find(e => e.sort_order === fm.sort_order) || {};
+
       return {
-        _profile_id:              fm.profile_id,
-        "Owner (Registered User)": nameMap[fm.profile_id] || "",
-        "Family Member Name":      fm["Family Member Name"] || "",
-        "Relation":                fm["Relation"] || "",
-        "Date of Birth":           fm["Date of Birth"] || "",
-        "Gender":                  fm["Gender"] || "",
-        "Status":                  fm["Status"] || "",
-        "Disability":              fm["Disability"] || "",
-        "Health Coverage":         ins["Health Coverage"] || "",
-        "Life Coverage":           ins["Life Coverage"] || "",
-        "Term Coverage":           ins["Term Coverage"] || "",
-        "Konkani Card Coverage":   ins["Konkani Card Coverage"] || "",
-        "Aadhaar":                 doc["Aadhaar"] || "",
-        "PAN Card":                doc["PAN Card"] || "",
-        "Voter ID":                doc["Voter ID"] || "",
-        "Land Docs":               doc["Land Docs"] || "",
-        "DL":                      doc["DL"] || "",
+        _profile_id:                fm.profile_id,
+        "Owner (Registered User)":  nameMap[fm.profile_id] || "",
+        "Family Member Name":        fm["Family Member Name"] || "",
+        "Relation":                  fm["Relation"] || "",
+        "Date of Birth":             fm["Date of Birth"] || "",
+        "Gender":                    fm["Gender"] || "",
+        "Status":                    fm["Status"] || "",
+        "Disability":                fm["Disability"] || "",
+        // Insurance
+        "Health Coverage":           ins["Health Coverage"] || "",
+        "Life Coverage":             ins["Life Coverage"] || "",
+        "Term Coverage":             ins["Term Coverage"] || "",
+        "Konkani Card Coverage":     ins["Konkani Card Coverage"] || "",
+        // Education
+        "Degree Name":               edu["Degree Name"] || "",
+        "Type of Degree":            edu["Type of Degree"] || "",
+        "University":                edu["University"] || "",
+        "Start Date":                edu["Start Date"] || "",
+        "End Date":                  edu["End Date"] || "",
+        "Certificate":               edu["Certificate"] || "",
+        "Currently Studying":        edu["Currently Studying"] !== undefined
+                                       ? (edu["Currently Studying"] ? "Yes" : "No")
+                                       : "",
+        "Currently Working":         edu["Currently Working"] !== undefined
+                                       ? (edu["Currently Working"] ? "Yes" : "No")
+                                       : "",
+        "Type of Profession":        edu["Type of Profession"] || "",
+        "Industry / Field":          edu["Industry / Field"] || "",
+        "Languages Known":           edu["Languages Known"] || "",
+        // Documents
+        "Aadhaar":                   doc["Aadhaar"] || "",
+        "PAN Card":                  doc["PAN Card"] || "",
+        "Voter ID":                  doc["Voter ID"] || "",
+        "Land Docs":                 doc["Land Docs"] || "",
+        "DL":                        doc["DL"] || "",
       };
     });
 
@@ -815,5 +854,5 @@ module.exports = {
   getActivityLogs,
   getExportData,
   getFullExportData,
-  getFamilyMembersData,   // ← NEW
+  getFamilyMembersData,
 };
