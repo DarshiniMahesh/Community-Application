@@ -895,7 +895,7 @@ export default function AdvancedDashboard({
             })}
           </div>
 
-          <ChartCard title="Asset Ownership by Gender" subtitle="Male (blue) · Female (pink) · Other (grey)"
+          <ChartCard title="Asset Ownership" 
             className="mt-5" onExport={() => onGoToCustomReport(["economic-details"], "asset")}>
             {assetsGenderData.length > 0 ? (
               <>
@@ -951,64 +951,95 @@ export default function AdvancedDashboard({
 
         {/* ══ 6. INSURANCE ═════════════════════════════════════ */}
         <section>
-          <SectionHeader id="adv-insurance" icon={Shield}
-            title="Insurance Coverage"
-            subtitle="Term, Life, Health, Konkani Card — coverage by gender"
-            color="#14b8a6" />
+  <SectionHeader
+    id="adv-insurance"
+    icon={Shield}
+    title="Insurance Coverage"
+    subtitle="Term, Life, Health, Konkani Card — Yes / No / Not Selected by gender"
+    color="#14b8a6"
+  />
 
-          {data.insurance.length > 0 ? (
-            <>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-                {data.insurance.map(ins => {
-                  const insTotal = (ins.yes || 0) + (ins.no || 0) + (ins.unknown || 0);
-                  const yesPct   = insTotal > 0 ? Math.round((ins.yes || 0) / insTotal * 100) : 0;
-                  return (
-                    <div key={ins.label} className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
-                      <p className="text-xs text-slate-500 font-medium mb-1">{ins.label}</p>
-                      <p className="text-3xl font-black text-slate-900">{yesPct}%</p>
-                      <p className="text-xs text-slate-400 mb-2">covered</p>
-                      <div className="flex justify-center gap-3 text-xs">
-                        <span className="font-bold" style={{ color: GENDER_COLORS.male }}>M {((ins as any).maleYes || 0).toLocaleString()}</span>
-                        <span className="font-bold" style={{ color: GENDER_COLORS.female }}>F {((ins as any).femaleYes || 0).toLocaleString()}</span>
-                        {((ins as any).otherYes || 0) > 0 && <span className="font-bold" style={{ color: GENDER_COLORS.other }}>O {((ins as any).otherYes || 0).toLocaleString()}</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                {data.insurance.map(ins => (
-                  <InsuranceGenderCard key={ins.label}
-                    ins={{
-                      label: ins.label,
-                      maleYes: (ins as any).maleYes || 0, femaleYes: (ins as any).femaleYes || 0, otherYes: (ins as any).otherYes || 0,
-                      maleNo: (ins as any).maleNo || 0, femaleNo: (ins as any).femaleNo || 0, otherNo: (ins as any).otherNo || 0,
-                      maleUnknown: (ins as any).maleUnknown || 0, femaleUnknown: (ins as any).femaleUnknown || 0, otherUnknown: (ins as any).otherUnknown || 0,
-                      yes: ins.yes || 0, no: ins.no || 0, unknown: ins.unknown || 0,
-                    }}
-                    onExport={() => onGoToCustomReport(["family-information"], "insurance")}
-                  />
-                ))}
-              </div>
-              <ChartCard title="Insurance Coverage Overview" subtitle="Male (blue) · Female (pink) — Yes coverage across all types"
-                className="mt-5" onExport={() => onGoToCustomReport(["family-information"], "insurance")}>
-                <GenderStackedBar
-                  data={data.insurance.map(ins => ({
-                    label: ins.label,
-                    male: (ins as any).maleYes || 0,
-                    female: (ins as any).femaleYes || 0,
-                    other: (ins as any).otherYes || 0,
-                  }))}
-                  height={180}
+  {data.insurance.length > 0 ? (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {data.insurance.map(ins => {
+        const chartData = [
+          {
+            status: "Yes",
+            Male:   (ins as any).maleYes     || 0,
+            Female: (ins as any).femaleYes   || 0,
+            Other:  (ins as any).otherYes    || 0,
+          },
+          {
+            status: "No",
+            Male:   (ins as any).maleNo      || 0,
+            Female: (ins as any).femaleNo    || 0,
+            Other:  (ins as any).otherNo     || 0,
+          },
+          {
+            status: "Not Selected",
+            Male:   (ins as any).maleUnknown   || 0,
+            Female: (ins as any).femaleUnknown || 0,
+            Other:  (ins as any).otherUnknown  || 0,
+          },
+        ];
+
+        return (
+          <ChartCard
+            key={ins.label}
+            title={ins.label}
+            subtitle="Male · Female · Other — by coverage status"
+            onExport={() => onGoToCustomReport(["family-information"], "insurance")}
+          >
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart
+                data={chartData}
+                margin={{ top: 8, right: 16, left: -10, bottom: 4 }}
+                barCategoryGap="30%"
+                barGap={3}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis
+                  dataKey="status"
+                  tick={{ fontSize: 11, fill: "#64748b" }}
+                  axisLine={false}
+                  tickLine={false}
                 />
-              </ChartCard>
-            </>
-          ) : (
-            <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center text-slate-400 text-sm">
-              No insurance data available.
-            </div>
-          )}
-        </section>
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 11, fill: "#94a3b8" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: 10,
+                    border: "1px solid #e2e8f0",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                  }}
+                  cursor={{ fill: "#f8fafc" }}
+                />
+                <Legend
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                />
+                <Bar dataKey="Male"   fill="#60a5fa" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="Female" fill="#f472b6" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="Other"  fill="grey" radius={[4, 4, 0, 0]} maxBarSize={28} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+        );
+      })}
+    </div>
+  ) : (
+    <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center text-slate-400 text-sm">
+      No insurance data available.
+    </div>
+  )}
+</section>
+       
 
         {/* ══ 7. DOCUMENTS ═════════════════════════════════════ */}
         <section>

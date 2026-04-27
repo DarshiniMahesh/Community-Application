@@ -312,17 +312,132 @@ const getAdvancedReports = async (req, res) => {
       safe(`SELECT me.profession_type::text AS label, COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') AS male, COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female') AS female, COUNT(*) FILTER (WHERE pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other FROM profiles p JOIN member_education me ON me.profile_id = p.id JOIN personal_details pd ON pd.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter} AND me.profession_type IS NOT NULL GROUP BY me.profession_type ORDER BY (COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male') + COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female')) DESC`, [sanghaId, ...drSubmitted.params]),
 
       // Insurance (4 types)
-      safe(`SELECT COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0 AND NOT (mi.health_coverage::text[] @> ARRAY['none']::text[])) AS yes_count, COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0 AND mi.health_coverage::text[] @> ARRAY['none']::text[]) AS no_count, COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NULL OR cardinality(mi.health_coverage::text[]) = 0) AS null_count, COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0 AND NOT (mi.health_coverage::text[] @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) = 'male') AS male_yes, COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0 AND NOT (mi.health_coverage::text[] @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) = 'female') AS female_yes, COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0 AND NOT (mi.health_coverage::text[] @> ARRAY['none']::text[]) AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_yes, COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0 AND mi.health_coverage::text[] @> ARRAY['none']::text[] AND LOWER(pd.gender::text) = 'male') AS male_no, COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0 AND mi.health_coverage::text[] @> ARRAY['none']::text[] AND LOWER(pd.gender::text) = 'female') AS female_no, COUNT(*) FILTER (WHERE mi.health_coverage::text[] IS NOT NULL AND cardinality(mi.health_coverage::text[]) > 0 AND mi.health_coverage::text[] @> ARRAY['none']::text[] AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_no FROM profiles p JOIN member_insurance mi ON mi.profile_id = p.id JOIN personal_details pd ON pd.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
-      safe(`SELECT COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0 AND NOT (mi.life_coverage::text[] @> ARRAY['none']::text[])) AS yes_count, COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0 AND mi.life_coverage::text[] @> ARRAY['none']::text[]) AS no_count, COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NULL OR cardinality(mi.life_coverage::text[]) = 0) AS null_count, COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0 AND NOT (mi.life_coverage::text[] @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) = 'male') AS male_yes, COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0 AND NOT (mi.life_coverage::text[] @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) = 'female') AS female_yes, COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0 AND NOT (mi.life_coverage::text[] @> ARRAY['none']::text[]) AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_yes, COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0 AND mi.life_coverage::text[] @> ARRAY['none']::text[] AND LOWER(pd.gender::text) = 'male') AS male_no, COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0 AND mi.life_coverage::text[] @> ARRAY['none']::text[] AND LOWER(pd.gender::text) = 'female') AS female_no, COUNT(*) FILTER (WHERE mi.life_coverage::text[] IS NOT NULL AND cardinality(mi.life_coverage::text[]) > 0 AND mi.life_coverage::text[] @> ARRAY['none']::text[] AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_no FROM profiles p JOIN member_insurance mi ON mi.profile_id = p.id JOIN personal_details pd ON pd.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
-      safe(`SELECT COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0 AND NOT (mi.term_coverage::text[] @> ARRAY['none']::text[])) AS yes_count, COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0 AND mi.term_coverage::text[] @> ARRAY['none']::text[]) AS no_count, COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NULL OR cardinality(mi.term_coverage::text[]) = 0) AS null_count, COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0 AND NOT (mi.term_coverage::text[] @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) = 'male') AS male_yes, COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0 AND NOT (mi.term_coverage::text[] @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) = 'female') AS female_yes, COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0 AND NOT (mi.term_coverage::text[] @> ARRAY['none']::text[]) AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_yes, COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0 AND mi.term_coverage::text[] @> ARRAY['none']::text[] AND LOWER(pd.gender::text) = 'male') AS male_no, COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0 AND mi.term_coverage::text[] @> ARRAY['none']::text[] AND LOWER(pd.gender::text) = 'female') AS female_no, COUNT(*) FILTER (WHERE mi.term_coverage::text[] IS NOT NULL AND cardinality(mi.term_coverage::text[]) > 0 AND mi.term_coverage::text[] @> ARRAY['none']::text[] AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_no FROM profiles p JOIN member_insurance mi ON mi.profile_id = p.id JOIN personal_details pd ON pd.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
-      safe(`SELECT COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0 AND NOT (mi.konkani_card_coverage::text[] @> ARRAY['none']::text[])) AS yes_count, COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0 AND mi.konkani_card_coverage::text[] @> ARRAY['none']::text[]) AS no_count, COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NULL OR cardinality(mi.konkani_card_coverage::text[]) = 0) AS null_count, COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0 AND NOT (mi.konkani_card_coverage::text[] @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) = 'male') AS male_yes, COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0 AND NOT (mi.konkani_card_coverage::text[] @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) = 'female') AS female_yes, COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0 AND NOT (mi.konkani_card_coverage::text[] @> ARRAY['none']::text[]) AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_yes, COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0 AND mi.konkani_card_coverage::text[] @> ARRAY['none']::text[] AND LOWER(pd.gender::text) = 'male') AS male_no, COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0 AND mi.konkani_card_coverage::text[] @> ARRAY['none']::text[] AND LOWER(pd.gender::text) = 'female') AS female_no, COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] IS NOT NULL AND cardinality(mi.konkani_card_coverage::text[]) > 0 AND mi.konkani_card_coverage::text[] @> ARRAY['none']::text[] AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_no FROM profiles p JOIN member_insurance mi ON mi.profile_id = p.id JOIN personal_details pd ON pd.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
+     // ── Replace the 4 insurance safe() calls ──────────────────────────────────
+// ── HEALTH INSURANCE ──────────────────────────────────────────────────────
+safe(`
+  SELECT
+    COUNT(*) FILTER (WHERE mi.health_coverage::text[] @> ARRAY['yes']::text[])                                                                                          AS yes_count,
+    COUNT(*) FILTER (WHERE mi.health_coverage::text[] @> ARRAY['no']::text[])                                                                                           AS no_count,
+    COUNT(*) FILTER (WHERE mi.health_coverage IS NULL OR cardinality(mi.health_coverage::text[]) = 0)                                                                    AS null_count,
+    COUNT(*) FILTER (WHERE mi.health_coverage::text[] @> ARRAY['yes']::text[] AND LOWER(pd.gender::text) = 'male')                                                       AS male_yes,
+    COUNT(*) FILTER (WHERE mi.health_coverage::text[] @> ARRAY['yes']::text[] AND LOWER(pd.gender::text) = 'female')                                                     AS female_yes,
+    COUNT(*) FILTER (WHERE mi.health_coverage::text[] @> ARRAY['yes']::text[] AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))              AS other_yes,
+    COUNT(*) FILTER (WHERE mi.health_coverage::text[] @> ARRAY['no']::text[]  AND LOWER(pd.gender::text) = 'male')                                                       AS male_no,
+    COUNT(*) FILTER (WHERE mi.health_coverage::text[] @> ARRAY['no']::text[]  AND LOWER(pd.gender::text) = 'female')                                                     AS female_no,
+    COUNT(*) FILTER (WHERE mi.health_coverage::text[] @> ARRAY['no']::text[]  AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))              AS other_no,
+    COUNT(*) FILTER (WHERE (mi.health_coverage IS NULL OR cardinality(mi.health_coverage::text[]) = 0) AND LOWER(pd.gender::text) = 'male')                              AS male_unknown,
+    COUNT(*) FILTER (WHERE (mi.health_coverage IS NULL OR cardinality(mi.health_coverage::text[]) = 0) AND LOWER(pd.gender::text) = 'female')                            AS female_unknown,
+    COUNT(*) FILTER (WHERE (mi.health_coverage IS NULL OR cardinality(mi.health_coverage::text[]) = 0) AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_unknown
+  FROM profiles p
+  JOIN member_insurance mi ON mi.profile_id = p.id
+  JOIN personal_details pd ON pd.profile_id = p.id
+  WHERE p.sangha_id=$1 ${approvedDateFilter}
+`, [sanghaId, ...drSubmitted.params]),
 
-      // Documents (5 types)
-      safe(`SELECT COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text)='yes') AS yes_count, COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text)='no') AS no_count, COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text)='unknown' OR md.aadhaar_coverage IS NULL) AS unknown_count FROM profiles p JOIN member_documents md ON md.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
-      safe(`SELECT COUNT(*) FILTER (WHERE LOWER(md.pan_coverage::text)='yes') AS yes_count, COUNT(*) FILTER (WHERE LOWER(md.pan_coverage::text)='no') AS no_count, COUNT(*) FILTER (WHERE LOWER(md.pan_coverage::text)='unknown' OR md.pan_coverage IS NULL) AS unknown_count FROM profiles p JOIN member_documents md ON md.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
-      safe(`SELECT COUNT(*) FILTER (WHERE LOWER(md.voter_id_coverage::text)='yes') AS yes_count, COUNT(*) FILTER (WHERE LOWER(md.voter_id_coverage::text)='no') AS no_count, COUNT(*) FILTER (WHERE LOWER(md.voter_id_coverage::text)='unknown' OR md.voter_id_coverage IS NULL) AS unknown_count FROM profiles p JOIN member_documents md ON md.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
-      safe(`SELECT COUNT(*) FILTER (WHERE LOWER(md.land_doc_coverage::text)='yes') AS yes_count, COUNT(*) FILTER (WHERE LOWER(md.land_doc_coverage::text)='no') AS no_count, COUNT(*) FILTER (WHERE LOWER(md.land_doc_coverage::text)='unknown' OR md.land_doc_coverage IS NULL) AS unknown_count FROM profiles p JOIN member_documents md ON md.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
-      safe(`SELECT COUNT(*) FILTER (WHERE LOWER(md.dl_coverage::text)='yes') AS yes_count, COUNT(*) FILTER (WHERE LOWER(md.dl_coverage::text)='no') AS no_count, COUNT(*) FILTER (WHERE LOWER(md.dl_coverage::text)='unknown' OR md.dl_coverage IS NULL) AS unknown_count FROM profiles p JOIN member_documents md ON md.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
+// ── LIFE INSURANCE ────────────────────────────────────────────────────────
+safe(`
+  SELECT
+    COUNT(*) FILTER (WHERE mi.life_coverage::text[] @> ARRAY['yes']::text[])                                                                                            AS yes_count,
+    COUNT(*) FILTER (WHERE mi.life_coverage::text[] @> ARRAY['no']::text[])                                                                                             AS no_count,
+    COUNT(*) FILTER (WHERE mi.life_coverage IS NULL OR cardinality(mi.life_coverage::text[]) = 0)                                                                        AS null_count,
+    COUNT(*) FILTER (WHERE mi.life_coverage::text[] @> ARRAY['yes']::text[] AND LOWER(pd.gender::text) = 'male')                                                         AS male_yes,
+    COUNT(*) FILTER (WHERE mi.life_coverage::text[] @> ARRAY['yes']::text[] AND LOWER(pd.gender::text) = 'female')                                                       AS female_yes,
+    COUNT(*) FILTER (WHERE mi.life_coverage::text[] @> ARRAY['yes']::text[] AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_yes,
+    COUNT(*) FILTER (WHERE mi.life_coverage::text[] @> ARRAY['no']::text[]  AND LOWER(pd.gender::text) = 'male')                                                         AS male_no,
+    COUNT(*) FILTER (WHERE mi.life_coverage::text[] @> ARRAY['no']::text[]  AND LOWER(pd.gender::text) = 'female')                                                       AS female_no,
+    COUNT(*) FILTER (WHERE mi.life_coverage::text[] @> ARRAY['no']::text[]  AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_no,
+    COUNT(*) FILTER (WHERE (mi.life_coverage IS NULL OR cardinality(mi.life_coverage::text[]) = 0) AND LOWER(pd.gender::text) = 'male')                                  AS male_unknown,
+    COUNT(*) FILTER (WHERE (mi.life_coverage IS NULL OR cardinality(mi.life_coverage::text[]) = 0) AND LOWER(pd.gender::text) = 'female')                                AS female_unknown,
+    COUNT(*) FILTER (WHERE (mi.life_coverage IS NULL OR cardinality(mi.life_coverage::text[]) = 0) AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_unknown
+  FROM profiles p
+  JOIN member_insurance mi ON mi.profile_id = p.id
+  JOIN personal_details pd ON pd.profile_id = p.id
+  WHERE p.sangha_id=$1 ${approvedDateFilter}
+`, [sanghaId, ...drSubmitted.params]),
+
+// ── TERM INSURANCE ────────────────────────────────────────────────────────
+safe(`
+  SELECT
+    COUNT(*) FILTER (WHERE mi.term_coverage::text[] @> ARRAY['yes']::text[])                                                                                            AS yes_count,
+    COUNT(*) FILTER (WHERE mi.term_coverage::text[] @> ARRAY['no']::text[])                                                                                             AS no_count,
+    COUNT(*) FILTER (WHERE mi.term_coverage IS NULL OR cardinality(mi.term_coverage::text[]) = 0)                                                                        AS null_count,
+    COUNT(*) FILTER (WHERE mi.term_coverage::text[] @> ARRAY['yes']::text[] AND LOWER(pd.gender::text) = 'male')                                                         AS male_yes,
+    COUNT(*) FILTER (WHERE mi.term_coverage::text[] @> ARRAY['yes']::text[] AND LOWER(pd.gender::text) = 'female')                                                       AS female_yes,
+    COUNT(*) FILTER (WHERE mi.term_coverage::text[] @> ARRAY['yes']::text[] AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_yes,
+    COUNT(*) FILTER (WHERE mi.term_coverage::text[] @> ARRAY['no']::text[]  AND LOWER(pd.gender::text) = 'male')                                                         AS male_no,
+    COUNT(*) FILTER (WHERE mi.term_coverage::text[] @> ARRAY['no']::text[]  AND LOWER(pd.gender::text) = 'female')                                                       AS female_no,
+    COUNT(*) FILTER (WHERE mi.term_coverage::text[] @> ARRAY['no']::text[]  AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                AS other_no,
+    COUNT(*) FILTER (WHERE (mi.term_coverage IS NULL OR cardinality(mi.term_coverage::text[]) = 0) AND LOWER(pd.gender::text) = 'male')                                  AS male_unknown,
+    COUNT(*) FILTER (WHERE (mi.term_coverage IS NULL OR cardinality(mi.term_coverage::text[]) = 0) AND LOWER(pd.gender::text) = 'female')                                AS female_unknown,
+    COUNT(*) FILTER (WHERE (mi.term_coverage IS NULL OR cardinality(mi.term_coverage::text[]) = 0) AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_unknown
+  FROM profiles p
+  JOIN member_insurance mi ON mi.profile_id = p.id
+  JOIN personal_details pd ON pd.profile_id = p.id
+  WHERE p.sangha_id=$1 ${approvedDateFilter}
+`, [sanghaId, ...drSubmitted.params]),
+
+// ── KONKANI CARD INSURANCE ────────────────────────────────────────────────
+safe(`
+  SELECT
+    COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] @> ARRAY['yes']::text[])                                                                                     AS yes_count,
+    COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] @> ARRAY['no']::text[])                                                                                      AS no_count,
+    COUNT(*) FILTER (WHERE mi.konkani_card_coverage IS NULL OR cardinality(mi.konkani_card_coverage::text[]) = 0)                                                         AS null_count,
+    COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] @> ARRAY['yes']::text[] AND LOWER(pd.gender::text) = 'male')                                                  AS male_yes,
+    COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] @> ARRAY['yes']::text[] AND LOWER(pd.gender::text) = 'female')                                                AS female_yes,
+    COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] @> ARRAY['yes']::text[] AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))         AS other_yes,
+    COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] @> ARRAY['no']::text[]  AND LOWER(pd.gender::text) = 'male')                                                  AS male_no,
+    COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] @> ARRAY['no']::text[]  AND LOWER(pd.gender::text) = 'female')                                                AS female_no,
+    COUNT(*) FILTER (WHERE mi.konkani_card_coverage::text[] @> ARRAY['no']::text[]  AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))         AS other_no,
+    COUNT(*) FILTER (WHERE (mi.konkani_card_coverage IS NULL OR cardinality(mi.konkani_card_coverage::text[]) = 0) AND LOWER(pd.gender::text) = 'male')                   AS male_unknown,
+    COUNT(*) FILTER (WHERE (mi.konkani_card_coverage IS NULL OR cardinality(mi.konkani_card_coverage::text[]) = 0) AND LOWER(pd.gender::text) = 'female')                 AS female_unknown,
+    COUNT(*) FILTER (WHERE (mi.konkani_card_coverage IS NULL OR cardinality(mi.konkani_card_coverage::text[]) = 0) AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_unknown
+  FROM profiles p
+  JOIN member_insurance mi ON mi.profile_id = p.id
+  JOIN personal_details pd ON pd.profile_id = p.id
+  WHERE p.sangha_id=$1 ${approvedDateFilter}
+`, [sanghaId, ...drSubmitted.params]),
+
+
+
+
+      // ── ADD THESE 5 DOCUMENT QUERIES HERE ────────────────────────────────
+      safe(`SELECT
+        COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text)='yes')                                                        AS yes_count,
+        COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text)='no')                                                         AS no_count,
+        COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text) NOT IN ('yes','no') OR md.aadhaar_coverage IS NULL)           AS unknown_count
+      FROM profiles p JOIN member_documents md ON md.profile_id = p.id
+      WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
+
+      safe(`SELECT
+        COUNT(*) FILTER (WHERE LOWER(md.pan_coverage::text)='yes')                                                            AS yes_count,
+        COUNT(*) FILTER (WHERE LOWER(md.pan_coverage::text)='no')                                                             AS no_count,
+        COUNT(*) FILTER (WHERE LOWER(md.pan_coverage::text) NOT IN ('yes','no') OR md.pan_coverage IS NULL)                   AS unknown_count
+      FROM profiles p JOIN member_documents md ON md.profile_id = p.id
+      WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
+
+      safe(`SELECT
+        COUNT(*) FILTER (WHERE LOWER(md.voter_id_coverage::text)='yes')                                                       AS yes_count,
+        COUNT(*) FILTER (WHERE LOWER(md.voter_id_coverage::text)='no')                                                        AS no_count,
+        COUNT(*) FILTER (WHERE LOWER(md.voter_id_coverage::text) NOT IN ('yes','no') OR md.voter_id_coverage IS NULL)         AS unknown_count
+      FROM profiles p JOIN member_documents md ON md.profile_id = p.id
+      WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
+
+      safe(`SELECT
+        COUNT(*) FILTER (WHERE LOWER(md.land_doc_coverage::text)='yes')                                                       AS yes_count,
+        COUNT(*) FILTER (WHERE LOWER(md.land_doc_coverage::text)='no')                                                        AS no_count,
+        COUNT(*) FILTER (WHERE LOWER(md.land_doc_coverage::text) NOT IN ('yes','no') OR md.land_doc_coverage IS NULL)         AS unknown_count
+      FROM profiles p JOIN member_documents md ON md.profile_id = p.id
+      WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
+
+      safe(`SELECT
+        COUNT(*) FILTER (WHERE LOWER(md.dl_coverage::text)='yes')                                                             AS yes_count,
+        COUNT(*) FILTER (WHERE LOWER(md.dl_coverage::text)='no')                                                              AS no_count,
+        COUNT(*) FILTER (WHERE LOWER(md.dl_coverage::text) NOT IN ('yes','no') OR md.dl_coverage IS NULL)                     AS unknown_count
+      FROM profiles p JOIN member_documents md ON md.profile_id = p.id
+      WHERE p.sangha_id=$1 ${approvedDateFilter}`, [sanghaId, ...drSubmitted.params]),
+      // ─────────────────────────────────────────────────────────────────────
+
+      
 
       // Religious
       safe(`SELECT TRIM(rd.gotra) AS label, COUNT(*) AS count FROM profiles p JOIN religious_details rd ON rd.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter} AND rd.gotra IS NOT NULL AND TRIM(rd.gotra) != '' GROUP BY TRIM(rd.gotra) ORDER BY count DESC LIMIT 10`, [sanghaId, ...drSubmitted.params]),
@@ -422,11 +537,37 @@ const getAdvancedReports = async (req, res) => {
         employmentGender: employmentGenderRows.map(r => ({ label:r.label, male:parseInt(r.male||0), female:parseInt(r.female||0), other:parseInt(r.other||0) })),
       },
       insurance: [
-        { label:'Health',yes:parseInt(healthIns.yes_count||0),no:parseInt(healthIns.no_count||0),unknown:parseInt(healthIns.null_count||0),covered:parseInt(healthIns.yes_count||0),notCovered:parseInt(healthIns.no_count||0),maleYes:parseInt(healthIns.male_yes||0),femaleYes:parseInt(healthIns.female_yes||0),otherYes:parseInt(healthIns.other_yes||0),maleNo:parseInt(healthIns.male_no||0),femaleNo:parseInt(healthIns.female_no||0),otherNo:parseInt(healthIns.other_no||0) },
-        { label:'Life',yes:parseInt(lifeIns.yes_count||0),no:parseInt(lifeIns.no_count||0),unknown:parseInt(lifeIns.null_count||0),covered:parseInt(lifeIns.yes_count||0),notCovered:parseInt(lifeIns.no_count||0),maleYes:parseInt(lifeIns.male_yes||0),femaleYes:parseInt(lifeIns.female_yes||0),otherYes:parseInt(lifeIns.other_yes||0),maleNo:parseInt(lifeIns.male_no||0),femaleNo:parseInt(lifeIns.female_no||0),otherNo:parseInt(lifeIns.other_no||0) },
-        { label:'Term',yes:parseInt(termIns.yes_count||0),no:parseInt(termIns.no_count||0),unknown:parseInt(termIns.null_count||0),covered:parseInt(termIns.yes_count||0),notCovered:parseInt(termIns.no_count||0),maleYes:parseInt(termIns.male_yes||0),femaleYes:parseInt(termIns.female_yes||0),otherYes:parseInt(termIns.other_yes||0),maleNo:parseInt(termIns.male_no||0),femaleNo:parseInt(termIns.female_no||0),otherNo:parseInt(termIns.other_no||0) },
-        { label:'Konkani Card',yes:parseInt(konkaniIns.yes_count||0),no:parseInt(konkaniIns.no_count||0),unknown:parseInt(konkaniIns.null_count||0),covered:parseInt(konkaniIns.yes_count||0),notCovered:parseInt(konkaniIns.no_count||0),maleYes:parseInt(konkaniIns.male_yes||0),femaleYes:parseInt(konkaniIns.female_yes||0),otherYes:parseInt(konkaniIns.other_yes||0),maleNo:parseInt(konkaniIns.male_no||0),femaleNo:parseInt(konkaniIns.female_no||0),otherNo:parseInt(konkaniIns.other_no||0) },
-      ],
+  {
+    label: 'Health Insurance',
+    yes: parseInt(healthIns.yes_count || 0), no: parseInt(healthIns.no_count || 0), unknown: parseInt(healthIns.null_count || 0),
+    maleYes: parseInt(healthIns.male_yes || 0), femaleYes: parseInt(healthIns.female_yes || 0), otherYes: parseInt(healthIns.other_yes || 0),
+    maleNo:  parseInt(healthIns.male_no  || 0), femaleNo:  parseInt(healthIns.female_no  || 0), otherNo:  parseInt(healthIns.other_no  || 0),
+    maleUnknown: parseInt(healthIns.male_unknown || 0), femaleUnknown: parseInt(healthIns.female_unknown || 0), otherUnknown: parseInt(healthIns.other_unknown || 0),
+  },
+  {
+    label: 'Life Insurance',
+    yes: parseInt(lifeIns.yes_count || 0), no: parseInt(lifeIns.no_count || 0), unknown: parseInt(lifeIns.null_count || 0),
+    maleYes: parseInt(lifeIns.male_yes || 0), femaleYes: parseInt(lifeIns.female_yes || 0), otherYes: parseInt(lifeIns.other_yes || 0),
+    maleNo:  parseInt(lifeIns.male_no  || 0), femaleNo:  parseInt(lifeIns.female_no  || 0), otherNo:  parseInt(lifeIns.other_no  || 0),
+    maleUnknown: parseInt(lifeIns.male_unknown || 0), femaleUnknown: parseInt(lifeIns.female_unknown || 0), otherUnknown: parseInt(lifeIns.other_unknown || 0),
+  },
+  {
+    label: 'Term Insurance',
+    yes: parseInt(termIns.yes_count || 0), no: parseInt(termIns.no_count || 0), unknown: parseInt(termIns.null_count || 0),
+    maleYes: parseInt(termIns.male_yes || 0), femaleYes: parseInt(termIns.female_yes || 0), otherYes: parseInt(termIns.other_yes || 0),
+    maleNo:  parseInt(termIns.male_no  || 0), femaleNo:  parseInt(termIns.female_no  || 0), otherNo:  parseInt(termIns.other_no  || 0),
+    maleUnknown: parseInt(termIns.male_unknown || 0), femaleUnknown: parseInt(termIns.female_unknown || 0), otherUnknown: parseInt(termIns.other_unknown || 0),
+  },
+  {
+    label: 'Konkani Card',
+    yes: parseInt(konkaniIns.yes_count || 0), no: parseInt(konkaniIns.no_count || 0), unknown: parseInt(konkaniIns.null_count || 0),
+    maleYes: parseInt(konkaniIns.male_yes || 0), femaleYes: parseInt(konkaniIns.female_yes || 0), otherYes: parseInt(konkaniIns.other_yes || 0),
+    maleNo:  parseInt(konkaniIns.male_no  || 0), femaleNo:  parseInt(konkaniIns.female_no  || 0), otherNo:  parseInt(konkaniIns.other_no  || 0),
+    maleUnknown: parseInt(konkaniIns.male_unknown || 0), femaleUnknown: parseInt(konkaniIns.female_unknown || 0), otherUnknown: parseInt(konkaniIns.other_unknown || 0),
+
+  },
+],
+      
       documents: [
         { label:'Aadhaar',yes:parseInt(aadhaar.yes_count||0),no:parseInt(aadhaar.no_count||0),unknown:parseInt(aadhaar.unknown_count||0) },
         { label:'PAN Card',yes:parseInt(pan.yes_count||0),no:parseInt(pan.no_count||0),unknown:parseInt(pan.unknown_count||0) },
