@@ -107,15 +107,19 @@ const getActivityLogs = async (req, res) => {
 // ENHANCED REPORTS
 // ════════════════════════════════════════════════════════════
 const getEnhancedReports = async (req, res) => {
-  try {
+   try {
     const { id: userId } = req.user;
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
-    const { dateFrom, dateTo } = req.query;
+    const rawFrom  = req.query.dateFrom;
+    const rawTo    = req.query.dateTo;
+    const dateFrom = (rawFrom && rawFrom !== 'null' && rawFrom !== 'undefined') ? rawFrom : null;
+    const dateTo   = (rawTo   && rawTo   !== 'null' && rawTo   !== 'undefined') ? rawTo   : null;
     console.log("dateFrom:", dateFrom);
     console.log("dateTo:", dateTo);
-    const df = buildDateFilter(dateFrom, dateTo, 1, 'p.created_at');
+    const df = buildDateFilter(dateFrom, dateTo, 1, 'created_at');
+    
 
     const [currentCounts, trendData, dailyRegs] = await Promise.all([
       pool.query(
@@ -180,7 +184,10 @@ const getAdvancedReports = async (req, res) => {
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
-    const { dateFrom, dateTo } = req.query;
+    const rawFrom  = req.query.dateFrom;
+    const rawTo    = req.query.dateTo;
+    const dateFrom = (rawFrom && rawFrom !== 'null' && rawFrom !== 'undefined') ? rawFrom : null;
+    const dateTo   = (rawTo   && rawTo   !== 'null' && rawTo   !== 'undefined') ? rawTo   : null;
 
     const drSubmitted    = buildDateFilter(dateFrom, dateTo, 1, 'p.submitted_at');
     const drSubmittedP2  = buildDateFilter(dateFrom, dateTo, 1, 'p2.submitted_at');

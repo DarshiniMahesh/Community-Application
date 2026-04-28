@@ -988,7 +988,7 @@ export default function AdvancedDashboard({
             key={ins.label}
             title={ins.label}
             subtitle="Male · Female · Other — by coverage status"
-            onExport={() => onGoToCustomReport(["family-information"], "insurance")}
+            onExport={() => onGoToCustomReport(["economic-details"], "insurance")}
           >
             <ResponsiveContainer width="100%" height={220}>
               <BarChart
@@ -1060,7 +1060,7 @@ export default function AdvancedDashboard({
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs text-slate-500 font-medium flex-1 text-center">{doc.label}</p>
                         <button title={`Export ${doc.label} verified members`}
-                          onClick={() => onGoToCustomReport(["personal-details"], "document")}
+                          onClick={() => onGoToCustomReport(["economic-details"], "document")}
                           className="shrink-0 p-1 rounded-lg border border-slate-100 text-slate-300 hover:border-emerald-300 hover:text-emerald-600 hover:bg-emerald-50 transition-all">
                           <FileSpreadsheet className="w-3 h-3" />
                         </button>

@@ -657,9 +657,10 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
   const activeFamilyFilters = familyColFilters.filter(f => f.value);
   const getFilterVals       = (col: string) => getUniqueValues(rows, col);
   const getFamilyFilterVals = (col: string) => getUniqueValues(allFamilyRows, col);
-
-  const isFamilySectionSelected = selectedSections.includes(FAMILY_SECTION_ID);
-  const showFamilyTable = familyEntries.length > 0 || familyLoading || !!familyError;
+const isFamilySectionSelected = selectedSections.includes(FAMILY_SECTION_ID);
+const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!familyError;
+  
+ 
 
   // ── Date range label ──────────────────────────────────────────────────────
   const dateRangeLabel = useMemo(() => {
@@ -1000,15 +1001,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
                           </th>
                         );
                       })}
-                      {/* Family action column — only shown when family section selected */}
-                      {isFamilySectionSelected && (
-                        <th className="text-xs font-semibold text-slate-500 px-3 py-3 text-left whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            <Users className="w-3.5 h-3.5 text-violet-400" />
-                            <span>Family</span>
-                          </div>
-                        </th>
-                      )}
+                      
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1058,33 +1051,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
                           );
                         })}
 
-                        {/* Per-row Family Info button — only when family section selected */}
-                        {isFamilySectionSelected && (
-                          <td className="px-3 py-2.5">
-                            <button
-                              onClick={() => {
-                                const pid  = row._profile_id;
-                                const name = String(row["Full Name"] || `Row ${idx + 1}`);
-                                if (pid) triggerFamilyFetch([String(pid)], name);
-                              }}
-                              disabled={!row._profile_id || familyLoading}
-                              title={
-                                row._profile_id
-                                  ? `View family members of ${row["Full Name"] || `Row ${idx + 1}`}`
-                                  : "Profile ID not available"
-                              }
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
-                                border transition-all
-                                ${row._profile_id
-                                  ? "bg-violet-50 border-violet-200 text-violet-700 hover:bg-violet-100 hover:border-violet-300 cursor-pointer"
-                                  : "bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed"
-                                }`}
-                            >
-                              <Users className="w-3 h-3" />
-                              View
-                            </button>
-                          </td>
-                        )}
+                        
                       </tr>
                     ))}
                   </tbody>
