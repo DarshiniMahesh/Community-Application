@@ -119,7 +119,23 @@ const getEnhancedReports = async (req, res) => {
     console.log("dateFrom:", dateFrom);
     console.log("dateTo:", dateTo);
     const df = buildDateFilter(dateFrom, dateTo, 1, 'created_at');
-    
+    // Add this inside getEnhancedReports, after the existing Promise.all, before res.json(...)
+
+const [
+  locationCount,
+  educationCount,
+  economicCount,
+  insuranceCount,
+  documentCount,
+  religiousCount,
+] = await Promise.all([
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM addresses WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_education WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM economic_details WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_insurance WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_documents WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM religious_details WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+]);
 
     const [currentCounts, trendData, dailyRegs] = await Promise.all([
       pool.query(
@@ -165,6 +181,16 @@ const getEnhancedReports = async (req, res) => {
       counts:             currentCounts.rows[0],
       trends:             trendData.rows[0],
       dailyRegistrations: dailyRegs.rows,
+      sectionCounts: {
+  personalDetails:      parseInt(currentCounts.rows[0].approved || 0),
+  locationInformation:  parseInt(locationCount.rows[0].cnt || 0),
+  educationProfession:  parseInt(educationCount.rows[0].cnt || 0),
+  economicDetails:      parseInt(economicCount.rows[0].cnt || 0),
+  insuranceCoverage:    parseInt(insuranceCount.rows[0].cnt || 0),
+  documentationStatus:  parseInt(documentCount.rows[0].cnt || 0),
+  religiousDetails:     parseInt(religiousCount.rows[0].cnt || 0),
+},
+
     });
   } catch (err) {
     console.error(err);
@@ -795,17 +821,29 @@ const getFullExportData = async (req, res) => {
     }
 
     if (sections.includes('education-profession')) {
-      const eduRows = await pool.query(
-        `SELECT me.profile_id, me.member_name AS "Member Name", me.member_relation AS "Relation",
-           me.highest_education AS "Education Level", me.profession_type::text AS "Profession",
-           me.is_currently_studying AS "Currently Studying", me.is_currently_working AS "Currently Working",
-           (SELECT STRING_AGG(ml.language,', ') FROM member_languages ml WHERE ml.member_education_id=me.id) AS "Languages Known"
-         FROM member_education me
-         WHERE me.profile_id = ANY($1)
-           AND LOWER(me.member_relation) = 'self'
-         ORDER BY me.sort_order`,
-        [profileIds]
-      );
+  const eduRows = await pool.query(
+    `SELECT me.profile_id, me.member_name AS "Member Name", me.member_relation AS "Relation",
+       COALESCE(
+         NULLIF(TRIM(
+           STRING_AGG(DISTINCT mes.degree_type, ' | ' ORDER BY mes.degree_type)
+         ), ''),
+         me.highest_education
+       ) AS "Education Level",
+       me.profession_type::text AS "Profession",
+       me.is_currently_studying AS "Currently Studying",
+       me.is_currently_working AS "Currently Working",
+       (SELECT STRING_AGG(ml.language, ', ' ORDER BY ml.language)
+        FROM member_languages ml WHERE ml.member_education_id = me.id) AS "Languages Known"
+     FROM member_education me
+     LEFT JOIN member_educations mes ON mes.member_education_id = me.id
+     WHERE me.profile_id = ANY($1)
+       AND LOWER(me.member_relation) = 'self'
+     GROUP BY me.id, me.profile_id, me.member_name, me.member_relation,
+              me.highest_education, me.profession_type,
+              me.is_currently_studying, me.is_currently_working
+     ORDER BY me.sort_order`,
+    [profileIds]
+  );
       const eduMap = new Map();
       for (const edu of eduRows.rows) {
         if (!eduMap.has(edu.profile_id)) eduMap.set(edu.profile_id, edu);

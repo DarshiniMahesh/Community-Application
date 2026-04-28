@@ -1,3 +1,4 @@
+//Community-Application\sangha\src\app\sangha\reports\page.tsx
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
@@ -19,7 +20,36 @@ export interface Trends {
 }
 export interface DailyReg { date: string; registrations: string; approvals: string; rejections: string; }
 export interface EnhancedReport {
-  counts: Counts; trends: Trends; dailyRegistrations: DailyReg[];
+  counts: {
+    approved: string;
+    rejected: string;
+    pending: string;
+    changes_requested: string;
+    draft: string;
+    total: string;
+  };
+  trends: {
+    approved_last30: string;
+    approved_prev30: string;
+    submitted_last30: string;
+    submitted_prev30: string;
+    total_last30: string;
+    total_prev30: string;
+  };
+  dailyRegistrations: Array<{
+    date: string;
+    registrations: string;
+    approvals: string;
+  }>;
+  sectionCounts: {          // ← ADD THIS
+    personalDetails: number;
+    locationInformation: number;
+    educationProfession: number;
+    economicDetails: number;
+    insuranceCoverage: number;
+    documentationStatus: number;
+    religiousDetails: number;
+  };
 }
 
 export interface AdvancedReport {

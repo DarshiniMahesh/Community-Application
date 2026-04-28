@@ -74,7 +74,7 @@ function SectionCard({
   onExcel, excelLoading,
   children,
 }: {
-  icon: any; color: string; bg: string; title: string; value: number; pct?: number;
+  icon: any; color: string; bg: string; title: string; value?: number; pct?: number;
   onArrow?: () => void; arrowLabel?: string;
   onExcel?: () => void; excelLoading?: boolean;
   children?: React.ReactNode;
@@ -112,8 +112,10 @@ function SectionCard({
         </div>
       </div>
       <div>
-        <p className="text-3xl font-black tabular-nums" style={{ color }}>{value.toLocaleString()}</p>
-        <p className="text-sm font-semibold text-slate-700 mt-0.5">{title}</p>
+        <div>
+          
+  <p className="text-sm font-semibold text-slate-700 mt-1">{title}</p></div>
+        
         {pct !== undefined && (
           <div className="mt-2 bg-slate-100 rounded-full h-1.5 overflow-hidden">
             <div className="h-1.5 rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: color }} />
@@ -250,50 +252,53 @@ export default function GeneralDashboard({
     },
   ];
 
-  const analyticsCards = [
-    {
-      icon: Users, color: "#0ea5e9", bg: "bg-sky-50",
-      title: "personal information", value: total,
-      section: "demographics",
-      excelSections: ["personal-details"],
-    },
-    {
-      icon: MapPin, color: "#14b8a6", bg: "bg-teal-50",
-      title: "Location Distribution", value: n(counts.approved),
-      section: "geographic",
-      excelSections: ["location-information"],
-    },
-    {
-      icon: GraduationCap, color: "#8b5cf6", bg: "bg-violet-50",
-      title: "Education & Profession", value: n(counts.approved),
-      section: "education",
-      excelSections: ["education-profession"],
-    },
-    {
-      icon: Wallet, color: "#f59e0b", bg: "bg-amber-50",
-      title: "Economic Details", value: n(counts.approved),
-      section: "economic",
-      excelSections: ["economic-details"],
-    },
-    {
-      icon: Shield, color: "#10b981", bg: "bg-emerald-50",
-      title: "Insurance Coverage", value: n(counts.approved),
-      section: "insurance",
-      excelSections: ["family-information"],
-    },
-    {
-      icon: Activity, color: "#f43f5e", bg: "bg-rose-50",
-      title: "Documentation Status", value: n(counts.approved),
-      section: "documents",
-      excelSections: ["personal-details"],
-    },
-    {
-      icon: BookOpen, color: "#a855f7", bg: "bg-purple-50",
-      title: "Religious Details", value: n(counts.approved),
-      section: "religious",
-      excelSections: ["religious-details"],
-    },
-  ];
+ // Update analyticsCards to use real counts from sectionCounts
+const sc = data.sectionCounts ?? {};
+
+const analyticsCards = [
+  {
+    icon: Users, color: "#0ea5e9", bg: "bg-sky-50",
+    title: "Personal Information", value: sc.personalDetails ?? n(counts.approved),
+    section: "demographics",
+    excelSections: ["personal-details"],
+  },
+  {
+    icon: MapPin, color: "#14b8a6", bg: "bg-teal-50",
+    title: "Location Distribution", value: sc.locationInformation ?? 0,
+    section: "geographic",
+    excelSections: ["location-information"],
+  },
+  {
+    icon: GraduationCap, color: "#8b5cf6", bg: "bg-violet-50",
+    title: "Education & Profession", value: sc.educationProfession ?? 0,
+    section: "education",
+    excelSections: ["education-profession"],
+  },
+  {
+    icon: Wallet, color: "#f59e0b", bg: "bg-amber-50",
+    title: "Economic Details", value: sc.economicDetails ?? 0,
+    section: "economic",
+    excelSections: ["economic-details"],
+  },
+  {
+    icon: Shield, color: "#10b981", bg: "bg-emerald-50",
+    title: "Insurance Coverage", value: sc.insuranceCoverage ?? 0,
+    section: "insurance",
+    excelSections: ["family-information"],
+  },
+  {
+    icon: Activity, color: "#f43f5e", bg: "bg-rose-50",
+    title: "Documentation Status", value: sc.documentationStatus ?? 0,
+    section: "documents",
+    excelSections: ["personal-details"],
+  },
+  {
+    icon: BookOpen, color: "#a855f7", bg: "bg-purple-50",
+    title: "Religious Details", value: sc.religiousDetails ?? 0,
+    section: "religious",
+    excelSections: ["religious-details"],
+  },
+];
 
   return (
     <div className="space-y-6">
@@ -476,8 +481,8 @@ export default function GeneralDashboard({
               color={card.color}
               bg={card.bg}
               title={card.title}
-              value={card.value}
-              pct={calcPct(card.value, total)}
+              
+              
               onArrow={() => onGoToAdvanced(card.section)}
               arrowLabel={`View ${card.title}`}
               onExcel={() => onGoToCustomReport(card.excelSections, card.section)}
