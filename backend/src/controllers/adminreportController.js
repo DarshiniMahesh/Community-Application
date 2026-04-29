@@ -1,914 +1,800 @@
 // Community-Application\backend\src\controllers\adminreportController.js
-const pool = require('../config/db');
 
-// ─── Helper: default date range (past 30 days) ───────────────
-const getDefaultRange = (start_date, end_date) => {
-  if (!start_date || !end_date) {
-    const now = new Date();
-    const end = now.toISOString().split('T')[0];
-    const past = new Date(now);
-    past.setDate(past.getDate() - 30);
-    const start = past.toISOString().split('T')[0];
-    return { start: start_date || start, end: end_date || end };
-  }
-  return { start: start_date, end: end_date };
-};
+const pool = require("../config/db");
 
-// ─── GET /admin/reports/general/overview ─────────────────────
-// Returns: sangha stats, user stats, reviewer-based stats, gender×status stats
-const getGeneralOverview = async (req, res) => {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function dateFilter(from, to, tableAlias = "", startIdx = 1) {
+  const col = tableAlias ? `${tableAlias}.created_at` : "created_at";
+  const conditions = [];
+  const values = [];
+  let idx = startIdx;
+  if (from) { conditions.push(`${col} >= $${idx++}`); values.push(from); }
+  if (to)   { conditions.push(`${col} <= $${idx++}`); values.push(to); }
+  return { clause: conditions.length ? "AND " + conditions.join(" AND ") : "", values, offset: idx };
+}
+
+// ─── GET /admin/reports/general ───────────────────────────────────────────────
+
+async function getGeneralReport(req, res) {
   try {
-    const { start, end } = getDefaultRange(req.query.start_date, req.query.end_date);
-    const endFull = end + ' 23:59:59';
-    const p = [start, endFull];
+    const { from, to } = req.query;
+    const df = dateFilter(from, to, "u");
 
     const [
-      sanghaReg, sanghaApproved, sanghaRejected, sanghaPending,
-      usersReg,
-      usersApproved, usersRejected, usersChanges,
-      adminApproved, sanghaApproved2, adminRejected, sanghaRejected2,
-      genderStatus,
+      userStatsQ, sanghaStatsQ, trendQ, usersByStateQ, sanghasByStateQ,
+      genderQ, userStatusQ, sanghaStatusQ, topSanghasQ, usersByDistrictQ,
     ] = await Promise.all([
-      pool.query(`SELECT COUNT(*) FROM sanghas WHERE created_at BETWEEN $1 AND $2`, p),
-      pool.query(`SELECT COUNT(*) FROM sanghas WHERE status='approved' AND updated_at BETWEEN $1 AND $2`, p),
-      pool.query(`SELECT COUNT(*) FROM sanghas WHERE status='rejected' AND updated_at BETWEEN $1 AND $2`, p),
-      pool.query(`SELECT COUNT(*) FROM sanghas WHERE status='pending_approval' AND created_at BETWEEN $1 AND $2`, p),
-
       pool.query(
-        `SELECT COUNT(*) FROM users WHERE role='user' AND is_deleted=FALSE AND created_at BETWEEN $1 AND $2`, p
+        `SELECT
+           COUNT(*)                                                          AS total,
+           COUNT(*) FILTER (WHERE p.status = 'approved')                    AS approved,
+           COUNT(*) FILTER (WHERE p.status = 'submitted')                   AS submitted,
+           COUNT(*) FILTER (WHERE p.status = 'under_review')                AS under_review,
+           COUNT(*) FILTER (WHERE p.status = 'changes_requested')           AS changes_requested,
+           COUNT(*) FILTER (WHERE p.status = 'draft')                       AS draft,
+           COUNT(*) FILTER (WHERE p.status = 'rejected')                    AS rejected,
+           COUNT(*) FILTER (WHERE u.created_at >= COALESCE($1::timestamptz, '-infinity')
+                              AND u.created_at <= COALESCE($2::timestamptz, 'infinity')) AS new_this_period
+         FROM users u
+         LEFT JOIN profiles p ON p.user_id = u.id
+         WHERE u.role = 'user' AND u.is_deleted = false`,
+        [from || null, to || null]
       ),
-
-      pool.query(`SELECT COUNT(*) FROM profiles WHERE status='approved' AND reviewed_at BETWEEN $1 AND $2`, p),
-      pool.query(`SELECT COUNT(*) FROM profiles WHERE status='rejected' AND reviewed_at BETWEEN $1 AND $2`, p),
-      pool.query(`SELECT COUNT(*) FROM profiles WHERE status='changes_requested' AND reviewed_at BETWEEN $1 AND $2`, p),
-
-      // Approved by admin
       pool.query(
-        `SELECT COUNT(*) FROM profiles p
-         JOIN users u ON u.id = p.reviewed_by
-         WHERE p.status='approved' AND u.role='admin' AND p.reviewed_at BETWEEN $1 AND $2`, p
+        `SELECT
+           COUNT(*)                                                              AS total,
+           COUNT(*) FILTER (WHERE status = 'approved')                          AS approved,
+           COUNT(*) FILTER (WHERE status = 'pending_approval')                  AS pending_approval,
+           COUNT(*) FILTER (WHERE status = 'rejected')                          AS rejected,
+           COUNT(*) FILTER (WHERE status = 'suspended')                         AS suspended,
+           COUNT(*) FILTER (WHERE created_at >= COALESCE($1::timestamptz, '-infinity')
+                              AND created_at <= COALESCE($2::timestamptz, 'infinity')) AS new_this_period
+         FROM sanghas`,
+        [from || null, to || null]
       ),
-      // Approved by sangha
       pool.query(
-        `SELECT COUNT(*) FROM profiles p
-         JOIN users u ON u.id = p.reviewed_by
-         WHERE p.status='approved' AND u.role='sangha' AND p.reviewed_at BETWEEN $1 AND $2`, p
+        `WITH months AS (
+           SELECT to_char(generate_series(
+             date_trunc('month', COALESCE($1::date, NOW() - INTERVAL '11 months')),
+             date_trunc('month', COALESCE($2::date, NOW())),
+             '1 month'
+           ), 'Mon YYYY') AS period,
+           generate_series(
+             date_trunc('month', COALESCE($1::date, NOW() - INTERVAL '11 months')),
+             date_trunc('month', COALESCE($2::date, NOW())),
+             '1 month'
+           ) AS month_start
+         ),
+         user_counts AS (
+           SELECT to_char(date_trunc('month', u.created_at), 'Mon YYYY') AS period, COUNT(*) AS cnt
+           FROM users u WHERE u.role = 'user' AND u.is_deleted = false GROUP BY 1
+         ),
+         sangha_counts AS (
+           SELECT to_char(date_trunc('month', created_at), 'Mon YYYY') AS period, COUNT(*) AS cnt
+           FROM sanghas GROUP BY 1
+         )
+         SELECT m.period, COALESCE(uc.cnt, 0) AS users, COALESCE(sc.cnt, 0) AS sanghas
+         FROM months m
+         LEFT JOIN user_counts  uc ON uc.period = m.period
+         LEFT JOIN sangha_counts sc ON sc.period = m.period
+         ORDER BY m.month_start`,
+        [from || null, to || null]
       ),
-      // Rejected by admin
       pool.query(
-        `SELECT COUNT(*) FROM profiles p
-         JOIN users u ON u.id = p.reviewed_by
-         WHERE p.status='rejected' AND u.role='admin' AND p.reviewed_at BETWEEN $1 AND $2`, p
+        `SELECT a.state, COUNT(DISTINCT p.user_id) AS count
+         FROM profiles p JOIN addresses a ON a.profile_id = p.id AND a.address_type = 'current'
+         WHERE a.state IS NOT NULL AND a.state <> '' GROUP BY a.state ORDER BY count DESC LIMIT 10`
       ),
-      // Rejected by sangha
       pool.query(
-        `SELECT COUNT(*) FROM profiles p
-         JOIN users u ON u.id = p.reviewed_by
-         WHERE p.status='rejected' AND u.role='sangha' AND p.reviewed_at BETWEEN $1 AND $2`, p
+        `SELECT state, COUNT(*) AS count FROM sanghas
+         WHERE state IS NOT NULL AND state <> '' GROUP BY state ORDER BY count DESC LIMIT 10`
       ),
-
-      // Gender × status breakdown (for charts)
       pool.query(
-        `SELECT pd.gender, p.status, COUNT(*) AS count
-         FROM profiles p
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status IN ('approved','rejected','changes_requested')
-           AND p.reviewed_at BETWEEN $1 AND $2
-         GROUP BY pd.gender, p.status
-         ORDER BY pd.gender, p.status`, p
+        `SELECT pd.gender::text AS gender, COUNT(*) AS count FROM personal_details pd
+         JOIN profiles p ON p.id = pd.profile_id WHERE pd.gender IS NOT NULL
+         GROUP BY pd.gender ORDER BY count DESC`
+      ),
+      pool.query(`SELECT p.status::text AS status, COUNT(*) AS count FROM profiles p GROUP BY p.status ORDER BY count DESC`),
+      pool.query(`SELECT status::text AS status, COUNT(*) AS count FROM sanghas GROUP BY status ORDER BY count DESC`),
+      pool.query(
+        `SELECT s.sangha_name, s.state, COUNT(sm.id) AS member_count
+         FROM sanghas s LEFT JOIN sangha_members sm ON sm.sangha_id = s.id
+         GROUP BY s.id, s.sangha_name, s.state ORDER BY member_count DESC LIMIT 10`
+      ),
+      pool.query(
+        `SELECT a.district, COUNT(DISTINCT p.user_id) AS count
+         FROM profiles p JOIN addresses a ON a.profile_id = p.id AND a.address_type = 'current'
+         WHERE a.district IS NOT NULL AND a.district <> '' GROUP BY a.district ORDER BY count DESC LIMIT 10`
       ),
     ]);
 
-    res.json({
-      date_range: { start_date: start, end_date: end },
-      sangha: {
-        registered:  parseInt(sanghaReg.rows[0].count),
-        approved:    parseInt(sanghaApproved.rows[0].count),
-        rejected:    parseInt(sanghaRejected.rows[0].count),
-        pending:     parseInt(sanghaPending.rows[0].count),
-      },
+    const toNum = (v) => parseInt(v, 10) || 0;
+    const ur = userStatsQ.rows[0];
+    const sr = sanghaStatsQ.rows[0];
+
+    return res.json({
       users: {
-        registered:        parseInt(usersReg.rows[0].count),
-        approved:          parseInt(usersApproved.rows[0].count),
-        rejected:          parseInt(usersRejected.rows[0].count),
-        changes_requested: parseInt(usersChanges.rows[0].count),
+        total:             toNum(ur.total),
+        approved:          toNum(ur.approved),
+        submitted:         toNum(ur.submitted),
+        under_review:      toNum(ur.under_review),
+        changes_requested: toNum(ur.changes_requested),
+        draft:             toNum(ur.draft),
+        rejected:          toNum(ur.rejected),
+        new_this_period:   toNum(ur.new_this_period),
       },
-      by_reviewer: {
-        admin_approved:   parseInt(adminApproved.rows[0].count),
-        sangha_approved:  parseInt(sanghaApproved2.rows[0].count),
-        admin_rejected:   parseInt(adminRejected.rows[0].count),
-        sangha_rejected:  parseInt(sanghaRejected2.rows[0].count),
+      sanghas: {
+        total:            toNum(sr.total),
+        approved:         toNum(sr.approved),
+        pending_approval: toNum(sr.pending_approval),
+        rejected:         toNum(sr.rejected),
+        suspended:        toNum(sr.suspended),
+        new_this_period:  toNum(sr.new_this_period),
       },
-      gender_status: genderStatus.rows,   // [{gender, status, count}]
+      registrations_trend: trendQ.rows.map((r) => ({ period: r.period, users: toNum(r.users), sanghas: toNum(r.sanghas) })),
+      users_by_state:      usersByStateQ.rows.map((r) => ({ state: r.state, count: toNum(r.count) })),
+      sanghas_by_state:    sanghasByStateQ.rows.map((r) => ({ state: r.state, count: toNum(r.count) })),
+      gender_distribution: genderQ.rows.map((r) => ({ gender: r.gender, count: toNum(r.count) })),
+      user_status_dist:    userStatusQ.rows.map((r) => ({ status: r.status, count: toNum(r.count) })),
+      sangha_status_dist:  sanghaStatusQ.rows.map((r) => ({ status: r.status, count: toNum(r.count) })),
+      top_sanghas:         topSanghasQ.rows.map((r) => ({ sangha_name: r.sangha_name, state: r.state, member_count: toNum(r.member_count) })),
+      users_by_district:   usersByDistrictQ.rows.map((r) => ({ district: r.district, count: toNum(r.count) })),
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    console.error("[getGeneralReport]", err);
+    return res.status(500).json({ message: "Failed to fetch general report", error: err.message });
   }
-};
+}
 
-// ─── GET /admin/reports/general/date-registration ────────────
-// Date-wise user & sangha registration for sparkline / bar chart
-const getDateRegistration = async (req, res) => {
+// ─── GET /admin/reports/advanced (legacy — step-completion analytics) ─────────
+
+async function getAdvancedReport(req, res) {
   try {
-    const { start, end } = getDefaultRange(req.query.start_date, req.query.end_date);
-    const p = [start, end + ' 23:59:59'];
+    const { from, to } = req.query;
+    const dateWhere = `
+      AND p.created_at >= COALESCE($1::timestamptz, '-infinity')
+      AND p.created_at <= COALESCE($2::timestamptz, 'infinity')
+    `;
+    const dateParams = [from || null, to || null];
 
-    const [users, sanghas] = await Promise.all([
-      pool.query(
-        `SELECT DATE(created_at) AS date, COUNT(*) AS count
-         FROM users WHERE role='user' AND is_deleted=FALSE AND created_at BETWEEN $1 AND $2
-         GROUP BY DATE(created_at) ORDER BY date`, p
-      ),
-      pool.query(
-        `SELECT DATE(created_at) AS date, COUNT(*) AS count
-         FROM sanghas WHERE created_at BETWEEN $1 AND $2
-         GROUP BY DATE(created_at) ORDER BY date`, p
-      ),
-    ]);
-
-    res.json({
-      date_range:           { start_date: start, end_date: end },
-      user_registrations:   users.rows,
-      sangha_registrations: sanghas.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/general/sidebar-user-analytics ───────
-// Aggregate (no date filter) for sidebar user analytics panel
-const getSidebarUserAnalytics = async (req, res) => {
-  try {
-    const [statusDist, genderDist, reviewerBreakdown] = await Promise.all([
-      pool.query(
-        `SELECT p.status, COUNT(*) AS count
-         FROM profiles p
-         JOIN users u ON u.id = p.user_id
-         WHERE u.is_deleted=FALSE
-         GROUP BY p.status ORDER BY count DESC`
-      ),
-      pool.query(
-        `SELECT pd.gender, p.status, COUNT(*) AS count
-         FROM profiles p
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status IN ('approved','rejected','changes_requested')
-         GROUP BY pd.gender, p.status ORDER BY pd.gender, count DESC`
-      ),
-      pool.query(
-        `SELECT u.role AS reviewer_role, p.status, COUNT(*) AS count
-         FROM profiles p
-         JOIN users u ON u.id = p.reviewed_by
-         WHERE p.status IN ('approved','rejected')
-         GROUP BY u.role, p.status ORDER BY u.role`
-      ),
-    ]);
-
-    res.json({
-      status_distribution: statusDist.rows,
-      gender_status:       genderDist.rows,
-      reviewer_breakdown:  reviewerBreakdown.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/general/sidebar-sangha-analytics ─────
-// Aggregate sangha data for sidebar sangha analytics panel
-const getSidebarSanghaAnalytics = async (req, res) => {
-  try {
-    const [statusDist, byState, memberCounts] = await Promise.all([
-      pool.query(`SELECT status, COUNT(*) AS count FROM sanghas GROUP BY status ORDER BY count DESC`),
-      pool.query(`SELECT state, COUNT(*) AS count FROM sanghas GROUP BY state ORDER BY count DESC`),
-      pool.query(
-        `SELECT s.id, s.sangha_name, COUNT(sm.id) AS member_count
-         FROM sanghas s
-         LEFT JOIN sangha_members sm ON sm.sangha_id = s.id
-         WHERE s.status='approved'
-         GROUP BY s.id, s.sangha_name ORDER BY member_count DESC LIMIT 10`
-      ),
-    ]);
-
-    res.json({
-      status_distribution: statusDist.rows,
-      by_state:            byState.rows,
-      top_by_members:      memberCounts.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/advanced/population ──────────────────
-const getPopulationStats = async (req, res) => {
-  try {
-    const [families, genderDist, marriedDist, disabilityDist, membersTotal, membersGender] = await Promise.all([
-      pool.query(`SELECT COUNT(*) FROM profiles WHERE status='approved'`),
-      pool.query(
-        `SELECT pd.gender, COUNT(*) AS count
-         FROM profiles p JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved' GROUP BY pd.gender`
-      ),
-      pool.query(
-        `SELECT is_married, COUNT(*) AS count
-         FROM profiles p JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved' GROUP BY is_married`
-      ),
-      pool.query(
-        `SELECT has_disability, COUNT(*) AS count
-         FROM profiles p JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved' GROUP BY has_disability`
-      ),
-      pool.query(
-        `SELECT COUNT(*) FROM family_members fm
-         JOIN profiles p ON p.id = fm.profile_id WHERE p.status='approved'`
-      ),
-      pool.query(
-        `SELECT fm.gender, COUNT(*) AS count
-         FROM family_members fm JOIN profiles p ON p.id = fm.profile_id
-         WHERE p.status='approved' GROUP BY fm.gender`
-      ),
-    ]);
-
-    res.json({
-      total_families:       parseInt(families.rows[0].count),
-      total_population:     parseInt(membersTotal.rows[0].count),
-      gender_distribution:  genderDist.rows,
-      family_member_gender: membersGender.rows,
-      marriage_status:      marriedDist.rows,
-      disability_status:    disabilityDist.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/advanced/age-groups ──────────────────
-const getAgeGroups = async (req, res) => {
-  try {
-    const [profileAges, memberAges] = await Promise.all([
-      pool.query(
-        `SELECT
-           CASE
-             WHEN EXTRACT(YEAR FROM AGE(pd.date_of_birth)) < 18            THEN 'Under 18'
-             WHEN EXTRACT(YEAR FROM AGE(pd.date_of_birth)) BETWEEN 18 AND 30 THEN '18 – 30'
-             WHEN EXTRACT(YEAR FROM AGE(pd.date_of_birth)) BETWEEN 31 AND 45 THEN '31 – 45'
-             WHEN EXTRACT(YEAR FROM AGE(pd.date_of_birth)) BETWEEN 46 AND 60 THEN '46 – 60'
-             ELSE 'Above 60'
-           END AS age_group,
-           COUNT(*) AS count
-         FROM profiles p
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved' AND pd.date_of_birth IS NOT NULL
-         GROUP BY age_group ORDER BY age_group`
-      ),
-      pool.query(
-        `SELECT
-           CASE
-             WHEN EXTRACT(YEAR FROM AGE(fm.dob)) < 18            THEN 'Under 18'
-             WHEN EXTRACT(YEAR FROM AGE(fm.dob)) BETWEEN 18 AND 30 THEN '18 – 30'
-             WHEN EXTRACT(YEAR FROM AGE(fm.dob)) BETWEEN 31 AND 45 THEN '31 – 45'
-             WHEN EXTRACT(YEAR FROM AGE(fm.dob)) BETWEEN 46 AND 60 THEN '46 – 60'
-             ELSE 'Above 60'
-           END AS age_group,
-           fm.gender,
-           COUNT(*) AS count
-         FROM family_members fm
-         JOIN profiles p ON p.id = fm.profile_id
-         WHERE p.status='approved' AND fm.dob IS NOT NULL
-         GROUP BY age_group, fm.gender ORDER BY age_group, fm.gender`
-      ),
-    ]);
-
-    res.json({
-      profile_age_groups:           profileAges.rows,
-      member_age_groups_by_gender:  memberAges.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/advanced/education ───────────────────
-const getEducationStats = async (req, res) => {
-  try {
-    const [educationLevels, professionTypes, selfEmployed, industries, studyStatus, workStatus] = await Promise.all([
-      pool.query(
-        `SELECT me.highest_education, COUNT(*) AS count
-         FROM member_education me JOIN profiles p ON p.id = me.profile_id
-         WHERE p.status='approved' AND me.highest_education IS NOT NULL
-         GROUP BY me.highest_education ORDER BY count DESC`
-      ),
-      pool.query(
-        `SELECT me.profession_type::text AS profession_type, COUNT(*) AS count
-         FROM member_education me JOIN profiles p ON p.id = me.profile_id
-         WHERE p.status='approved' AND me.profession_type IS NOT NULL
-         GROUP BY me.profession_type ORDER BY count DESC`
-      ),
-      pool.query(
-        `SELECT me.self_employed_type::text AS self_employed_type, COUNT(*) AS count
-         FROM member_education me JOIN profiles p ON p.id = me.profile_id
-         WHERE p.status='approved' AND me.self_employed_type IS NOT NULL
-         GROUP BY me.self_employed_type ORDER BY count DESC`
-      ),
-      pool.query(
-        `SELECT me.industry, COUNT(*) AS count
-         FROM member_education me JOIN profiles p ON p.id = me.profile_id
-         WHERE p.status='approved' AND me.industry IS NOT NULL
-         GROUP BY me.industry ORDER BY count DESC LIMIT 15`
-      ),
-      pool.query(
-        `SELECT is_currently_studying, COUNT(*) AS count
-         FROM member_education me JOIN profiles p ON p.id = me.profile_id
-         WHERE p.status='approved' GROUP BY is_currently_studying`
-      ),
-      pool.query(
-        `SELECT is_currently_working, COUNT(*) AS count
-         FROM member_education me JOIN profiles p ON p.id = me.profile_id
-         WHERE p.status='approved' GROUP BY is_currently_working`
-      ),
-    ]);
-
-    res.json({
-      education_levels:   educationLevels.rows,
-      profession_types:   professionTypes.rows,
-      self_employed_types: selfEmployed.rows,
-      industries:         industries.rows,
-      study_status:       studyStatus.rows,
-      work_status:        workStatus.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/advanced/geo ─────────────────────────
-const getGeoStats = async (req, res) => {
-  try {
-    const [byState, byDistrict, byPincode, byCity, byCityGender, byPincodeGender] = await Promise.all([
-      pool.query(
-        `SELECT a.state, COUNT(*) AS count
-         FROM addresses a JOIN profiles p ON p.id = a.profile_id
-         WHERE p.status='approved' AND a.state IS NOT NULL
-         GROUP BY a.state ORDER BY count DESC`
-      ),
-      pool.query(
-        `SELECT a.district, a.state, COUNT(*) AS count
-         FROM addresses a JOIN profiles p ON p.id = a.profile_id
-         WHERE p.status='approved' AND a.district IS NOT NULL
-         GROUP BY a.district, a.state ORDER BY count DESC LIMIT 20`
-      ),
-      pool.query(
-        `SELECT a.pincode, COUNT(*) AS count
-         FROM addresses a JOIN profiles p ON p.id = a.profile_id
-         WHERE p.status='approved' AND a.pincode IS NOT NULL
-         GROUP BY a.pincode ORDER BY count DESC LIMIT 20`
-      ),
-      pool.query(
-        `SELECT a.city, COUNT(*) AS count
-         FROM addresses a JOIN profiles p ON p.id = a.profile_id
-         WHERE p.status='approved' AND a.city IS NOT NULL
-         GROUP BY a.city ORDER BY count DESC LIMIT 15`
-      ),
-      pool.query(
-        `SELECT a.city, pd.gender, COUNT(*) AS count
-         FROM addresses a
-         JOIN profiles p ON p.id = a.profile_id
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved' AND a.city IS NOT NULL
-         GROUP BY a.city, pd.gender
-         ORDER BY a.city, pd.gender`
-      ),
-      pool.query(
-        `SELECT a.pincode, pd.gender, COUNT(*) AS count
-         FROM addresses a
-         JOIN profiles p ON p.id = a.profile_id
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved' AND a.pincode IS NOT NULL
-         GROUP BY a.pincode, pd.gender
-         ORDER BY a.pincode, pd.gender`
-      ),
-    ]);
-
-    res.json({
-      by_state:    byState.rows,
-      by_district: byDistrict.rows,
-      by_pincode:  byPincode.rows,
-      by_city:     byCity.rows,
-      by_city_gender: byCityGender.rows,
-      by_pincode_gender: byPincodeGender.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/advanced/religious ───────────────────
-const getReligiousStats = async (req, res) => {
-  try {
-    const [gotraRows, kuladevataRows, pravaraRows] = await Promise.all([
-      pool.query(
-        `SELECT rd.gotra, pd.gender, COUNT(*) AS count
-         FROM religious_details rd
-         JOIN profiles p ON p.id = rd.profile_id
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved' AND rd.gotra IS NOT NULL AND TRIM(rd.gotra) <> ''
-         GROUP BY rd.gotra, pd.gender
-         ORDER BY COUNT(*) DESC`
-      ),
-      pool.query(
-        `SELECT COALESCE(rd.kuladevata, rd.kuladevata_other) AS kuladevata, pd.gender, COUNT(*) AS count
-         FROM religious_details rd
-         JOIN profiles p ON p.id = rd.profile_id
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved' AND COALESCE(rd.kuladevata, rd.kuladevata_other) IS NOT NULL
-         GROUP BY COALESCE(rd.kuladevata, rd.kuladevata_other), pd.gender
-         ORDER BY COUNT(*) DESC`
-      ),
-      pool.query(
-        `SELECT rd.pravara, pd.gender, COUNT(*) AS count
-         FROM religious_details rd
-         JOIN profiles p ON p.id = rd.profile_id
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved' AND rd.pravara IS NOT NULL AND TRIM(rd.pravara) <> ''
-         GROUP BY rd.pravara, pd.gender
-         ORDER BY COUNT(*) DESC`
-      ),
-    ]);
-
-    res.json({
-      gotra_gender: gotraRows.rows,
-      kuladevata_gender: kuladevataRows.rows,
-      pravara_gender: pravaraRows.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/advanced/income ──────────────────────
-const getIncomeStats = async (req, res) => {
-  try {
-    const [selfIncome, familyIncome, selfByGender] = await Promise.all([
-      pool.query(
-        `SELECT ed.self_income::text AS income_range, COUNT(*) AS count
-         FROM economic_details ed JOIN profiles p ON p.id = ed.profile_id
-         WHERE p.status='approved' AND ed.self_income IS NOT NULL
-         GROUP BY ed.self_income ORDER BY count DESC`
-      ),
-      pool.query(
-        `SELECT ed.family_income::text AS income_range, COUNT(*) AS count
-         FROM economic_details ed JOIN profiles p ON p.id = ed.profile_id
-         WHERE p.status='approved' AND ed.family_income IS NOT NULL
-         GROUP BY ed.family_income ORDER BY count DESC`
-      ),
-      pool.query(
-        `SELECT pd.gender, ed.self_income::text AS income_range, COUNT(*) AS count
-         FROM economic_details ed
-         JOIN profiles p ON p.id = ed.profile_id
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved' AND ed.self_income IS NOT NULL
-         GROUP BY pd.gender, ed.self_income ORDER BY pd.gender, count DESC`
-      ),
-    ]);
-
-    res.json({
-      self_income_distribution:   selfIncome.rows,
-      family_income_distribution: familyIncome.rows,
-      self_income_by_gender:      selfByGender.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/advanced/economic ────────────────────
-const getEconomicStats = async (req, res) => {
-  try {
-    const [assetsSummary, investSummary, professionBreakdown] = await Promise.all([
-      pool.query(
-        `SELECT
-           COUNT(*) FILTER (WHERE fac_own_house = TRUE)          AS own_house,
-           COUNT(*) FILTER (WHERE fac_agricultural_land = TRUE)  AS agricultural_land,
-           COUNT(*) FILTER (WHERE fac_two_wheeler = TRUE)        AS two_wheeler,
-           COUNT(*) FILTER (WHERE fac_car = TRUE)                AS four_wheeler,
-           COUNT(*) FILTER (WHERE fac_rented_house = TRUE)       AS rented_house,
-           COUNT(*)                                              AS total
-         FROM economic_details ed
-         JOIN profiles p ON p.id = ed.profile_id
-         WHERE p.status='approved'`
-      ),
-      pool.query(
-        `SELECT
-           COUNT(*) FILTER (WHERE inv_fixed_deposits = TRUE)     AS fixed_deposits,
-           COUNT(*) FILTER (WHERE inv_mutual_funds_sip = TRUE)   AS mutual_funds_sip,
-           COUNT(*) FILTER (WHERE inv_shares_demat = TRUE)       AS shares_demat,
-           COUNT(*) FILTER (WHERE inv_others = TRUE)             AS other_investments,
-           COUNT(*)                                              AS total
-         FROM economic_details ed
-         JOIN profiles p ON p.id = ed.profile_id
-         WHERE p.status='approved'`
-      ),
-      pool.query(
-        `SELECT me.profession_type::text AS profession, COUNT(*) AS count
-         FROM member_education me JOIN profiles p ON p.id = me.profile_id
-         WHERE p.status='approved' AND me.profession_type IS NOT NULL
-         GROUP BY me.profession_type ORDER BY count DESC`
-      ),
-    ]);
-
-    res.json({
-      assets:               assetsSummary.rows[0],
-      investments:          investSummary.rows[0],
-      profession_breakdown: professionBreakdown.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/advanced/insurance ───────────────────
-const getInsuranceStats = async (req, res) => {
-  try {
-    const [summary, byProfile] = await Promise.all([
-      pool.query(
-        `SELECT
-           COUNT(*) FILTER (WHERE array_length(health_coverage, 1) > 0)       AS has_health,
-           COUNT(*) FILTER (WHERE array_length(life_coverage, 1) > 0)         AS has_life,
-           COUNT(*) FILTER (WHERE array_length(term_coverage, 1) > 0)         AS has_term,
-           COUNT(*) FILTER (WHERE array_length(konkani_card_coverage, 1) > 0) AS has_konkani_card,
-           COUNT(*) FILTER (WHERE
-             array_length(health_coverage, 1) IS NULL AND
-             array_length(life_coverage, 1)  IS NULL AND
-             array_length(term_coverage, 1)  IS NULL
-           )                                                                   AS no_insurance,
-           COUNT(*)                                                            AS total_records
-         FROM member_insurance mi
-         JOIN profiles p ON p.id = mi.profile_id
-         WHERE p.status='approved'`
-      ),
-      pool.query(
-        `SELECT pd.gender,
-           COUNT(*) FILTER (WHERE array_length(mi.health_coverage, 1) > 0) AS has_health,
-           COUNT(*) FILTER (WHERE array_length(mi.life_coverage, 1)  > 0)  AS has_life,
-           COUNT(*) FILTER (WHERE array_length(mi.term_coverage, 1)  > 0)  AS has_term
-         FROM member_insurance mi
-         JOIN profiles p ON p.id = mi.profile_id
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved'
-         GROUP BY pd.gender`
-      ),
-    ]);
-
-    res.json({
-      insurance_summary:    summary.rows[0],
-      insurance_by_gender:  byProfile.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/advanced/documents ───────────────────
-const getDocumentStats = async (req, res) => {
-  try {
-    const [summary, byGender] = await Promise.all([
-      pool.query(
-        `SELECT
-           COUNT(*) FILTER (WHERE aadhaar_coverage IS NOT NULL AND aadhaar_coverage::text <> 'none') AS has_aadhaar,
-           COUNT(*) FILTER (WHERE pan_coverage     IS NOT NULL AND pan_coverage::text     <> 'none') AS has_pan,
-           COUNT(*) FILTER (WHERE voter_id_coverage IS NOT NULL AND voter_id_coverage::text <> 'none') AS has_voter_id,
-           COUNT(*) FILTER (WHERE land_doc_coverage IS NOT NULL AND land_doc_coverage::text <> 'none') AS has_land_doc,
-           COUNT(*) FILTER (WHERE dl_coverage       IS NOT NULL AND dl_coverage::text       <> 'none') AS has_dl,
-           COUNT(*)                                                                                    AS total_records
-         FROM member_documents md
-         JOIN profiles p ON p.id = md.profile_id
-         WHERE p.status='approved'`
-      ),
-      pool.query(
-        `SELECT pd.gender,
-           COUNT(*) FILTER (WHERE md.aadhaar_coverage IS NOT NULL AND md.aadhaar_coverage::text <> 'none') AS has_aadhaar,
-           COUNT(*) FILTER (WHERE md.pan_coverage     IS NOT NULL AND md.pan_coverage::text     <> 'none') AS has_pan,
-           COUNT(*) FILTER (WHERE md.voter_id_coverage IS NOT NULL AND md.voter_id_coverage::text <> 'none') AS has_voter_id
-         FROM member_documents md
-         JOIN profiles p ON p.id = md.profile_id
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status='approved'
-         GROUP BY pd.gender`
-      ),
-    ]);
-
-    res.json({
-      document_summary:    summary.rows[0],
-      documents_by_gender: byGender.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/advanced/gender-status-detail ────────
-// Deep-linked from General dashboard Details button.
-// Returns full gender × status × reviewer breakdown.
-const getGenderStatusDetail = async (req, res) => {
-  try {
-    const [genderStatus, reviewerGender] = await Promise.all([
-      pool.query(
-        `SELECT pd.gender, p.status, COUNT(*) AS count
-         FROM profiles p
-         JOIN personal_details pd ON pd.profile_id = p.id
-         WHERE p.status IN ('approved','rejected','changes_requested')
-         GROUP BY pd.gender, p.status
-         ORDER BY pd.gender, p.status`
-      ),
-      pool.query(
-        `SELECT pd.gender, p.status, u.role AS reviewer_role, COUNT(*) AS count
-         FROM profiles p
-         JOIN personal_details pd ON pd.profile_id = p.id
-         JOIN users u ON u.id = p.reviewed_by
-         WHERE p.status IN ('approved','rejected')
-         GROUP BY pd.gender, p.status, u.role
-         ORDER BY pd.gender, p.status, u.role`
-      ),
-    ]);
-
-    res.json({
-      gender_status_breakdown:    genderStatus.rows,
-      gender_status_by_reviewer:  reviewerGender.rows,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/export ───────────────────────────────
-// Returns raw data for client-side CSV/Excel export.
-const getExportData = async (req, res) => {
-  try {
-    const { category, start_date, end_date } = req.query;
-
-    let rows = [];
-    let filename = 'report';
-
-    switch (category) {
-      case 'users': {
-        const r = await pool.query(
-          `SELECT u.email, u.phone, u.created_at AS registered_on,
-                  p.status, p.submitted_at, p.reviewed_at,
-                  pd.first_name, pd.last_name, pd.gender, pd.date_of_birth,
-                  pd.is_married, s.sangha_name
-           FROM users u
-           JOIN profiles p ON p.user_id = u.id
-           LEFT JOIN personal_details pd ON pd.profile_id = p.id
-           LEFT JOIN sanghas s ON s.id = p.sangha_id
-           WHERE u.role='user' AND u.is_deleted=FALSE
-           ORDER BY u.created_at DESC`
-        );
-        rows = r.rows; filename = 'users_report';
-        break;
-      }
-      case 'sangha': {
-        const r = await pool.query(
-          `SELECT s.sangha_name, s.email, s.phone, s.district, s.state,
-                  s.status, s.is_blocked, s.created_at, s.updated_at
-           FROM sanghas s ORDER BY s.created_at DESC`
-        );
-        rows = r.rows; filename = 'sangha_report';
-        break;
-      }
-      case 'population': {
-        const r = await pool.query(
-          `SELECT pd.first_name, pd.last_name, pd.gender, pd.date_of_birth,
-                  pd.is_married, pd.has_disability,
-                  p.status, s.sangha_name
-           FROM profiles p
-           JOIN personal_details pd ON pd.profile_id = p.id
-           LEFT JOIN sanghas s ON s.id = p.sangha_id
-           WHERE p.status='approved' ORDER BY pd.last_name`
-        );
-        rows = r.rows; filename = 'population_report';
-        break;
-      }
-      case 'economic': {
-        const r = await pool.query(
-          `SELECT pd.first_name, pd.last_name, pd.gender,
-                  ed.self_income::text, ed.family_income::text,
-                  ed.fac_own_house, ed.fac_agricultural_land,
-                  ed.fac_two_wheeler, ed.fac_car, ed.fac_rented_house,
-                  ed.inv_fixed_deposits, ed.inv_mutual_funds_sip,
-                  ed.inv_shares_demat, ed.inv_others
-           FROM economic_details ed
-           JOIN profiles p ON p.id = ed.profile_id
-           JOIN personal_details pd ON pd.profile_id = p.id
-           WHERE p.status='approved' ORDER BY pd.last_name`
-        );
-        rows = r.rows; filename = 'economic_report';
-        break;
-      }
-      case 'education': {
-        const r = await pool.query(
-          `SELECT pd.first_name, pd.last_name, pd.gender,
-                  me.member_name, me.member_relation, me.highest_education,
-                  me.profession_type::text, me.self_employed_type::text,
-                  me.industry, me.is_currently_studying, me.is_currently_working
-           FROM member_education me
-           JOIN profiles p ON p.id = me.profile_id
-           JOIN personal_details pd ON pd.profile_id = p.id
-           WHERE p.status='approved' ORDER BY pd.last_name`
-        );
-        rows = r.rows; filename = 'education_report';
-        break;
-      }
-      case 'insurance': {
-        const r = await pool.query(
-          `SELECT pd.first_name, pd.last_name, pd.gender,
-                  mi.member_name, mi.member_relation,
-                  mi.health_coverage, mi.life_coverage,
-                  mi.term_coverage, mi.konkani_card_coverage
-           FROM member_insurance mi
-           JOIN profiles p ON p.id = mi.profile_id
-           JOIN personal_details pd ON pd.profile_id = p.id
-           WHERE p.status='approved' ORDER BY pd.last_name`
-        );
-        rows = r.rows; filename = 'insurance_report';
-        break;
-      }
-      case 'documents': {
-        const r = await pool.query(
-          `SELECT pd.first_name, pd.last_name, pd.gender,
-                  md.member_name, md.member_relation,
-                  md.aadhaar_coverage::text, md.pan_coverage::text,
-                  md.voter_id_coverage::text, md.land_doc_coverage::text, md.dl_coverage::text
-           FROM member_documents md
-           JOIN profiles p ON p.id = md.profile_id
-           JOIN personal_details pd ON pd.profile_id = p.id
-           WHERE p.status='approved' ORDER BY pd.last_name`
-        );
-        rows = r.rows; filename = 'documents_report';
-        break;
-      }
-      case 'geo': {
-        const r = await pool.query(
-          `SELECT pd.first_name, pd.last_name, pd.gender,
-                  a.address_type, a.city, a.district, a.state, a.pincode, a.taluk
-           FROM addresses a
-           JOIN profiles p ON p.id = a.profile_id
-           JOIN personal_details pd ON pd.profile_id = p.id
-           WHERE p.status='approved' ORDER BY a.state, a.district`
-        );
-        rows = r.rows; filename = 'geo_report';
-        break;
-      }
-      case 'gender_status': {
-        const r = await pool.query(
-          `SELECT pd.first_name, pd.last_name, pd.gender,
-                  p.status, p.reviewed_at,
-                  u.role AS reviewer_role
-           FROM profiles p
-           JOIN personal_details pd ON pd.profile_id = p.id
-           LEFT JOIN users u ON u.id = p.reviewed_by
-           WHERE p.status IN ('approved','rejected','changes_requested')
-           ORDER BY pd.gender, p.status`
-        );
-        rows = r.rows; filename = 'gender_status_report';
-        break;
-      }
-      default:
-        return res.status(400).json({ message: 'Invalid category. Valid: users, sangha, population, economic, education, insurance, documents, geo, gender_status' });
-    }
-
-    res.json({ filename, data: rows, total: rows.length });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// ─── GET /admin/reports/sangha-analytics ─────────────────────
-const getSanghaAnalytics = async (req, res) => {
-  try {
-    const towns = [].concat(req.query.towns ?? []);
-    const limit = parseInt(req.query.limit ?? '3');
-
-    const townFilter = towns.length > 0
-      ? `AND LOWER(COALESCE(s.city, s.village_town, s.district)) = ANY(ARRAY[${towns.map((_, i) => `$${i + 1}`).join(',')}]::text[])`
-      : '';
-    const params = towns.map((t) => t.toLowerCase());
-
-    const topTowns = await pool.query(
-      `SELECT
-         COALESCE(s.city, s.village_town, s.district) AS town,
-         s.state,
-         COUNT(DISTINCT s.id)                         AS sangha_count,
-         COUNT(DISTINCT sm.id)                        AS member_count
-       FROM sanghas s
-       LEFT JOIN sangha_members sm ON sm.sangha_id = s.id
-       WHERE s.status = 'approved'
-       ${townFilter}
-       GROUP BY COALESCE(s.city, s.village_town, s.district), s.state
-       ORDER BY sangha_count DESC
-       LIMIT $${params.length + 1}`,
-      [...params, limit]
+    const stepQ = await pool.query(
+      `SELECT COUNT(*) AS total,
+         COUNT(*) FILTER (WHERE step1_completed) AS step1, COUNT(*) FILTER (WHERE step2_completed) AS step2,
+         COUNT(*) FILTER (WHERE step3_completed) AS step3, COUNT(*) FILTER (WHERE step4_completed) AS step4,
+         COUNT(*) FILTER (WHERE step5_completed) AS step5, COUNT(*) FILTER (WHERE step6_completed) AS step6,
+         COUNT(*) FILTER (WHERE step7_completed) AS step7
+       FROM profiles p WHERE 1=1 ${dateWhere}`,
+      dateParams
     );
 
-    const ageAnalytics = await pool.query(
-      `SELECT
-         COALESCE(s.city, s.village_town, s.district) AS town,
-         CASE
-           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) < 18            THEN 'Under 18'
-           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) BETWEEN 18 AND 30 THEN '18 – 30'
-           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) BETWEEN 31 AND 45 THEN '31 – 45'
-           WHEN EXTRACT(YEAR FROM AGE(sm.dob)) BETWEEN 46 AND 60 THEN '46 – 60'
-           ELSE 'Above 60'
-         END AS age_group,
-         COUNT(*) AS count
-       FROM sangha_members sm
-       JOIN sanghas s ON s.id = sm.sangha_id
-       WHERE s.status = 'approved' AND sm.dob IS NOT NULL
-       ${townFilter}
-       GROUP BY town, age_group
-       ORDER BY town, age_group`,
-      params
-    );
+    const stepRow = stepQ.rows[0];
+    const totalProfiles = parseInt(stepRow.total, 10) || 1;
+    const stepLabels = [
+      { step: "step1", label: "Personal Details"     },
+      { step: "step2", label: "Religious Details"    },
+      { step: "step3", label: "Family Info"          },
+      { step: "step4", label: "Location / Address"   },
+      { step: "step5", label: "Education & Profession" },
+      { step: "step6", label: "Economic Details"     },
+      { step: "step7", label: "Sangha Membership"    },
+    ];
+    const step_completion = stepLabels.map(({ step, label }) => {
+      const count = parseInt(stepRow[step], 10) || 0;
+      return { step, label, count, pct: Math.round((count / totalProfiles) * 100) };
+    });
 
-    const memberTypeAnalytics = await pool.query(
-      `SELECT
-         COALESCE(s.city, s.village_town, s.district) AS town,
-         sm.member_type,
-         COUNT(*) AS count
-       FROM sangha_members sm
-       JOIN sanghas s ON s.id = sm.sangha_id
-       WHERE s.status = 'approved'
-       ${townFilter}
-       GROUP BY town, sm.member_type
-       ORDER BY town`,
-      params
-    );
+    const safe = async (sql, params = []) => {
+      try { return (await pool.query(sql, params)).rows; } catch (e) { return []; }
+    };
 
-    const economicByTown = await pool.query(
-      `SELECT
-         COALESCE(s.city, s.village_town, s.district) AS town,
-         COUNT(DISTINCT p.id)                         AS approved_user_count,
-         COUNT(DISTINCT sm_member.id)                 AS sangha_member_count
-       FROM sanghas s
-       LEFT JOIN profiles p ON p.sangha_id = s.id AND p.status = 'approved'
-       LEFT JOIN sangha_members sm_member ON sm_member.sangha_id = s.id
-       WHERE s.status = 'approved'
-       ${townFilter}
-       GROUP BY COALESCE(s.city, s.village_town, s.district)
-       ORDER BY sangha_member_count DESC`,
-      params
-    );
+    const [ageQ, educationQ, professionQ, incomeQ, assetsQ, insuranceQ, docQ, gotraQ, kuladevataQ, familySizeQ, languageQ, sanghaRolesQ, disabilityQ] =
+      await Promise.all([
+        safe(`SELECT CASE WHEN EXTRACT(YEAR FROM AGE(pd.date_of_birth)) < 18 THEN 'Under 18' WHEN EXTRACT(YEAR FROM AGE(pd.date_of_birth)) < 26 THEN '18–25' WHEN EXTRACT(YEAR FROM AGE(pd.date_of_birth)) < 36 THEN '26–35' WHEN EXTRACT(YEAR FROM AGE(pd.date_of_birth)) < 46 THEN '36–45' WHEN EXTRACT(YEAR FROM AGE(pd.date_of_birth)) < 56 THEN '46–55' WHEN EXTRACT(YEAR FROM AGE(pd.date_of_birth)) < 66 THEN '56–65' ELSE '65+' END AS bucket, COUNT(*) AS count FROM personal_details pd JOIN profiles p ON p.id = pd.profile_id WHERE pd.date_of_birth IS NOT NULL ${dateWhere} GROUP BY bucket ORDER BY MIN(pd.date_of_birth) DESC`, dateParams),
+        safe(`SELECT me.highest_education AS level, COUNT(*) AS count FROM member_education me JOIN profiles p ON p.id = me.profile_id WHERE me.highest_education IS NOT NULL ${dateWhere} GROUP BY me.highest_education ORDER BY count DESC`, dateParams),
+        safe(`SELECT me.profession_type::text AS type, COUNT(*) AS count FROM member_education me JOIN profiles p ON p.id = me.profile_id WHERE me.profession_type IS NOT NULL ${dateWhere} GROUP BY me.profession_type ORDER BY count DESC`, dateParams),
+        safe(`SELECT ed.self_income::text AS bracket, COUNT(*) FILTER (WHERE ed.self_income IS NOT NULL) AS self_count, COUNT(*) FILTER (WHERE ed.family_income IS NOT NULL) AS family_count FROM economic_details ed JOIN profiles p ON p.id = ed.profile_id WHERE ed.self_income IS NOT NULL ${dateWhere} GROUP BY ed.self_income ORDER BY self_count DESC`, dateParams),
+        safe(`SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE fac_own_house) AS own_house, COUNT(*) FILTER (WHERE fac_rented_house) AS rented_house, COUNT(*) FILTER (WHERE fac_agricultural_land) AS agricultural_land, COUNT(*) FILTER (WHERE fac_two_wheeler) AS two_wheeler, COUNT(*) FILTER (WHERE fac_car) AS car, COUNT(*) FILTER (WHERE inv_fixed_deposits) AS fixed_deposits, COUNT(*) FILTER (WHERE inv_mutual_funds_sip) AS mutual_funds_sip, COUNT(*) FILTER (WHERE inv_shares_demat) AS shares_demat, COUNT(*) FILTER (WHERE inv_others) AS inv_others FROM economic_details ed JOIN profiles p ON p.id = ed.profile_id WHERE 1=1 ${dateWhere}`, dateParams),
+        safe(`SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE array_length(health_coverage, 1) > 0) AS health, COUNT(*) FILTER (WHERE array_length(life_coverage, 1) > 0) AS life_ins, COUNT(*) FILTER (WHERE array_length(term_coverage, 1) > 0) AS term, COUNT(*) FILTER (WHERE array_length(konkani_card_coverage, 1) > 0) AS konkani_card FROM member_insurance mi JOIN profiles p ON p.id = mi.profile_id WHERE 1=1 ${dateWhere}`, dateParams),
+        safe(`SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE aadhaar_coverage IS NOT NULL) AS aadhaar, COUNT(*) FILTER (WHERE pan_coverage IS NOT NULL) AS pan, COUNT(*) FILTER (WHERE voter_id_coverage IS NOT NULL) AS voter, COUNT(*) FILTER (WHERE land_doc_coverage IS NOT NULL) AS land_doc, COUNT(*) FILTER (WHERE dl_coverage IS NOT NULL) AS driving_lic FROM member_documents md JOIN profiles p ON p.id = md.profile_id WHERE 1=1 ${dateWhere}`, dateParams),
+        safe(`SELECT rd.gotra, COUNT(*) AS count FROM religious_details rd JOIN profiles p ON p.id = rd.profile_id WHERE rd.gotra IS NOT NULL AND rd.gotra <> '' ${dateWhere} GROUP BY rd.gotra ORDER BY count DESC LIMIT 15`, dateParams),
+        safe(`SELECT COALESCE(NULLIF(rd.kuladevata_other, ''), rd.kuladevata) AS kuladevata, COUNT(*) AS count FROM religious_details rd JOIN profiles p ON p.id = rd.profile_id WHERE rd.kuladevata IS NOT NULL ${dateWhere} GROUP BY COALESCE(NULLIF(rd.kuladevata_other, ''), rd.kuladevata) ORDER BY count DESC LIMIT 15`, dateParams),
+        safe(`SELECT CASE WHEN member_count=1 THEN '1' WHEN member_count=2 THEN '2' WHEN member_count=3 THEN '3' WHEN member_count=4 THEN '4' WHEN member_count=5 THEN '5' ELSE '6+' END AS size, COUNT(*) AS count FROM (SELECT fi.profile_id, COUNT(fm.id) AS member_count FROM family_info fi LEFT JOIN family_members fm ON fm.family_info_id=fi.id AND fm.status='active' JOIN profiles p ON p.id=fi.profile_id WHERE 1=1 ${dateWhere} GROUP BY fi.profile_id) sub GROUP BY size ORDER BY MIN(member_count)`, dateParams),
+        safe(`SELECT COALESCE(NULLIF(ml.language_other,''), ml.language) AS language, COUNT(*) AS count FROM member_languages ml JOIN member_education me ON me.id=ml.member_education_id JOIN profiles p ON p.id=me.profile_id WHERE ml.language IS NOT NULL ${dateWhere} GROUP BY COALESCE(NULLIF(ml.language_other,''), ml.language) ORDER BY count DESC LIMIT 15`, dateParams),
+        safe(`SELECT ms.role, COUNT(*) AS count FROM member_sanghas ms JOIN profiles p ON p.id=ms.profile_id WHERE ms.role IS NOT NULL ${dateWhere} GROUP BY ms.role ORDER BY count DESC`, dateParams),
+        safe(`SELECT (pd.has_disability IS NOT NULL AND pd.has_disability NOT IN ('no','No','NO','')) AS has_disability, COUNT(*) AS count FROM personal_details pd JOIN profiles p ON p.id=pd.profile_id WHERE 1=1 ${dateWhere} GROUP BY has_disability`, dateParams),
+      ]);
 
-    const availableTowns = await pool.query(
-      `SELECT DISTINCT COALESCE(city, village_town, district) AS town, state
-       FROM sanghas WHERE status = 'approved' AND COALESCE(city, village_town, district) IS NOT NULL
-       ORDER BY town LIMIT 50`
-    );
+    const toNum = (v) => parseInt(v, 10) || 0;
+    const aRow   = assetsQ[0]   || {};
+    const aTotal = parseInt(aRow.total, 10) || 1;
+    const insRow  = insuranceQ[0] || {};
+    const insTotal = parseInt(insRow.total, 10) || 1;
+    const docRow  = docQ[0] || {};
+    const docTotal = parseInt(docRow.total, 10) || 1;
 
-    res.json({
-      top_towns: topTowns.rows,
-      age_analytics: ageAnalytics.rows,
-      member_type: memberTypeAnalytics.rows,
-      economic_by_town: economicByTown.rows,
-      available_towns: availableTowns.rows,
+    return res.json({
+      step_completion,
+      age_distribution:      ageQ.map((r) => ({ bucket: r.bucket, count: toNum(r.count) })),
+      education_levels:      educationQ.map((r) => ({ level: r.level, count: toNum(r.count) })),
+      profession_types:      professionQ.map((r) => ({ type: r.type, count: toNum(r.count) })),
+      income_brackets:       incomeQ.map((r) => ({ bracket: r.bracket, self_count: toNum(r.self_count), family_count: toNum(r.family_count) })),
+      assets_owned: [
+        { asset: "Own House",          count: toNum(aRow.own_house),        pct: Math.round(toNum(aRow.own_house)        / aTotal * 100) },
+        { asset: "Rented House",       count: toNum(aRow.rented_house),     pct: Math.round(toNum(aRow.rented_house)     / aTotal * 100) },
+        { asset: "Agricultural Land",  count: toNum(aRow.agricultural_land),pct: Math.round(toNum(aRow.agricultural_land)/ aTotal * 100) },
+        { asset: "Two Wheeler",        count: toNum(aRow.two_wheeler),      pct: Math.round(toNum(aRow.two_wheeler)      / aTotal * 100) },
+        { asset: "Car",                count: toNum(aRow.car),              pct: Math.round(toNum(aRow.car)              / aTotal * 100) },
+        { asset: "Fixed Deposits",     count: toNum(aRow.fixed_deposits),   pct: Math.round(toNum(aRow.fixed_deposits)   / aTotal * 100) },
+        { asset: "Mutual Funds / SIP", count: toNum(aRow.mutual_funds_sip), pct: Math.round(toNum(aRow.mutual_funds_sip) / aTotal * 100) },
+        { asset: "Shares / Demat",     count: toNum(aRow.shares_demat),     pct: Math.round(toNum(aRow.shares_demat)     / aTotal * 100) },
+        { asset: "Other Investments",  count: toNum(aRow.inv_others),       pct: Math.round(toNum(aRow.inv_others)       / aTotal * 100) },
+      ],
+      insurance_coverage: [
+        { type: "Health Insurance", coverage_pct: Math.round(toNum(insRow.health)      / insTotal * 100), uncovered_pct: 100 - Math.round(toNum(insRow.health)      / insTotal * 100) },
+        { type: "Life Insurance",   coverage_pct: Math.round(toNum(insRow.life_ins)    / insTotal * 100), uncovered_pct: 100 - Math.round(toNum(insRow.life_ins)    / insTotal * 100) },
+        { type: "Term Insurance",   coverage_pct: Math.round(toNum(insRow.term)        / insTotal * 100), uncovered_pct: 100 - Math.round(toNum(insRow.term)        / insTotal * 100) },
+        { type: "Konkani Card",     coverage_pct: Math.round(toNum(insRow.konkani_card)/ insTotal * 100), uncovered_pct: 100 - Math.round(toNum(insRow.konkani_card)/ insTotal * 100) },
+      ],
+      document_coverage: [
+        { doc: "Aadhaar",       yes_pct: Math.round(toNum(docRow.aadhaar)      / docTotal * 100), no_pct: 100 - Math.round(toNum(docRow.aadhaar)      / docTotal * 100) },
+        { doc: "PAN",           yes_pct: Math.round(toNum(docRow.pan)          / docTotal * 100), no_pct: 100 - Math.round(toNum(docRow.pan)          / docTotal * 100) },
+        { doc: "Voter ID",      yes_pct: Math.round(toNum(docRow.voter)        / docTotal * 100), no_pct: 100 - Math.round(toNum(docRow.voter)        / docTotal * 100) },
+        { doc: "Land Document", yes_pct: Math.round(toNum(docRow.land_doc)     / docTotal * 100), no_pct: 100 - Math.round(toNum(docRow.land_doc)     / docTotal * 100) },
+        { doc: "Driving Lic",   yes_pct: Math.round(toNum(docRow.driving_lic)  / docTotal * 100), no_pct: 100 - Math.round(toNum(docRow.driving_lic)  / docTotal * 100) },
+      ],
+      gotra_distribution:       gotraQ.map((r)      => ({ gotra:      r.gotra,      count: toNum(r.count) })),
+      kuladevata_distribution:  kuladevataQ.map((r) => ({ kuladevata: r.kuladevata, count: toNum(r.count) })),
+      family_size_distribution: familySizeQ.map((r) => ({ size:       r.size,       count: toNum(r.count) })),
+      language_distribution:    languageQ.map((r)   => ({ language:   r.language,   count: toNum(r.count) })),
+      sangha_members_by_role:   sanghaRolesQ.map((r)=> ({ role:       r.role,       count: toNum(r.count) })),
+      disability_stats:         disabilityQ.map((r) => ({ has_disability: r.has_disability, count: toNum(r.count) })),
     });
   } catch (err) {
-    console.error('sanghaAnalytics error:', err);
-    res.status(500).json({ message: 'Server error', detail: err.message });
+    console.error("[getAdvancedReport]", err);
+    return res.status(500).json({ message: "Failed to fetch advanced report", error: err.message });
+  }
+}
+
+// ─── GET /admin/reports/advanced (admin dashboard — Users tab) ────────────────
+
+const getAdminAdvancedReportsuser = async (req, res) => {
+  try {
+    const safe = async (sql, params = []) => {
+      try { return (await pool.query(sql, params)).rows; }
+      catch (e) { console.warn('[AdminAdvancedReports]', e.message); return []; }
+    };
+
+    // ── Total approved + population ───────────────────────────────────────────
+    const [totalRes, populationRes] = await Promise.all([
+      pool.query(`SELECT COUNT(*) AS cnt FROM profiles WHERE status='approved'`),
+      pool.query(
+        `SELECT COUNT(DISTINCT p.id) AS family_count,
+           COALESCE((SELECT COUNT(*) FROM family_members fm
+                     JOIN profiles p2 ON p2.id = fm.profile_id WHERE p2.status='approved'), 0) AS member_count
+         FROM profiles p WHERE p.status='approved'`
+      ),
+    ]);
+    const totalApproved  = parseInt(totalRes.rows[0]?.cnt || 0);
+    const popRow         = populationRes.rows[0] || {};
+    const totalPopulation = parseInt(popRow.family_count || 0) + parseInt(popRow.member_count || 0);
+
+    // ── All queries in parallel ───────────────────────────────────────────────
+    const [
+      genderRows, memberGenderRows, ageRows, pdAgeRows, famTypeRows, maritalRows,
+      degreeRows, professionRows, studyingRows, workingRows, cityRows, assetRows,
+      healthInsRows, lifeInsRows, termInsRows, konkaniInsRows,
+      aadhaarRows, panRows, voterRows, landRows, dlRows,
+      // Insurance gender breakdowns
+      healthInsGenderRows, lifeInsGenderRows, termInsGenderRows, konkaniInsGenderRows,
+      statusGenderRows, statusBreakdownRows,
+      // Religious
+      gotraRows, kuldevRows, pravaraRows, upanamaGenRows, upanaPropRows, demiGodRows, ancestralRows,
+      // Gender chart breakdowns
+      ageGenderRows, maritalGenderRows, degreeGenderRows, professionGenderRows,
+      studyingGenderRows, workingGenderRows, assetsGenderRows, employmentGenderRows, geoGenderRows,
+      // Family income
+      familyIncomeRows,
+    ] = await Promise.all([
+
+      // 1 — registered-user gender (from personal_details)
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'`),
+
+      // 2 — family-member gender
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE fm.gender IS NOT NULL AND LOWER(fm.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p JOIN family_members fm ON fm.profile_id=p.id WHERE p.status='approved'`),
+
+      // 3 — family-member age buckets
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob))<19) AS u18,
+              COUNT(*) FILTER (WHERE fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob)) BETWEEN 19 AND 35) AS y35,
+              COUNT(*) FILTER (WHERE fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob)) BETWEEN 36 AND 60) AS m60,
+              COUNT(*) FILTER (WHERE fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob))>60) AS o60
+            FROM profiles p JOIN family_members fm ON fm.profile_id=p.id WHERE p.status='approved'`),
+
+      // 4 — registered-user age buckets (fallback)
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE pd.date_of_birth IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,pd.date_of_birth))<19) AS u18,
+              COUNT(*) FILTER (WHERE pd.date_of_birth IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,pd.date_of_birth)) BETWEEN 19 AND 35) AS y35,
+              COUNT(*) FILTER (WHERE pd.date_of_birth IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,pd.date_of_birth)) BETWEEN 36 AND 60) AS m60,
+              COUNT(*) FILTER (WHERE pd.date_of_birth IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,pd.date_of_birth))>60) AS o60
+            FROM profiles p JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'`),
+
+      // 5 — family type
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE LOWER(fi.family_type::text) LIKE '%nuclear%') AS nuclear,
+              COUNT(*) FILTER (WHERE LOWER(fi.family_type::text) LIKE '%joint%')   AS joint
+            FROM profiles p JOIN family_info fi ON fi.profile_id=p.id WHERE p.status='approved'`),
+
+      // 6 — marital status
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE pd.is_married=true)  AS married,
+              COUNT(*) FILTER (WHERE pd.is_married=false) AS single
+            FROM profiles p JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'`),
+
+      // 7 — degrees
+      safe(`SELECT me.highest_education AS label, COUNT(*) AS count
+            FROM profiles p JOIN member_education me ON me.profile_id=p.id
+            WHERE p.status='approved' AND me.highest_education IS NOT NULL AND TRIM(me.highest_education)!=''
+            GROUP BY me.highest_education ORDER BY count DESC LIMIT 10`),
+
+      // 8 — professions
+      safe(`SELECT me.profession_type::text AS label, COUNT(*) AS count
+            FROM profiles p JOIN member_education me ON me.profile_id=p.id
+            WHERE p.status='approved' AND me.profession_type IS NOT NULL
+            GROUP BY me.profession_type ORDER BY count DESC LIMIT 10`),
+
+      // 9 — studying
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE me.is_currently_studying=true)  AS yes_count,
+              COUNT(*) FILTER (WHERE me.is_currently_studying=false) AS no_count
+            FROM profiles p JOIN member_education me ON me.profile_id=p.id WHERE p.status='approved'`),
+
+      // 10 — working
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE me.is_currently_working=true)  AS yes_count,
+              COUNT(*) FILTER (WHERE me.is_currently_working=false) AS no_count
+            FROM profiles p JOIN member_education me ON me.profile_id=p.id WHERE p.status='approved' AND me.is_currently_working IS NOT NULL`),
+
+      // 11 — cities
+      safe(`SELECT TRIM(a.city) AS city, COUNT(DISTINCT p.id) AS count
+            FROM profiles p JOIN addresses a ON a.profile_id=p.id
+            WHERE p.status='approved' AND a.city IS NOT NULL AND TRIM(a.city)!=''
+            GROUP BY TRIM(a.city) ORDER BY count DESC LIMIT 100`),
+
+      // 12 — assets
+      safe(`SELECT COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE ed.fac_own_house=true)         AS own_house,
+              COUNT(*) FILTER (WHERE ed.fac_agricultural_land=true) AS agri_land,
+              COUNT(*) FILTER (WHERE ed.fac_car=true)               AS four_wheeler,
+              COUNT(*) FILTER (WHERE ed.fac_two_wheeler=true)       AS two_wheeler,
+              COUNT(*) FILTER (WHERE ed.fac_rented_house=true)      AS renting
+            FROM profiles p JOIN economic_details ed ON ed.profile_id=p.id WHERE p.status='approved'`),
+
+      // 13-16 — insurance coverage counts
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE mi.health_coverage IS NOT NULL AND cardinality(mi.health_coverage)>0 AND NOT (mi.health_coverage @> ARRAY['none']::text[])) AS covered,
+              COUNT(*) FILTER (WHERE mi.health_coverage IS NULL OR cardinality(mi.health_coverage)=0 OR mi.health_coverage @> ARRAY['none']::text[]) AS not_covered
+            FROM profiles p JOIN member_insurance mi ON mi.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE mi.life_coverage IS NOT NULL AND cardinality(mi.life_coverage)>0 AND NOT (mi.life_coverage @> ARRAY['none']::text[])) AS covered,
+              COUNT(*) FILTER (WHERE mi.life_coverage IS NULL OR cardinality(mi.life_coverage)=0 OR mi.life_coverage @> ARRAY['none']::text[]) AS not_covered
+            FROM profiles p JOIN member_insurance mi ON mi.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE mi.term_coverage IS NOT NULL AND cardinality(mi.term_coverage)>0 AND NOT (mi.term_coverage @> ARRAY['none']::text[])) AS covered,
+              COUNT(*) FILTER (WHERE mi.term_coverage IS NULL OR cardinality(mi.term_coverage)=0 OR mi.term_coverage @> ARRAY['none']::text[]) AS not_covered
+            FROM profiles p JOIN member_insurance mi ON mi.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE mi.konkani_card_coverage IS NOT NULL AND cardinality(mi.konkani_card_coverage)>0 AND NOT (mi.konkani_card_coverage @> ARRAY['none']::text[])) AS covered,
+              COUNT(*) FILTER (WHERE mi.konkani_card_coverage IS NULL OR cardinality(mi.konkani_card_coverage)=0 OR mi.konkani_card_coverage @> ARRAY['none']::text[]) AS not_covered
+            FROM profiles p JOIN member_insurance mi ON mi.profile_id=p.id WHERE p.status='approved'`),
+
+      // 17-21 — documents
+      safe(`SELECT COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text)='yes') AS yes_count, COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text)='no') AS no_count, COUNT(*) FILTER (WHERE LOWER(md.aadhaar_coverage::text) NOT IN ('yes','no') OR md.aadhaar_coverage IS NULL) AS unknown_count FROM profiles p JOIN member_documents md ON md.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT COUNT(*) FILTER (WHERE LOWER(md.pan_coverage::text)='yes') AS yes_count, COUNT(*) FILTER (WHERE LOWER(md.pan_coverage::text)='no') AS no_count, COUNT(*) FILTER (WHERE LOWER(md.pan_coverage::text) NOT IN ('yes','no') OR md.pan_coverage IS NULL) AS unknown_count FROM profiles p JOIN member_documents md ON md.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT COUNT(*) FILTER (WHERE LOWER(md.voter_id_coverage::text)='yes') AS yes_count, COUNT(*) FILTER (WHERE LOWER(md.voter_id_coverage::text)='no') AS no_count, COUNT(*) FILTER (WHERE LOWER(md.voter_id_coverage::text) NOT IN ('yes','no') OR md.voter_id_coverage IS NULL) AS unknown_count FROM profiles p JOIN member_documents md ON md.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT COUNT(*) FILTER (WHERE LOWER(md.land_doc_coverage::text)='yes') AS yes_count, COUNT(*) FILTER (WHERE LOWER(md.land_doc_coverage::text)='no') AS no_count, COUNT(*) FILTER (WHERE LOWER(md.land_doc_coverage::text) NOT IN ('yes','no') OR md.land_doc_coverage IS NULL) AS unknown_count FROM profiles p JOIN member_documents md ON md.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT COUNT(*) FILTER (WHERE LOWER(md.dl_coverage::text)='yes') AS yes_count, COUNT(*) FILTER (WHERE LOWER(md.dl_coverage::text)='no') AS no_count, COUNT(*) FILTER (WHERE LOWER(md.dl_coverage::text) NOT IN ('yes','no') OR md.dl_coverage IS NULL) AS unknown_count FROM profiles p JOIN member_documents md ON md.profile_id=p.id WHERE p.status='approved'`),
+
+      // 22-25 — insurance gender breakdowns (FIX: these fields were missing, causing frontend maleYes/femaleYes to be undefined)
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE cardinality(mi.health_coverage)>0 AND NOT (mi.health_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='male')   AS male_yes,
+              COUNT(*) FILTER (WHERE cardinality(mi.health_coverage)>0 AND NOT (mi.health_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='female') AS female_yes,
+              COUNT(*) FILTER (WHERE cardinality(mi.health_coverage)>0 AND NOT (mi.health_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_yes,
+              COUNT(*) FILTER (WHERE (mi.health_coverage IS NULL OR cardinality(mi.health_coverage)=0 OR mi.health_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='male')   AS male_no,
+              COUNT(*) FILTER (WHERE (mi.health_coverage IS NULL OR cardinality(mi.health_coverage)=0 OR mi.health_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='female') AS female_no,
+              COUNT(*) FILTER (WHERE (mi.health_coverage IS NULL OR cardinality(mi.health_coverage)=0 OR mi.health_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_no
+            FROM profiles p JOIN member_insurance mi ON mi.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE cardinality(mi.life_coverage)>0 AND NOT (mi.life_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='male')   AS male_yes,
+              COUNT(*) FILTER (WHERE cardinality(mi.life_coverage)>0 AND NOT (mi.life_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='female') AS female_yes,
+              COUNT(*) FILTER (WHERE cardinality(mi.life_coverage)>0 AND NOT (mi.life_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_yes,
+              COUNT(*) FILTER (WHERE (mi.life_coverage IS NULL OR cardinality(mi.life_coverage)=0 OR mi.life_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='male')   AS male_no,
+              COUNT(*) FILTER (WHERE (mi.life_coverage IS NULL OR cardinality(mi.life_coverage)=0 OR mi.life_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='female') AS female_no,
+              COUNT(*) FILTER (WHERE (mi.life_coverage IS NULL OR cardinality(mi.life_coverage)=0 OR mi.life_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_no
+            FROM profiles p JOIN member_insurance mi ON mi.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE cardinality(mi.term_coverage)>0 AND NOT (mi.term_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='male')   AS male_yes,
+              COUNT(*) FILTER (WHERE cardinality(mi.term_coverage)>0 AND NOT (mi.term_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='female') AS female_yes,
+              COUNT(*) FILTER (WHERE cardinality(mi.term_coverage)>0 AND NOT (mi.term_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_yes,
+              COUNT(*) FILTER (WHERE (mi.term_coverage IS NULL OR cardinality(mi.term_coverage)=0 OR mi.term_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='male')   AS male_no,
+              COUNT(*) FILTER (WHERE (mi.term_coverage IS NULL OR cardinality(mi.term_coverage)=0 OR mi.term_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='female') AS female_no,
+              COUNT(*) FILTER (WHERE (mi.term_coverage IS NULL OR cardinality(mi.term_coverage)=0 OR mi.term_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_no
+            FROM profiles p JOIN member_insurance mi ON mi.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT
+              COUNT(*) FILTER (WHERE cardinality(mi.konkani_card_coverage)>0 AND NOT (mi.konkani_card_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='male')   AS male_yes,
+              COUNT(*) FILTER (WHERE cardinality(mi.konkani_card_coverage)>0 AND NOT (mi.konkani_card_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='female') AS female_yes,
+              COUNT(*) FILTER (WHERE cardinality(mi.konkani_card_coverage)>0 AND NOT (mi.konkani_card_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_yes,
+              COUNT(*) FILTER (WHERE (mi.konkani_card_coverage IS NULL OR cardinality(mi.konkani_card_coverage)=0 OR mi.konkani_card_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='male')   AS male_no,
+              COUNT(*) FILTER (WHERE (mi.konkani_card_coverage IS NULL OR cardinality(mi.konkani_card_coverage)=0 OR mi.konkani_card_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text)='female') AS female_no,
+              COUNT(*) FILTER (WHERE (mi.konkani_card_coverage IS NULL OR cardinality(mi.konkani_card_coverage)=0 OR mi.konkani_card_coverage @> ARRAY['none']::text[]) AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other_no
+            FROM profiles p JOIN member_insurance mi ON mi.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'`),
+
+      // 26-27 — status breakdowns
+      safe(`SELECT p.status,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p LEFT JOIN personal_details pd ON pd.profile_id=p.id GROUP BY p.status ORDER BY COUNT(*) DESC`),
+      safe(`SELECT p.status, COUNT(*) AS count FROM profiles p GROUP BY p.status ORDER BY count DESC`),
+
+      // 28-34 — religious
+      safe(`SELECT gotra AS label, COUNT(*) AS count FROM profiles p JOIN religious_details rd ON rd.profile_id=p.id WHERE p.status='approved' AND gotra IS NOT NULL AND TRIM(gotra)!='' GROUP BY gotra ORDER BY count DESC LIMIT 10`),
+      safe(`SELECT COALESCE(NULLIF(kuladevata_other,''), kuladevata) AS label, COUNT(*) AS count FROM profiles p JOIN religious_details rd ON rd.profile_id=p.id WHERE p.status='approved' AND kuladevata IS NOT NULL AND TRIM(kuladevata)!='' GROUP BY COALESCE(NULLIF(kuladevata_other,''), kuladevata) ORDER BY count DESC LIMIT 10`),
+      safe(`SELECT pravara AS label, COUNT(*) AS count FROM profiles p JOIN religious_details rd ON rd.profile_id=p.id WHERE p.status='approved' AND pravara IS NOT NULL AND TRIM(pravara)!='' GROUP BY pravara ORDER BY count DESC LIMIT 10`),
+      safe(`SELECT upanama_general AS label, COUNT(*) AS count FROM profiles p JOIN religious_details rd ON rd.profile_id=p.id WHERE p.status='approved' AND upanama_general IS NOT NULL AND TRIM(upanama_general)!='' GROUP BY upanama_general ORDER BY count DESC LIMIT 20`),
+      safe(`SELECT upanama_proper AS label, COUNT(*) AS count FROM profiles p JOIN religious_details rd ON rd.profile_id=p.id WHERE p.status='approved' AND upanama_proper IS NOT NULL AND TRIM(upanama_proper)!='' GROUP BY upanama_proper ORDER BY count DESC LIMIT 20`),
+      safe(`SELECT unnest(demi_gods) AS label, COUNT(*) AS count FROM profiles p JOIN religious_details rd ON rd.profile_id=p.id WHERE p.status='approved' AND demi_gods IS NOT NULL GROUP BY label ORDER BY count DESC LIMIT 25`),
+      safe(`SELECT COUNT(*) FILTER (WHERE ancestral_challenge='yes') AS with_challenge, COUNT(*) FILTER (WHERE ancestral_challenge!='yes' OR ancestral_challenge IS NULL) AS without_challenge FROM profiles p JOIN religious_details rd ON rd.profile_id=p.id WHERE p.status='approved'`),
+
+      // 35-43 — gender chart breakdowns
+      safe(`SELECT label, male, female, other FROM (
+              SELECT '0–18' AS label,
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='male'   AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob))<19) AS male,
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='female' AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob))<19) AS female,
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text) NOT IN ('male','female') AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob))<19) AS other
+              FROM profiles p JOIN family_members fm ON fm.profile_id=p.id WHERE p.status='approved'
+              UNION ALL SELECT '19–35',
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='male'   AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob)) BETWEEN 19 AND 35),
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='female' AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob)) BETWEEN 19 AND 35),
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text) NOT IN ('male','female') AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob)) BETWEEN 19 AND 35)
+              FROM profiles p JOIN family_members fm ON fm.profile_id=p.id WHERE p.status='approved'
+              UNION ALL SELECT '36–60',
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='male'   AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob)) BETWEEN 36 AND 60),
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='female' AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob)) BETWEEN 36 AND 60),
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text) NOT IN ('male','female') AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob)) BETWEEN 36 AND 60)
+              FROM profiles p JOIN family_members fm ON fm.profile_id=p.id WHERE p.status='approved'
+              UNION ALL SELECT '60+',
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='male'   AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob))>60),
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='female' AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob))>60),
+                COUNT(*) FILTER (WHERE LOWER(fm.gender::text) NOT IN ('male','female') AND fm.dob IS NOT NULL AND EXTRACT(YEAR FROM AGE(CURRENT_DATE,fm.dob))>60)
+              FROM profiles p JOIN family_members fm ON fm.profile_id=p.id WHERE p.status='approved'
+            ) t`),
+      safe(`SELECT (CASE WHEN pd.is_married=true THEN 'Married' ELSE 'Single' END) AS label,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved' GROUP BY pd.is_married`),
+      safe(`SELECT me.highest_education AS label,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p JOIN member_education me ON me.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id
+            WHERE p.status='approved' AND me.highest_education IS NOT NULL GROUP BY me.highest_education ORDER BY SUM(1) DESC LIMIT 7`),
+      safe(`SELECT me.profession_type::text AS label,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p JOIN member_education me ON me.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id
+            WHERE p.status='approved' AND me.profession_type IS NOT NULL GROUP BY me.profession_type ORDER BY COUNT(*) DESC LIMIT 10`),
+      safe(`SELECT me.is_currently_studying,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p JOIN member_education me ON me.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id
+            WHERE p.status='approved' GROUP BY me.is_currently_studying`),
+      safe(`SELECT me.is_currently_working,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p JOIN member_education me ON me.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id
+            WHERE p.status='approved' AND me.is_currently_working IS NOT NULL GROUP BY me.is_currently_working`),
+      safe(`SELECT 'Own House' AS label,
+              COUNT(*) FILTER (WHERE ed.fac_own_house=true AND LOWER(pd.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE ed.fac_own_house=true AND LOWER(pd.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE ed.fac_own_house=true AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p JOIN economic_details ed ON ed.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'
+            UNION ALL SELECT 'Agri Land',
+              COUNT(*) FILTER (WHERE ed.fac_agricultural_land=true AND LOWER(pd.gender::text)='male'),
+              COUNT(*) FILTER (WHERE ed.fac_agricultural_land=true AND LOWER(pd.gender::text)='female'),
+              COUNT(*) FILTER (WHERE ed.fac_agricultural_land=true AND LOWER(pd.gender::text) NOT IN ('male','female'))
+            FROM profiles p JOIN economic_details ed ON ed.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'
+            UNION ALL SELECT '4-Wheeler',
+              COUNT(*) FILTER (WHERE ed.fac_car=true AND LOWER(pd.gender::text)='male'),
+              COUNT(*) FILTER (WHERE ed.fac_car=true AND LOWER(pd.gender::text)='female'),
+              COUNT(*) FILTER (WHERE ed.fac_car=true AND LOWER(pd.gender::text) NOT IN ('male','female'))
+            FROM profiles p JOIN economic_details ed ON ed.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'
+            UNION ALL SELECT '2-Wheeler',
+              COUNT(*) FILTER (WHERE ed.fac_two_wheeler=true AND LOWER(pd.gender::text)='male'),
+              COUNT(*) FILTER (WHERE ed.fac_two_wheeler=true AND LOWER(pd.gender::text)='female'),
+              COUNT(*) FILTER (WHERE ed.fac_two_wheeler=true AND LOWER(pd.gender::text) NOT IN ('male','female'))
+            FROM profiles p JOIN economic_details ed ON ed.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'
+            UNION ALL SELECT 'Renting',
+              COUNT(*) FILTER (WHERE ed.fac_rented_house=true AND LOWER(pd.gender::text)='male'),
+              COUNT(*) FILTER (WHERE ed.fac_rented_house=true AND LOWER(pd.gender::text)='female'),
+              COUNT(*) FILTER (WHERE ed.fac_rented_house=true AND LOWER(pd.gender::text) NOT IN ('male','female'))
+            FROM profiles p JOIN economic_details ed ON ed.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id WHERE p.status='approved'`),
+      safe(`SELECT me.profession_type::text AS label,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p JOIN member_education me ON me.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id
+            WHERE p.status='approved' AND me.profession_type IS NOT NULL GROUP BY me.profession_type ORDER BY COUNT(*) DESC LIMIT 10`),
+      safe(`SELECT TRIM(a.city) AS city,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
+              COUNT(*) FILTER (WHERE LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+            FROM profiles p JOIN addresses a ON a.profile_id=p.id JOIN personal_details pd ON pd.profile_id=p.id
+            WHERE p.status='approved' AND a.city IS NOT NULL AND TRIM(a.city)!=''
+            GROUP BY TRIM(a.city) ORDER BY COUNT(*) DESC LIMIT 100`),
+
+      // 44 — family income
+      safe(`SELECT ed.family_income::text AS label, COUNT(*) AS count
+            FROM profiles p JOIN economic_details ed ON ed.profile_id=p.id
+            WHERE p.status='approved' AND ed.family_income IS NOT NULL
+            GROUP BY ed.family_income ORDER BY count DESC`),
+    ]);
+
+    // ── Derive helpers ────────────────────────────────────────────────────────
+    const n = (v) => parseInt(v || 0);
+
+    const studyingYes = studyingGenderRows.find(r => r.is_currently_studying === true)  || {};
+    const studyingNo  = studyingGenderRows.find(r => r.is_currently_studying === false) || {};
+    const workingYes  = workingGenderRows.find(r => r.is_currently_working  === true)   || {};
+    const workingNo   = workingGenderRows.find(r => r.is_currently_working  === false)  || {};
+
+    const fmG    = memberGenderRows[0] || {};
+    const pdG    = genderRows[0]       || {};
+    const hasFmG = (n(fmG.male) + n(fmG.female) + n(fmG.other)) > 0;
+    const gSrc   = hasFmG ? fmG : pdG;
+
+    const fmAge    = ageRows[0]   || {};
+    const pdAge    = pdAgeRows[0] || {};
+    const hasFmAge = (n(fmAge.u18) + n(fmAge.y35) + n(fmAge.m60) + n(fmAge.o60)) > 0;
+    const ageSrc   = hasFmAge ? fmAge : pdAge;
+
+    const ft = famTypeRows[0]  || {};
+    const mar= maritalRows[0]  || {};
+    const as = assetRows[0]    || {};
+    const st = studyingRows[0] || {};
+    const wk = workingRows[0]  || {};
+    const anc= ancestralRows[0]|| {};
+
+    // ── Insurance gender helper ───────────────────────────────────────────────
+    const buildInsurance = (label, covered, notCovered, genderRow) => {
+      const g = genderRow[0] || {};
+      return {
+        label,
+        yes:         n(covered),
+        no:          n(notCovered),
+        unknown:     0,
+        maleYes:     n(g.male_yes),
+        femaleYes:   n(g.female_yes),
+        otherYes:    n(g.other_yes),
+        maleNo:      n(g.male_no),
+        femaleNo:    n(g.female_no),
+        otherNo:     n(g.other_no),
+        maleUnknown: 0,
+        femaleUnknown: 0,
+        otherUnknown:  0,
+      };
+    };
+
+    res.json({
+      totalApproved,
+      totalPopulation,
+      statusBreakdown: statusBreakdownRows.map(r => ({ status: r.status, count: n(r.count) })),
+      statusGenderBreakdown: statusGenderRows.map(r => ({ status: r.status, male: n(r.male), female: n(r.female), other: n(r.other) })),
+      demographics: {
+        gender: { male: n(gSrc.male), female: n(gSrc.female), other: n(gSrc.other) },
+        ageGroups: [
+          { label: '0–18',  count: n(ageSrc.u18) },
+          { label: '19–35', count: n(ageSrc.y35) },
+          { label: '36–60', count: n(ageSrc.m60) },
+          { label: '60+',   count: n(ageSrc.o60) },
+        ],
+        ageGroupsGender: ageGenderRows.map(r => ({ label: r.label, male: n(r.male), female: n(r.female), other: n(r.other) })),
+        familyType: { nuclear: n(ft.nuclear), joint: n(ft.joint) },
+        maritalStatus: [
+          { label: 'Married', count: n(mar.married) },
+          { label: 'Single',  count: n(mar.single)  },
+        ].filter(m => m.count > 0),
+        maritalStatusGender: maritalGenderRows.map(r => ({ label: r.label, male: n(r.male), female: n(r.female), other: n(r.other) })),
+      },
+      education: {
+        degrees: degreeRows.map(r => ({ label: r.label, count: n(r.count) })),
+        degreesGender: degreeGenderRows.map(r => ({ label: r.label, male: n(r.male), female: n(r.female), other: n(r.other) })),
+        professions: professionRows.map(r => ({ label: r.label, count: n(r.count) })),
+        professionsGender: professionGenderRows.map(r => ({ label: r.label, male: n(r.male), female: n(r.female), other: n(r.other) })),
+        studying: {
+          yes: n(st.yes_count), no: n(st.no_count),
+          maleYes: n(studyingYes.male), femaleYes: n(studyingYes.female), otherYes: n(studyingYes.other),
+          maleNo:  n(studyingNo.male),  femaleNo:  n(studyingNo.female),  otherNo:  n(studyingNo.other),
+        },
+        working: {
+          yes: n(wk.yes_count), no: n(wk.no_count),
+          maleYes: n(workingYes.male), femaleYes: n(workingYes.female), otherYes: n(workingYes.other),
+          maleNo:  n(workingNo.male),  femaleNo:  n(workingNo.female),  otherNo:  n(workingNo.other),
+        },
+        employmentGender: employmentGenderRows.map(r => ({ label: r.label, male: n(r.male), female: n(r.female), other: n(r.other) })),
+        employment: professionRows.map(r => ({ label: r.label, count: n(r.count) })),
+      },
+      economic: {
+        incomeSlabs: familyIncomeRows.map(r => ({ label: r.label, count: n(r.count) })),
+        assets: [
+          { label: 'Own House',         owned: n(as.own_house),     total: n(as.total) },
+          { label: 'Agricultural Land', owned: n(as.agri_land),     total: n(as.total) },
+          { label: '4-Wheeler',         owned: n(as.four_wheeler),  total: n(as.total) },
+          { label: '2-Wheeler',         owned: n(as.two_wheeler),   total: n(as.total) },
+          { label: 'Renting',           owned: n(as.renting),       total: n(as.total) },
+        ],
+        assetsGender: assetsGenderRows.map(r => ({ label: r.label, male: n(r.male), female: n(r.female), other: n(r.other) })),
+        employmentGender: employmentGenderRows.map(r => ({ label: r.label, male: n(r.male), female: n(r.female), other: n(r.other) })),
+        employment: professionRows.map(r => ({ label: r.label, count: n(r.count) })),
+      },
+      // FIX: insurance now includes maleYes/femaleYes/otherYes/maleNo/femaleNo/otherNo
+      insurance: [
+        buildInsurance('Health',       healthInsRows[0]?.covered,  healthInsRows[0]?.not_covered,  healthInsGenderRows),
+        buildInsurance('Life',         lifeInsRows[0]?.covered,    lifeInsRows[0]?.not_covered,    lifeInsGenderRows),
+        buildInsurance('Term',         termInsRows[0]?.covered,    termInsRows[0]?.not_covered,    termInsGenderRows),
+        buildInsurance('Konkani Card', konkaniInsRows[0]?.covered, konkaniInsRows[0]?.not_covered, konkaniInsGenderRows),
+      ],
+      documents: [
+        { label: 'Aadhaar',  yes: n(aadhaarRows[0]?.yes_count), no: n(aadhaarRows[0]?.no_count), unknown: n(aadhaarRows[0]?.unknown_count) },
+        { label: 'PAN Card', yes: n(panRows[0]?.yes_count),     no: n(panRows[0]?.no_count),     unknown: n(panRows[0]?.unknown_count)     },
+        { label: 'Voter ID', yes: n(voterRows[0]?.yes_count),   no: n(voterRows[0]?.no_count),   unknown: n(voterRows[0]?.unknown_count)   },
+        { label: 'Land Docs',yes: n(landRows[0]?.yes_count),    no: n(landRows[0]?.no_count),    unknown: n(landRows[0]?.unknown_count)    },
+        { label: 'DL',       yes: n(dlRows[0]?.yes_count),      no: n(dlRows[0]?.no_count),      unknown: n(dlRows[0]?.unknown_count)      },
+      ],
+      geographic: cityRows.map(r => ({ city: r.city, count: n(r.count) })),
+      geographicGender: geoGenderRows.map(r => ({ city: r.city, male: n(r.male), female: n(r.female), other: n(r.other) })),
+      religious: {
+        gotras:          gotraRows.map(r       => ({ label: r.label, count: n(r.count) })),
+        kuladevatas:     kuldevRows.map(r      => ({ label: r.label, count: n(r.count) })),
+        pravaras:        pravaraRows.map(r     => ({ label: r.label, count: n(r.count) })),
+        upanamaGenerals: upanamaGenRows.map(r  => ({ label: r.label, count: n(r.count) })),
+        upanamaPropers:  upanaPropRows.map(r   => ({ label: r.label, count: n(r.count) })),
+        demiGods:        demiGodRows.map(r     => ({ label: r.label, count: n(r.count) })),
+        ancestralStats: {
+          withChallenge:    n(anc.with_challenge),
+          withoutChallenge: n(anc.without_challenge),
+        },
+      },
+    });
+  } catch (err) {
+    console.error('[getAdminAdvancedReportsuser]', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
 
-module.exports = {
-  getGeneralOverview,
-  getDateRegistration,
-  getSidebarUserAnalytics,
-  getSidebarSanghaAnalytics,
-  getPopulationStats,
-  getAgeGroups,
-  getEducationStats,
-  getGeoStats,
-  getReligiousStats,
-  getIncomeStats,
-  getEconomicStats,
-  getInsuranceStats,
-  getDocumentStats,
-  getGenderStatusDetail,
-  getExportData,
-  getSanghaAnalytics,
+// ─── GET /admin/reports/sanghas ───────────────────────────────────────────────
+
+const getAdminSanghaReports = async (req, res) => {
+  try {
+    const safe = async (sql, params = []) => {
+      try { return (await pool.query(sql, params)).rows; }
+      catch (e) { console.warn('[AdminSanghaReports]', e.message); return []; }
+    };
+
+    const [
+      totalRes, statusRows, stateRows, districtRows,
+      memberCountRows, trendRows, growthRows, topSanghaRows,
+      completionRows, profileStatusRows, contactRows,
+    ] = await Promise.all([
+      pool.query(`SELECT COUNT(*) AS cnt FROM sanghas`),
+
+      safe(`SELECT status::text AS status, COUNT(*) AS count FROM sanghas GROUP BY status ORDER BY count DESC`),
+
+      safe(`SELECT COALESCE(state,'Unknown') AS state, COUNT(*) AS count FROM sanghas GROUP BY state ORDER BY count DESC LIMIT 20`),
+
+      safe(`SELECT COALESCE(district,'Unknown') AS district, COUNT(*) AS count FROM sanghas GROUP BY district ORDER BY count DESC LIMIT 20`),
+
+      safe(`SELECT s.sangha_name,
+               COUNT(p.id) AS member_count,
+               COUNT(p.id) FILTER (WHERE p.status='approved') AS approved_count,
+               s.state
+             FROM sanghas s LEFT JOIN profiles p ON p.sangha_id=s.id
+             GROUP BY s.id, s.sangha_name, s.state ORDER BY member_count DESC LIMIT 20`),
+
+      safe(`SELECT TO_CHAR(DATE_TRUNC('month', created_at),'Mon YYYY') AS month, COUNT(*) AS count
+            FROM sanghas GROUP BY DATE_TRUNC('month', created_at) ORDER BY DATE_TRUNC('month', created_at) ASC`),
+
+      safe(`SELECT TO_CHAR(DATE_TRUNC('month', created_at),'Mon YYYY') AS month,
+               COUNT(*) AS new_sanghas,
+               SUM(COUNT(*)) OVER (ORDER BY DATE_TRUNC('month', created_at)) AS cumulative
+             FROM sanghas GROUP BY DATE_TRUNC('month', created_at) ORDER BY DATE_TRUNC('month', created_at) ASC`),
+
+      safe(`SELECT s.sangha_name, COUNT(p.id) AS total_users,
+               COUNT(p.id) FILTER (WHERE p.status='approved') AS approved,
+               COALESCE(s.state,'—') AS state, COALESCE(s.district,'—') AS district, s.status::text AS status
+             FROM sanghas s LEFT JOIN profiles p ON p.sangha_id=s.id
+             GROUP BY s.id, s.sangha_name, s.state, s.district, s.status
+             ORDER BY total_users DESC LIMIT 20`),
+
+      // FIX: use a safe fallback in case overall_completion_pct column doesn't exist
+      safe(`SELECT s.sangha_name,
+               AVG(COALESCE(p.overall_completion_pct, 0)) AS avg_completion
+             FROM sanghas s JOIN profiles p ON p.sangha_id=s.id
+             WHERE p.status='approved'
+             GROUP BY s.id, s.sangha_name
+             HAVING COUNT(p.id) >= 3
+             ORDER BY avg_completion DESC LIMIT 10`),
+
+      safe(`SELECT
+               COUNT(*) FILTER (WHERE p.status='approved')          AS approved,
+               COUNT(*) FILTER (WHERE p.status='rejected')          AS rejected,
+               COUNT(*) FILTER (WHERE p.status IN ('submitted','under_review')) AS submitted,
+               COUNT(*) FILTER (WHERE p.status='draft')             AS draft,
+               COUNT(*) FILTER (WHERE p.status='changes_requested') AS changes_requested
+             FROM profiles p`),
+
+      // FIX: use correct column names — adjust 'email'/'phone' to match your sanghas table schema
+      safe(`SELECT
+               COUNT(*) FILTER (WHERE email IS NOT NULL AND email != '' AND phone IS NOT NULL AND phone != '') AS with_both,
+               COUNT(*) FILTER (WHERE email IS NOT NULL AND email != '') AS with_email,
+               COUNT(*) FILTER (WHERE phone IS NOT NULL AND phone != '') AS with_phone
+             FROM sanghas`),
+    ]);
+
+    const n   = (v) => parseInt(v  || 0);
+    const ps  = profileStatusRows[0] || {};
+    const ct  = contactRows[0]       || {};
+
+    res.json({
+      totalSanghas:         n(totalRes.rows[0]?.cnt),
+      statusBreakdown:      statusRows.map(r    => ({ status: r.status, count: n(r.count) })),
+      stateDistribution:    stateRows.map(r     => ({ state: r.state, count: n(r.count) })),
+      districtDistribution: districtRows.map(r  => ({ district: r.district, count: n(r.count) })),
+      sanghasByMemberCount: memberCountRows.map(r=> ({
+        sangha_name:    r.sangha_name,
+        member_count:   n(r.member_count),
+        approved_count: n(r.approved_count),
+        state:          r.state || '',
+      })),
+      registrationTrend:  trendRows.map(r  => ({ month: r.month, count: n(r.count) })),
+      membershipGrowth:   growthRows.map(r  => ({ month: r.month, new_sanghas: n(r.new_sanghas), cumulative: n(r.cumulative) })),
+      topSanghas:         topSanghaRows.map(r=> ({
+        sangha_name: r.sangha_name, total_users: n(r.total_users),
+        approved: n(r.approved), state: r.state, district: r.district, status: r.status,
+      })),
+      completionRates:    completionRows.map(r  => ({ sangha_name: r.sangha_name, avg_completion: parseFloat(r.avg_completion || 0) })),
+      profileStatusAcrossSanghas: {
+        approved:          n(ps.approved),
+        rejected:          n(ps.rejected),
+        submitted:         n(ps.submitted),
+        draft:             n(ps.draft),
+        changes_requested: n(ps.changes_requested),
+      },
+      sanghaContactStats: {
+        withEmail: n(ct.with_email),
+        withPhone: n(ct.with_phone),
+        withBoth:  n(ct.with_both),
+      },
+      // FIX: approvalTimeline was in the TS type but never returned — added here as empty array
+      // to prevent frontend from crashing when it's destructured
+      approvalTimeline: [],
+    });
+  } catch (err) {
+    console.error('[getAdminSanghaReports]', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
 };
+
+module.exports = { getGeneralReport, getAdvancedReport, getAdminAdvancedReportsuser, getAdminSanghaReports };

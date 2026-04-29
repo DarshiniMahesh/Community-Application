@@ -2,348 +2,290 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { LayoutDashboard, BarChart2, FileSpreadsheet, ChevronRight, Sparkles } from "lucide-react";
+import {
+  LayoutDashboard, BarChart2, FileSpreadsheet,
+} from "lucide-react";
 import { api } from "@/lib/api";
-import GeneralDashboard from "./GeneralDashboard";
+import GeneralDashboard from "./Generaldashboard";
 import AdvancedDashboard from "./AdvancedDashboard";
 import CustomReport from "./CustomReport";
+import DateRangePicker, { DateRange, toISO } from "./DateRangePicker";
 
-export interface OverviewData {
-  date_range: { start_date: string; end_date: string };
-  sangha: {
-    registered: number;
-    approved: number;
-    rejected: number;
-    pending: number;
-  };
-  users: {
-    registered: number;
-    approved: number;
-    rejected: number;
-    changes_requested: number;
-  };
-  by_reviewer: {
-    admin_approved: number;
-    sangha_approved: number;
-    admin_rejected: number;
-    sangha_rejected: number;
-  };
-  gender_status: Array<{ gender: string; status: string; count: number | string }>;
-}
+// ── Types ─────────────────────────────────────────────────────────────────────
+export type TabId = "general" | "advanced" | "custom";
 
-export interface DateRegData {
-  date_range: { start_date: string; end_date: string };
-  user_registrations: Array<{ date: string; count: number | string }>;
-  sangha_registrations: Array<{ date: string; count: number | string }>;
-}
+// ── Colour tokens (matches Generaldashboard palette) ──────────────────────────
+const C = {
+  sky:      "#0ea5e9",
+  skyLight: "#f0f9ff",
+  slate100: "#f1f5f9",
+  slate200: "#e2e8f0",
+  slate400: "#94a3b8",
+  slate500: "#64748b",
+  slate800: "#1e293b",
+  slate900: "#0f172a",
+  white:    "#ffffff",
+};
 
-type TabId = "general" | "advanced" | "custom";
+// ── Default date range ────────────────────────────────────────────────────────
+const DEFAULT_DATE_RANGE: DateRange = { from: null, to: null, preset: "allTime" };
 
-const tabs = [
-  {
-    id: "general" as TabId,
-    label: "General Dashboard",
-    icon: LayoutDashboard,
-    desc: "Overview & KPIs",
-    color: "#F97316",
-    bg: "from-orange-500 to-amber-400",
-  },
-  {
-    id: "advanced" as TabId,
-    label: "Advanced Analytics",
-    icon: BarChart2,
-    desc: "Deep insights",
-    color: "#0EA5E9",
-    bg: "from-sky-500 to-cyan-400",
-  },
-  {
-    id: "custom" as TabId,
-    label: "Custom Report",
-    icon: FileSpreadsheet,
-    desc: "Export & filter",
-    color: "#8B5CF6",
-    bg: "from-violet-500 to-purple-400",
-  },
+// ── Tab definitions ───────────────────────────────────────────────────────────
+const TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
+  { id: "general",  label: "General Dashboard",  Icon: LayoutDashboard },
+  { id: "advanced", label: "Advanced Analytics", Icon: BarChart2        },
+  { id: "custom",   label: "Custom Report",      Icon: FileSpreadsheet  },
 ];
 
-export default function ReportsPage() {
-  const [activeTab, setActiveTab] = useState<TabId>("general");
-  const [overview, setOverview] = useState<OverviewData | null>(null);
-  const [dateReg, setDateReg] = useState<DateRegData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+// ── Hoverable tab button ──────────────────────────────────────────────────────
+function TabBtn({
+  tab,
+  active,
+  onClick,
+}: {
+  tab: (typeof TABS)[number];
+  active: boolean;
+  onClick: () => void;
+}) {
+  const [hov, setHov] = useState(false);
+  const { Icon } = tab;
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "9px 20px",
+        borderRadius: 10,
+        border: "none",
+        fontSize: 13,
+        fontWeight: 600,
+        cursor: "pointer",
+        transition: "all 0.18s",
+        background: active
+          ? C.sky
+          : hov
+          ? C.slate100
+          : "transparent",
+        color: active ? C.white : hov ? C.slate800 : C.slate500,
+        boxShadow: active ? "0 2px 10px rgba(14,165,233,0.30)" : "none",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <Icon style={{ width: 15, height: 15, flexShrink: 0 }} />
+      {tab.label}
+    </button>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+export default function AdminReportsPage() {
+  const [activeTab,       setActiveTab]       = useState<TabId>("general");
   const [advancedSection, setAdvancedSection] = useState<string | undefined>();
-  const [customCategory, setCustomCategory] = useState<string | undefined>();
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
+  const [advancedData,    setAdvancedData]    = useState<any | null>(null);
+  const [advancedLoading, setAdvancedLoading] = useState(false);
+  const [dateRange,       setDateRange]       = useState<DateRange>(DEFAULT_DATE_RANGE);
+  const [customInitSections, setCustomInitSections] = useState<string[]>([]);
+  const [customInitCategory, setCustomInitCategory] = useState<string | undefined>();
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(false);
+  // ── Fetch advanced data ────────────────────────────────────────────────────
+  const fetchAdvancedData = useCallback(async (range?: DateRange) => {
+    setAdvancedLoading(true);
     try {
-      const [overviewJson, dateRegJson] = await Promise.all([
-        api.get(`/admin/reports/general/overview?start_date=${startDate}&end_date=${endDate}`),
-        api.get(`/admin/reports/general/date-registration?start_date=${startDate}&end_date=${endDate}`),
-      ]);
-      setOverview(overviewJson);
-      setDateReg(dateRegJson);
+      const r      = range ?? dateRange;
+      const from   = toISO(r.from);
+      const to     = toISO(r.to);
+      const params =
+        r.preset === "allTime" || !from || !to ? "" : `?from=${from}&to=${to}`;
+      const result = await api.get(`/api/admin/reports/advanced${params}`);
+      setAdvancedData(result);
     } catch {
-      setOverview(null);
-      setDateReg(null);
-      setError(true);
+      setAdvancedData(null);
     } finally {
-      setLoading(false);
+      setAdvancedLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [dateRange]);
 
+  // ── Load advanced data when switching to that tab ──────────────────────────
   useEffect(() => {
-    const now = new Date();
-    const end = now.toISOString().split("T")[0];
-    const past = new Date(now);
-    past.setDate(past.getDate() - 30);
-    const start = past.toISOString().split("T")[0];
-    setStartDate(start);
-    setEndDate(end);
-  }, []);
+    if (activeTab === "advanced" && !advancedData && !advancedLoading) {
+      fetchAdvancedData();
+    }
+  }, [activeTab, advancedData, advancedLoading, fetchAdvancedData]);
 
+  // ── Re-fetch advanced data on date-range change ────────────────────────────
   useEffect(() => {
-    if (!startDate || !endDate) return;
-    fetchData();
-  }, [fetchData, startDate, endDate]);
+    if (activeTab === "advanced") {
+      fetchAdvancedData(dateRange);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange]);
 
-  const goToAdvanced = useCallback((section?: string) => {
-    setAdvancedSection(section);
-    setActiveTab("advanced");
-  }, []);
+  // ── Clear custom-report init state when navigating away ───────────────────
+  useEffect(() => {
+    if (activeTab !== "custom") {
+      setCustomInitSections([]);
+      setCustomInitCategory(undefined);
+    }
+  }, [activeTab]);
 
-  const goToCustomReport = useCallback((_sections: string[], category?: string) => {
-    setCustomCategory(category);
+  // ── Navigation helpers ─────────────────────────────────────────────────────
+  const goToAdvanced = useCallback(
+    (section?: string) => {
+      setAdvancedSection(section);
+      setActiveTab("advanced");
+      if (!advancedData && !advancedLoading) fetchAdvancedData();
+    },
+    [advancedData, advancedLoading, fetchAdvancedData],
+  );
+
+  const goToCustomReport = useCallback((sections: string[], category?: string) => {
+    setCustomInitSections(sections);
+    setCustomInitCategory(category);
     setActiveTab("custom");
   }, []);
 
-  const activeTabData = tabs.find((t) => t.id === activeTab)!;
+  const handleSectionRendered = useCallback(() => {
+    setAdvancedSection(undefined);
+  }, []);
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Syne:wght@700;800&display=swap');
+    <div
+      style={{
+        minHeight: "100vh",
+        background: C.slate100,
+        fontFamily:
+          "'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1280,
+          margin: "0 auto",
+          padding: "32px 24px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 24,
+        }}
+      >
+        {/* ── Page header ─────────────────────────────────────────────────── */}
+        <div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 4,
+            }}
+          >
+            <BarChart2
+              style={{ width: 20, height: 20, color: C.sky, flexShrink: 0 }}
+            />
+            <h1
+              style={{
+                fontSize: 24,
+                fontWeight: 900,
+                color: C.slate900,
+                letterSpacing: "-0.03em",
+                margin: 0,
+              }}
+            >
+              Analytics &amp; Reports
+            </h1>
+          </div>
+          <p
+            style={{
+              fontSize: 13,
+              color: C.slate500,
+              margin: 0,
+              paddingLeft: 28,
+              fontWeight: 500,
+            }}
+          >
+            Deep insights into users and sanghas across all states
+          </p>
+        </div>
 
-        .reports-root {
-          font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-          background: #F0F6FF;
-          min-height: 100vh;
-        }
-
-        .page-header-bg {
-          background: linear-gradient(135deg, #FFFFFF 0%, #FFF7F0 40%, #F0F9FF 100%);
-          border-bottom: 1px solid #E8F0FE;
-          position: relative;
-          overflow: hidden;
-        }
-        .page-header-bg::before {
-          content: '';
-          position: absolute;
-          top: -60px; right: -60px;
-          width: 240px; height: 240px;
-          border-radius: 50%;
-          background: radial-gradient(circle, #FED7AA22 0%, transparent 70%);
-        }
-        .page-header-bg::after {
-          content: '';
-          position: absolute;
-          bottom: -40px; left: 20%;
-          width: 180px; height: 180px;
-          border-radius: 50%;
-          background: radial-gradient(circle, #BAE6FD22 0%, transparent 70%);
-        }
-
-        .tab-pill {
-          position: relative;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 10px 20px;
-          border-radius: 14px;
-          cursor: pointer;
-          transition: all 0.25s ease;
-          border: 1.5px solid transparent;
-          background: transparent;
-          font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-        }
-        .tab-pill:hover:not(.active) {
-          background: white;
-          border-color: #E2E8F0;
-          transform: translateY(-1px);
-        }
-        .tab-pill.active {
-          background: white;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
-          transform: translateY(-1px);
-        }
-        .tab-pill .tab-icon-wrap {
-          width: 34px; height: 34px;
-          border-radius: 10px;
-          display: flex; align-items: center; justify-content: center;
-          transition: all 0.25s ease;
-        }
-        .tab-indicator {
-          position: absolute;
-          bottom: -2px; left: 50%; transform: translateX(-50%);
-          height: 3px; width: 36px;
-          border-radius: 2px 2px 0 0;
-          opacity: 0;
-          transition: opacity 0.25s;
-        }
-        .tab-pill.active .tab-indicator { opacity: 1; }
-
-        .content-fade-in {
-          animation: fadeSlideIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        @keyframes fadeSlideIn {
-          from { opacity: 0; transform: translateY(12px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-
-        .breadcrumb-chip {
-          display: inline-flex; align-items: center; gap: 5px;
-          padding: 3px 10px; border-radius: 20px;
-          font-size: 11px; font-weight: 600;
-          background: rgba(255,255,255,0.8);
-          border: 1px solid #E2E8F0;
-          color: #64748B;
-        }
-      `}</style>
-
-      <div className="reports-root">
-        {/* ── Page Header ── */}
-        <div className="page-header-bg px-6 py-6">
-          <div style={{ maxWidth: 1400, margin: "0 auto", position: "relative", zIndex: 1 }}>
-            {/* Breadcrumb */}
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-              <span className="breadcrumb-chip">
-                <BarChart2 size={10} />
-                Admin
-              </span>
-              <ChevronRight size={12} style={{ color: "#CBD5E1" }} />
-              <span className="breadcrumb-chip" style={{ borderColor: activeTabData.color + "44", color: activeTabData.color }}>
-                Analytics & Reports
-              </span>
-            </div>
-
-            {/* Title Row */}
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-              <div>
-                <h1 style={{
-                  fontFamily: "'Syne', sans-serif",
-                  fontSize: 28, fontWeight: 800, color: "#0F172A",
-                  letterSpacing: "-0.5px", margin: 0, lineHeight: 1.2,
-                }}>
-                  Analytics &amp;{" "}
-                  <span style={{ background: "linear-gradient(90deg, #F97316, #FB923C)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-                    Reports
-                  </span>
-                </h1>
-                <p style={{ color: "#64748B", fontSize: 13.5, marginTop: 4, display: "flex", alignItems: "center", gap: 5 }}>
-                  <Sparkles size={13} style={{ color: "#F97316" }} />
-                  Deep insights into users and sanghas across the full admin dataset
-                </p>
-              </div>
-
-              {/* Live badge */}
-              <div style={{
-                display: "flex", alignItems: "center", gap: 8,
-                padding: "6px 14px", borderRadius: 20,
-                background: "white",
-                border: "1px solid #E2E8F0",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-              }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#10B981", display: "block", animation: "pulse 2s infinite" }} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Live Data</span>
-              </div>
-            </div>
-
-            {/* ── Tab Bar ── */}
-            <div style={{
-              display: "flex", gap: 4, marginTop: 20,
+        {/* ── Tab bar + date picker ────────────────────────────────────────── */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          {/* Tab pill */}
+          <div
+            style={{
+              display: "flex",
+              gap: 2,
               padding: 4,
-              background: "#F1F5F9",
-              borderRadius: 18,
-              width: "fit-content",
-              border: "1px solid #E2E8F0",
-            }}>
-              {tabs.map((tab) => {
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`tab-pill ${isActive ? "active" : ""}`}
-                    style={{ outline: "none" }}
-                  >
-                    <div
-                      className="tab-icon-wrap"
-                      style={{
-                        background: isActive ? `linear-gradient(135deg, ${tab.color}22, ${tab.color}11)` : "transparent",
-                      }}
-                    >
-                      <tab.icon
-                        size={16}
-                        style={{ color: isActive ? tab.color : "#94A3B8", transition: "color 0.25s" }}
-                      />
-                    </div>
-                    <div style={{ textAlign: "left" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: isActive ? "#0F172A" : "#64748B", lineHeight: 1.2 }}>
-                        {tab.label}
-                      </div>
-                      <div style={{ fontSize: 10.5, color: isActive ? tab.color : "#94A3B8", fontWeight: 500, lineHeight: 1 }}>
-                        {tab.desc}
-                      </div>
-                    </div>
-                    {isActive && (
-                      <div style={{
-                        width: 6, height: 6, borderRadius: "50%",
-                        background: `linear-gradient(135deg, ${tab.color}, ${tab.color}99)`,
-                        marginLeft: 2,
-                      }} />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+              background: C.white,
+              border: `1px solid ${C.slate200}`,
+              borderRadius: 14,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+            }}
+          >
+            {TABS.map((tab) => (
+              <TabBtn
+                key={tab.id}
+                tab={tab}
+                active={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+              />
+            ))}
           </div>
+
+          {/* Date picker — only on general + advanced tabs */}
+          {(activeTab === "general" || activeTab === "advanced") && (
+            <DateRangePicker
+              value={dateRange}
+              onChange={(range) => {
+                setDateRange(range);
+                if (activeTab === "advanced") setAdvancedData(null);
+              }}
+            />
+          )}
         </div>
 
-        {/* ── Content Area ── */}
-        <div style={{ maxWidth: 1400, margin: "0 auto", padding: "28px 24px" }}>
-          <div className="content-fade-in" key={activeTab}>
-            {activeTab === "general" && (
-              <GeneralDashboard
-                overview={overview}
-                dateReg={dateReg}
-                startDate={startDate}
-                endDate={endDate}
-                onDateChange={(nextStart, nextEnd) => {
-                  setStartDate(nextStart);
-                  setEndDate(nextEnd);
-                }}
-                loading={loading}
-                error={error}
-                onRefresh={fetchData}
-                onGoToAdvanced={goToAdvanced}
-                onGoToCustomReport={goToCustomReport}
-              />
-            )}
-            {activeTab === "advanced" && (
-              <AdvancedDashboard
-                initialSection={advancedSection}
-                onGoToCustomReport={goToCustomReport}
-                onSectionRendered={() => setAdvancedSection(undefined)}
-              />
-            )}
-            {activeTab === "custom" && <CustomReport initialCategory={customCategory} />}
-          </div>
-        </div>
+        {/* ── Tab content ─────────────────────────────────────────────────── */}
+
+        {/* General Dashboard — has its own overview / users / sanghas sub-tabs */}
+        {activeTab === "general" && (
+          <GeneralDashboard dateRange={dateRange} />
+        )}
+
+        {/* Advanced Analytics */}
+        {activeTab === "advanced" && (
+          <AdvancedDashboard
+            data={advancedData}
+            loading={advancedLoading}
+            initialSection={advancedSection}
+            dateRange={dateRange}
+            onGoToCustomReport={goToCustomReport}
+            onSectionRendered={handleSectionRendered}
+          />
+        )}
+
+        {/* Custom Report */}
+        {activeTab === "custom" && (
+          <CustomReport
+            initSections={customInitSections}
+            initCategory={customInitCategory}
+            onClearInit={() => {
+              setCustomInitSections([]);
+              setCustomInitCategory(undefined);
+            }}
+            dateRange={dateRange}
+          />
+        )}
       </div>
-    </>
+    </div>
   );
 }

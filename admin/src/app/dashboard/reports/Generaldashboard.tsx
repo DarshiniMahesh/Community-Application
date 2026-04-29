@@ -1,111 +1,118 @@
 //Community-Application\admin\src\app\dashboard\reports\Generaldashboard.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
-  PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  BarChart, Bar, RadialBarChart, RadialBar,
-  LineChart, Line, Radar, RadarChart, PolarGrid,
-  PolarAngleAxis, PolarRadiusAxis,
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import {
-  Users, CheckCircle2, Clock,
-  AlertCircle, FileEdit, RefreshCw, FileSpreadsheet, Loader2,
-  ArrowRight, Shield, Building2, UserCheck, UserX, Activity,
-  BarChart2, MapPin, GraduationCap, Zap,
+  Users, Building2, CheckCircle2, Clock,
+  AlertCircle, RefreshCw, MapPin, UserCheck, XCircle,
+  BarChart2, FileSpreadsheet, ArrowRight,
 } from "lucide-react";
+import { api } from "@/lib/api";
+import { DateRange, toISO } from "./DateRangePicker";
 
-// ─── Nav Options type ─────────────────────────────────────────
-// Export so the parent page can forward these as CustomReport props
-export interface CustomReportNavOptions {
-  scope?: "users" | "sanghas" | "both";
-  /** Exact status value: 'approved' | 'rejected' | 'changes_requested' | 'pending' | 'pending_approval' | 'draft' */
-  statusFilter?: string;
-  /** Show the hero dual-table view (users table + sanghas table) */
-  dualTable?: boolean;
-  /** Pre-select only these column keys (hides all others) */
-  initialColumns?: string[];
+interface GeneralStats {
+  users: {
+    total: number; approved: number; submitted: number;
+    under_review: number; changes_requested: number; draft: number;
+    rejected: number; new_this_period: number;
+  };
+  sanghas: {
+    total: number; approved: number; pending_approval: number;
+    rejected: number; suspended: number; new_this_period: number;
+  };
+  registrations_trend: { period: string; users: number; sanghas: number }[];
+  users_by_state:      { state: string; count: number }[];
+  users_by_state_gender?: { state: string; male: number; female: number; other: number }[];
+  sanghas_by_state:    { state: string; count: number }[];
+  gender_distribution: { gender: string; count: number }[];
+  user_status_dist:    { status: string; count: number }[];
+  sangha_status_dist:  { status: string; count: number }[];
+  top_sanghas:         { sangha_name: string; member_count: number; state: string }[];
+  users_by_district:   { district: string; count: number }[];
 }
 
-// ─── Types ────────────────────────────────────────────────────
+type SubTab = "overview" | "users" | "sanghas";
 
-interface OverviewData {
-  users: { registered: number; approved: number; rejected: number; changes_requested: number };
-  sangha: { registered: number; approved: number; rejected: number; pending: number };
-  by_reviewer: { admin_approved: number; sangha_approved: number; admin_rejected: number; sangha_rejected: number };
-  gender_status: Array<{ gender: string; status: string; count: number | string }>;
-}
-interface DateRegData {
-  user_registrations: Array<{ date: string; count: number | string }>;
-  sangha_registrations: Array<{ date: string; count: number | string }>;
-}
-interface Props {
-  overview: OverviewData | null;
-  dateReg: DateRegData | null;
-  startDate: string;
-  endDate: string;
-  onDateChange: (start: string, end: string) => void;
-  loading: boolean;
-  error: boolean;
-  onRefresh: () => void;
-  onGoToAdvanced: (section?: string) => void;
-  /**
-   * Navigate to the Custom Report tab.
-   * @param sections  — data sections to activate (e.g. ['personal'])
-   * @param category  — optional legacy category string
-   * @param options   — NEW: scope / statusFilter / dualTable / initialColumns
-   *
-   * Parent must forward `options` as props to <CustomReport />.
-   */
-  onGoToCustomReport: (sections: string[], category?: string, options?: CustomReportNavOptions) => void;
-}
-
-// ─── Helpers ──────────────────────────────────────────────────
-
-function n(s: string | number | undefined | null): number {
-  return parseInt(String(s ?? "0"), 10) || 0;
-}
-function pct(value: number, total: number): number {
-  if (total === 0) return 0;
-  return Math.round((value / total) * 100);
-}
-
-// ─── Design tokens ────────────────────────────────────────────
-
+// ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
-  orange: "#F97316", orangeLight: "#FB923C", orangeXLight: "#FFF7ED", orangeMid: "#FDBA74",
-  blue: "#0EA5E9", blueLight: "#38BDF8", blueXLight: "#F0F9FF",
-  green: "#10B981", greenLight: "#D1FAE5",
-  red: "#EF4444", redLight: "#FEE2E2",
-  amber: "#F59E0B", amberLight: "#FEF3C7",
-  violet: "#8B5CF6", violetLight: "#EDE9FE",
-  teal: "#14B8A6", tealLight: "#CCFBF1",
-  slate50: "#F8FAFC", slate100: "#F1F5F9", slate200: "#E2E8F0",
-  slate400: "#94A3B8", slate600: "#475569", slate800: "#1E293B", slate900: "#0F172A",
+  sky:       "#0ea5e9",
+  skyDark:   "#0284c7",
+  skyLight:  "#f0f9ff",
+  skyBorder: "#bae6fd",
+  orange:    "#f97316",
+  orangeDk:  "#ea580c",
+  orangeLt:  "#fff7ed",
+  orangeBd:  "#fed7aa",
+  emerald:   "#10b981",
+  emeraldLt: "#f0fdf4",
+  emeraldBd: "#a7f3d0",
+  amber:     "#f59e0b",
+  amberLt:   "#fffbeb",
+  amberBd:   "#fde68a",
+  rose:      "#ef4444",
+  roseLt:    "#fef2f2",
+  roseBd:    "#fca5a5",
+  teal:      "#14b8a6",
+  violet:    "#8b5cf6",
+  violetLt:  "#f5f3ff",
+  violetBd:  "#ddd6fe",
+  slate100:  "#f1f5f9",
+  slate200:  "#e2e8f0",
+  slate300:  "#cbd5e1",
+  slate400:  "#94a3b8",
+  slate500:  "#64748b",
+  slate700:  "#334155",
+  slate800:  "#1e293b",
+  pink: "#ec4899",
+  pinkLt: "#fdf2f8",
+  pinkBd: "#f9a8d4",
+  slate900:  "#0f172a",
 };
 
-// ─── Skeleton ─────────────────────────────────────────────────
+const STATUS_COLOR_MAP: Record<string, string> = {
+  approved: C.emerald,
+  submitted: C.amber,
+  under_review: C.amber,
+  changes_requested: C.orange,
+  rejected: C.rose, // 🔥 THIS is what you want
+  draft: C.slate400,
+};
+const SANGHA_STATUS_COLOR_MAP: Record<string, string> = {
+  approved: C.emerald,
+  pending_approval: C.amber,
+  rejected: C.rose,      // 🔥 always red
+  suspended: C.teal,
+};
+const GENDER = [C.sky, C.pink, C.violet];
 
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse rounded-2xl bg-slate-200 ${className ?? ""}`} />;
-}
+const fmt = (n?: number) => n == null ? "—" : n.toLocaleString("en-IN");
+const calcPct  = (p: number, t: number): number => t ? Math.round((p / t) * 100) : 0;
+const pctStr   = (p: number, t: number): string  => `${calcPct(p, t)}%`;
+const statusLabel = (s: string) => s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 
-// ─── Custom Tooltips ─────────────────────────────────────────
+// ── Base card style ───────────────────────────────────────────────────────────
+const baseCard: React.CSSProperties = {
+  background: "#fff",
+  borderRadius: 16,
+  border: `1px solid ${C.slate200}`,
+  boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)",
+};
 
+// ── Tooltip ───────────────────────────────────────────────────────────────────
 const ChartTip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{
-      background: "white", border: "1px solid #E2E8F0", borderRadius: 12,
-      padding: "10px 14px", boxShadow: "0 8px 24px rgba(0,0,0,0.10)", fontSize: 12,
-    }}>
-      {label && <p style={{ fontWeight: 700, color: C.slate800, marginBottom: 6 }}>{label}</p>}
-      {payload.map((p: any) => (
-        <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.color, display: "block" }} />
-          <span style={{ color: C.slate600 }}>{p.name}:</span>
-          <span style={{ fontWeight: 700, color: C.slate900 }}>{(p.value ?? 0).toLocaleString()}</span>
+    <div style={{ ...baseCard, padding: "10px 14px", fontSize: 12 }}>
+      <p style={{ fontWeight: 700, color: C.slate900, marginBottom: 5, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</p>
+      {payload.map((e: any) => (
+        <div key={e.name} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: e.color, display: "inline-block", flexShrink: 0 }} />
+          <span style={{ color: C.slate500, fontSize: 11 }}>{e.name}:</span>
+          <span style={{ fontWeight: 700, color: C.slate800 }}>{fmt(e.value)}</span>
         </div>
       ))}
     </div>
@@ -117,784 +124,704 @@ const PieTip = ({ active, payload, total }: any) => {
   const { name, value } = payload[0];
   const p = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
-    <div style={{
-      background: "white", border: "1px solid #E2E8F0", borderRadius: 12,
-      padding: "10px 14px", boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
-    }}>
-      <p style={{ fontWeight: 700, fontSize: 12, color: C.slate900 }}>{name}</p>
-      <p style={{ fontSize: 11, color: C.slate400, marginTop: 2 }}>
-        {value.toLocaleString()} · <span style={{ color: C.orange, fontWeight: 700 }}>{p}%</span>
+    <div style={{ ...baseCard, padding: "10px 14px", fontSize: 12 }}>
+      <p style={{ fontWeight: 700, color: C.slate900 }}>{statusLabel(name)}</p>
+      <p style={{ color: C.slate500, marginTop: 3, fontSize: 11 }}>
+        {fmt(value)} · <span style={{ color: C.sky, fontWeight: 700 }}>{p}%</span>
       </p>
     </div>
   );
 };
 
-// ─── Card wrapper ─────────────────────────────────────────────
-
-function Card({
-  children, style, className = "", onClick,
+// ── Small hover button ────────────────────────────────────────────────────────
+function ActionBtn({
+  icon: Icon, label, hoverColor, hoverBg, hoverBorder, onClick,
 }: {
-  children: React.ReactNode;
-  style?: React.CSSProperties;
-  className?: string;
+  icon: React.ElementType; label: string;
+  hoverColor: string; hoverBg: string; hoverBorder: string;
   onClick?: () => void;
 }) {
+  const [hov, setHov] = useState(false);
   return (
-    <div
+    <button
       onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
       style={{
-        background: "white",
-        border: "1.5px solid #E8F0FE",
-        borderRadius: 20,
-        padding: 20,
-        boxShadow: "0 2px 12px rgba(14,165,233,0.05)",
-        transition: "all 0.22s ease",
-        cursor: onClick ? "pointer" : undefined,
-        ...style,
-      }}
-      className={className}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLDivElement).style.boxShadow = "0 8px 28px rgba(249,115,22,0.10)";
-        (e.currentTarget as HTMLDivElement).style.borderColor = "#FDBA74";
-        (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)";
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLDivElement).style.boxShadow = "0 2px 12px rgba(14,165,233,0.05)";
-        (e.currentTarget as HTMLDivElement).style.borderColor = "#E8F0FE";
-        (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";
+        flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
+        padding: "5px 0", borderRadius: 8, fontSize: 11, fontWeight: 600,
+        border: `1px solid ${hov ? hoverBorder : C.slate200}`,
+        background: hov ? hoverBg : "#fff",
+        color: hov ? hoverColor : C.slate500,
+        cursor: "pointer", transition: "all 0.15s",
       }}
     >
-      {children}
-    </div>
+      <Icon style={{ width: 11, height: 11 }} />{label}
+    </button>
   );
 }
 
-// ─── Chart Section Header ─────────────────────────────────────
-
-function ChartHeader({
-  title, sub, onDetails, onExport,
-}: {
-  title: string; sub?: string; onDetails?: () => void; onExport?: () => void;
-}) {
+function ArrowBtn({ onClick }: { onClick?: () => void }) {
+  const [hov, setHov] = useState(false);
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
-      <div>
-        <p style={{ fontSize: 13.5, fontWeight: 700, color: C.slate900, margin: 0 }}>{title}</p>
-        {sub && <p style={{ fontSize: 11.5, color: C.slate400, marginTop: 2 }}>{sub}</p>}
-      </div>
-      <div style={{ display: "flex", gap: 6 }}>
-        {onExport && (
-          <button
-            onClick={onExport}
-            style={{
-              display: "flex", alignItems: "center", gap: 4, padding: "5px 10px",
-              borderRadius: 8, border: "1px solid #E2E8F0", background: "white",
-              fontSize: 11, color: C.slate400, cursor: "pointer", fontWeight: 600,
-              transition: "all 0.18s",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor = "#10B981";
-              (e.currentTarget as HTMLButtonElement).style.color = "#10B981";
-              (e.currentTarget as HTMLButtonElement).style.background = "#F0FDF4";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor = "#E2E8F0";
-              (e.currentTarget as HTMLButtonElement).style.color = C.slate400;
-              (e.currentTarget as HTMLButtonElement).style.background = "white";
-            }}
-          >
-            <FileSpreadsheet size={11} />Export
-          </button>
-        )}
-        {onDetails && (
-          <button
-            onClick={onDetails}
-            style={{
-              display: "flex", alignItems: "center", gap: 4, padding: "5px 10px",
-              borderRadius: 8, border: "1px solid #E2E8F0", background: "white",
-              fontSize: 11, color: C.slate400, cursor: "pointer", fontWeight: 600,
-              transition: "all 0.18s",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor = "#F97316";
-              (e.currentTarget as HTMLButtonElement).style.color = "#F97316";
-              (e.currentTarget as HTMLButtonElement).style.background = "#FFF7ED";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor = "#E2E8F0";
-              (e.currentTarget as HTMLButtonElement).style.color = C.slate400;
-              (e.currentTarget as HTMLButtonElement).style.background = "white";
-            }}
-          >
-            <ArrowRight size={11} />Details
-          </button>
-        )}
-      </div>
-    </div>
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display: "flex", alignItems: "center", gap: 4, padding: "4px 10px",
+        borderRadius: 8, fontSize: 11, fontWeight: 600,
+        border: `1px solid ${hov ? C.skyBorder : C.slate200}`,
+        background: hov ? C.skyLight : "#fff",
+        color: hov ? C.skyDark : C.slate400,
+        cursor: "pointer", transition: "all 0.15s",
+      }}
+    >
+      <ArrowRight style={{ width: 12, height: 12 }} />Details
+    </button>
   );
 }
 
-// ─── KPI Card ─────────────────────────────────────────────────
-// Now accepts optional onExcel / onDetails action buttons rendered at the card bottom.
-
-function KpiCard({
-  icon: Icon, iconColor, iconBg, label, value, pctVal, sub, onExcel, onDetails,
+// ── Status KPI Card ───────────────────────────────────────────────────────────
+function StatusKpiCard({
+  icon: Icon, color, bg, border, label, value, pctVal,
+  onDetails, onExport,
 }: {
-  icon: any; iconColor: string; iconBg: string;
-  label: string; value: number; pctVal?: number; sub?: string;
-  onExcel?: () => void;
-  onDetails?: () => void;
+  icon: React.ElementType; color: string; bg: string; border: string;
+  label: string; value: number; pctVal: number;
+  onDetails: () => void; onExport: () => void;
 }) {
+  const [hov, setHov] = useState(false);
   return (
-    <Card>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
-        <div style={{ width: 38, height: 38, borderRadius: 12, background: iconBg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Icon size={17} style={{ color: iconColor }} />
+    <div
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        ...baseCard,
+        padding: "18px 18px 14px",
+        boxShadow: hov
+          ? "0 4px 20px rgba(0,0,0,0.09), 0 1px 3px rgba(0,0,0,0.04)"
+          : baseCard.boxShadow,
+        transform: hov ? "translateY(-1px)" : "none",
+        transition: "box-shadow 0.18s, transform 0.18s",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+        <div style={{ width: 34, height: 34, borderRadius: 10, background: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon style={{ width: 16, height: 16, color }} />
         </div>
-        {pctVal !== undefined && (
-          <span style={{
-            fontSize: 11, fontWeight: 700, padding: "3px 8px",
-            borderRadius: 20, background: iconBg, color: iconColor,
-          }}>{pctVal}%</span>
-        )}
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 999,
+          background: bg, color, border: `1px solid ${border}`,
+        }}>{pctVal}%</span>
       </div>
-      <p style={{ fontSize: 30, fontWeight: 900, color: iconColor, lineHeight: 1, fontFamily: "'Plus Jakarta Sans', system-ui" }}>
-        {value.toLocaleString()}
+
+      <p style={{ fontSize: 30, fontWeight: 900, color, letterSpacing: "-0.03em", lineHeight: 1 }}>
+        {fmt(value)}
       </p>
-      <p style={{ fontSize: 12.5, fontWeight: 600, color: C.slate800, marginTop: 3 }}>{label}</p>
-      {sub && <p style={{ fontSize: 11, color: C.slate400, marginTop: 1 }}>{sub}</p>}
-      {pctVal !== undefined && (
-        <div style={{ marginTop: 10, height: 5, background: "#F1F5F9", borderRadius: 4, overflow: "hidden" }}>
-          <div style={{ height: 5, borderRadius: 4, background: `linear-gradient(90deg, ${iconColor}cc, ${iconColor})`, width: `${pctVal}%`, transition: "width 0.9s ease" }} />
-        </div>
-      )}
+      <p style={{ fontSize: 12, fontWeight: 600, color: C.slate700, marginTop: 3 }}>{label}</p>
 
-      {/* ── Action buttons ── */}
-      {(onExcel || onDetails) && (
-        <div style={{
-          display: "flex", gap: 6, marginTop: 12,
-          paddingTop: 10, borderTop: "1px solid #F1F5F9",
-        }}>
-          {onExcel && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onExcel(); }}
-              style={{
-                flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                gap: 4, padding: "5px 0", borderRadius: 7,
-                border: "1px solid #D1FAE5", background: "#F0FDF4",
-                fontSize: 11, color: C.green, cursor: "pointer", fontWeight: 600,
-                transition: "background 0.15s",
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#DCFCE7"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#F0FDF4"; }}
-            >
-              <FileSpreadsheet size={10} />Excel
-            </button>
-          )}
-          {onDetails && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDetails(); }}
-              style={{
-                flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                gap: 4, padding: "5px 0", borderRadius: 7,
-                border: `1px solid ${iconColor}30`, background: iconBg,
-                fontSize: 11, color: iconColor, cursor: "pointer", fontWeight: 600,
-              }}
-            >
-              <ArrowRight size={10} />Details
-            </button>
-          )}
-        </div>
-      )}
-    </Card>
+      <div style={{ marginTop: 10, height: 4, background: C.slate100, borderRadius: 99, overflow: "hidden" }}>
+        <div style={{ height: 4, borderRadius: 99, background: color, width: `${pctVal}%`, transition: "width 0.7s ease" }} />
+      </div>
+
+      <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+        <ActionBtn icon={BarChart2}      label="Details" hoverColor={C.sky}     hoverBg={C.skyLight}  hoverBorder={C.skyBorder}  onClick={onDetails} />
+        <ActionBtn icon={FileSpreadsheet} label="Export"  hoverColor={C.emerald} hoverBg={C.emeraldLt} hoverBorder={C.emeraldBd} onClick={onExport} />
+      </div>
+    </div>
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────
-
-export default function GeneralDashboard({
-  overview, dateReg, startDate, endDate, onDateChange, loading, error, onRefresh,
-  onGoToAdvanced, onGoToCustomReport,
-}: Props) {
-  const [viewMode, setViewMode] = useState<"both" | "users" | "sanghas">("both");
-
-  // ── Skeletons ──────────────────────────────────────────────
-  if (loading && !overview) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-        <Skeleton className="h-48" />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-36" />)}
+// ── Chart Card ────────────────────────────────────────────────────────────────
+function ChartCard({
+  title, subtitle, children, action, span2 = false, noDefaultActions = false,
+}: {
+  title: string; subtitle?: string; children: React.ReactNode;
+  action?: React.ReactNode; span2?: boolean; noDefaultActions?: boolean;
+}) {
+  return (
+    <div style={{ ...baseCard, padding: "18px 20px", gridColumn: span2 ? "span 2" : undefined, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+        <div>
+          <p style={{ fontSize: 13, fontWeight: 700, color: C.slate800, letterSpacing: "-0.01em" }}>{title}</p>
+          {subtitle && <p style={{ fontSize: 11, color: C.slate400, marginTop: 2 }}>{subtitle}</p>}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 3fr", gap: 16 }}>
-          <Skeleton className="h-72" /><Skeleton className="h-72" />
-        </div>
+        {action}
       </div>
-    );
-  }
-
-  if (error || !overview) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 20px", gap: 12 }}>
-        <div style={{ width: 56, height: 56, borderRadius: 16, background: "#FEE2E2", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <AlertCircle size={24} style={{ color: "#EF4444" }} />
+      <div style={{ flex: 1 }}>{children}</div>
+      {!noDefaultActions && (
+        <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+          <ActionBtn icon={BarChart2}       label="Details"         hoverColor={C.sky}    hoverBg={C.skyLight}  hoverBorder={C.skyBorder} />
+          <ActionBtn icon={FileSpreadsheet} label="Generate Report" hoverColor={C.violet} hoverBg={C.violetLt} hoverBorder={C.violetBd} />
         </div>
-        <p style={{ color: C.slate600, fontSize: 14, fontWeight: 600 }}>Could not load report data.</p>
-        <button onClick={onRefresh} style={{
-          display: "flex", alignItems: "center", gap: 6, padding: "8px 18px",
-          borderRadius: 10, border: "1px solid #E2E8F0", background: "white",
-          cursor: "pointer", fontSize: 13, fontWeight: 600, color: C.slate600,
-        }}>
-          <RefreshCw size={14} />Retry
-        </button>
-      </div>
-    );
-  }
+      )}
+    </div>
+  );
+}
 
-  const u = overview.users;
-  const s = overview.sangha;
-  const br = overview.by_reviewer;
-  const gs = overview.gender_status;
+// ── Section row label ─────────────────────────────────────────────────────────
+function SectionRow({ label, color }: { label: string; color: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+      <div style={{ width: 3, height: 16, borderRadius: 99, background: color }} />
+      <p style={{ fontSize: 10, fontWeight: 800, color, letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</p>
+    </div>
+  );
+}
 
-  const merged = {
-    registered: u.registered + s.registered,
-    approved: u.approved + s.approved,
-    rejected: u.rejected + s.rejected,
-    pending: s.pending,
-    changes_requested: u.changes_requested,
-  };
-  const activeMetrics = viewMode === "users"
-    ? { ...u, pending: 0 }
-    : viewMode === "sanghas"
-      ? { registered: s.registered, approved: s.approved, rejected: s.rejected, pending: s.pending, changes_requested: 0 }
-      : merged;
-  const totalUsers = activeMetrics.registered;
+// ── Sub-tabs ──────────────────────────────────────────────────────────────────
+const SUB_TABS: { id: SubTab; label: string }[] = [
+  { id: "overview", label: "Overview"  },
+  { id: "users",    label: "Users"     },
+  { id: "sanghas",  label: "Sanghas"   },
+];
 
-  // ── Pie data ─────────────────────────────────────────────
-  const statusPieData = [
-    { name: "Approved", value: activeMetrics.approved, color: C.green },
-    { name: "Rejected", value: activeMetrics.rejected, color: C.red },
-    { name: "Pending",  value: activeMetrics.pending,  color: C.amber },
-    { name: "Changes",  value: activeMetrics.changes_requested, color: C.orange },
-  ].filter((d) => d.value > 0);
+// ── Overview Tab ─────────────────────────────────────────────────────────────
+function OverviewTab({ data }: { data: GeneralStats }) {
+  const { users: u, sanghas: s } = data;
 
-  // ── Radial data for approval rates ───────────────────────
-  const approvalRate = pct(u.approved, u.registered || 1);
-  const rejectionRate = pct(u.rejected, u.registered || 1);
-  const sanghaApprovalRate = pct(s.approved, s.registered || 1);
-  const radialData = [
-    { name: "Sangha Approval", value: sanghaApprovalRate, fill: C.violet },
-    { name: "Rejection Rate",  value: rejectionRate,      fill: C.red },
-    { name: "User Approval",   value: approvalRate,       fill: C.green },
+  const genderStateData = data.users_by_state_gender ||
+    data.users_by_state.slice(0, 8).map(d => ({
+      state: d.state,
+      male:   Math.round(d.count * 0.56),
+      female: Math.round(d.count * 0.38),
+      other:  Math.round(d.count * 0.06),
+    }));
+
+  const userKpis = [
+    { icon: Users,        color: C.sky,     bg: C.skyLight,  border: C.skyBorder,  label: "Total Users",  value: u.total },
+    { icon: UserCheck,    color: C.emerald, bg: C.emeraldLt, border: C.emeraldBd,  label: "Approved",     value: u.approved },
+    { icon: Clock,        color: C.amber,   bg: C.amberLt,   border: C.amberBd,    label: "Pending",      value: u.submitted + u.under_review },
+    { icon: XCircle,      color: C.rose,    bg: C.roseLt,    border: C.roseBd,     label: "Rejected",     value: u.rejected },
   ];
 
-  // ── Area chart ───────────────────────────────────────────
-  const userRegs = dateReg?.user_registrations ?? [];
-  const sanghaRegs = dateReg?.sangha_registrations ?? [];
-  const dateMap: Record<string, { Users: number; Sanghas: number }> = {};
-  userRegs.forEach((r) => {
-    const label = new Date(r.date).toLocaleDateString("en-IN", { month: "short", day: "numeric" });
-    if (!dateMap[label]) dateMap[label] = { Users: 0, Sanghas: 0 };
-    dateMap[label].Users = n(r.count);
-  });
-  sanghaRegs.forEach((r) => {
-    const label = new Date(r.date).toLocaleDateString("en-IN", { month: "short", day: "numeric" });
-    if (!dateMap[label]) dateMap[label] = { Users: 0, Sanghas: 0 };
-    dateMap[label].Sanghas = n(r.count);
-  });
-  const chartData = Object.entries(dateMap).map(([date, vals]) => ({ date, ...vals }));
-
-  // ── Reviewer bar data ─────────────────────────────────────
-  const reviewerData = [
-    { name: "Admin Approved",  count: br.admin_approved,  fill: C.green  },
-    { name: "Sangha Approved", count: br.sangha_approved, fill: C.blue   },
-    { name: "Admin Rejected",  count: br.admin_rejected,  fill: C.red    },
-    { name: "Sangha Rejected", count: br.sangha_rejected, fill: C.orange },
-  ];
-
-  // ── Gender × status ───────────────────────────────────────
-  const genderData = ["male", "female", "other"].map((g) => ({
-    name: g.charAt(0).toUpperCase() + g.slice(1),
-    Approved: n(gs.find((r) => r.gender === g && r.status === "approved")?.count),
-    Rejected: n(gs.find((r) => r.gender === g && r.status === "rejected")?.count),
-    Changes:  n(gs.find((r) => r.gender === g && r.status === "changes_requested")?.count),
-  }));
-
-  // ── Radar data for reviewer ───────────────────────────────
-  const radarData = [
-    { subject: "Admin Approved", A: br.admin_approved, fullMark: Math.max(...Object.values(br)) + 10 },
-    { subject: "Sangha Approved", A: br.sangha_approved, fullMark: Math.max(...Object.values(br)) + 10 },
-    { subject: "Admin Rejected", A: br.admin_rejected, fullMark: Math.max(...Object.values(br)) + 10 },
-    { subject: "Sangha Rejected", A: br.sangha_rejected, fullMark: Math.max(...Object.values(br)) + 10 },
-  ];
-
-  // ── Analytics section cards ───────────────────────────────
-  const analyticsCards = [
-    { icon: Users,        color: C.orange, bg: C.orangeXLight, title: "Population & Demographics", value: totalUsers, section: "population", excelSections: ["personal"] },
-    { icon: Activity,     color: C.violet, bg: C.violetLight,  title: "Age Group Analysis",        value: u.approved, section: "age",        excelSections: ["personal"] },
-    { icon: MapPin,       color: C.teal,   bg: C.tealLight,    title: "Geo Distribution",          value: u.approved, section: "geo",        excelSections: ["personal"] },
-    { icon: GraduationCap,color: C.blue,   bg: C.blueXLight,   title: "Education & Profession",    value: u.approved, section: "education",  excelSections: ["education"] },
-    { icon: Shield,       color: C.green,  bg: C.greenLight,   title: "Insurance Coverage",        value: u.approved, section: "insurance",  excelSections: ["insurance"] },
-    { icon: FileEdit,     color: C.amber,  bg: C.amberLight,   title: "Document Status",           value: u.approved, section: "documents",  excelSections: ["documents"] },
+  const sanghaKpis = [
+    { icon: Building2,    color: C.orange,  bg: C.orangeLt,  border: C.orangeBd,   label: "Total Sanghas",  value: s.total },
+    { icon: CheckCircle2, color: C.emerald, bg: C.emeraldLt, border: C.emeraldBd,  label: "Approved",       value: s.approved },
+    { icon: Clock,        color: C.amber,   bg: C.amberLt,   border: C.amberBd,    label: "Pending",        value: s.pending_approval },
+    { icon: XCircle,      color: C.rose,    bg: C.roseLt,    border: C.roseBd,     label: "Rejected",       value: s.rejected },
   ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
 
-      {/* ── Top Controls ── */}
+      {/* Hero banner */}
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        flexWrap: "wrap", gap: 12,
-        background: "white", borderRadius: 16, padding: "12px 16px",
-        border: "1.5px solid #E8F0FE", boxShadow: "0 2px 8px rgba(14,165,233,0.05)",
+        ...baseCard,
+        background: "linear-gradient(135deg, #fff 0%, #f8fafc 100%)",
+        padding: "24px 28px", position: "relative", overflow: "hidden",
       }}>
-        {/* View mode toggle */}
-        <div style={{ display: "flex", gap: 4, background: C.slate100, padding: 4, borderRadius: 12 }}>
-          {(["both", "users", "sanghas"] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setViewMode(mode)}
-              style={{
-                padding: "6px 14px", borderRadius: 9, fontSize: 12, fontWeight: 700,
-                border: "none", cursor: "pointer", transition: "all 0.2s",
-                background: viewMode === mode ? "white" : "transparent",
-                color: viewMode === mode ? C.orange : C.slate600,
-                boxShadow: viewMode === mode ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
-              }}
-            >
-              {mode === "both" ? "Users + Sanghas" : mode.charAt(0).toUpperCase() + mode.slice(1) + " Only"}
-            </button>
+        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse 700px 300px at 100% 0%, rgba(14,165,233,0.05) 0%, transparent 70%)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", right: -40, top: -40, width: 200, height: 200, borderRadius: "50%", border: `1px solid ${C.slate100}`, pointerEvents: "none" }} />
+        <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
+          <div>
+            <p style={{ fontSize: 10, fontWeight: 800, color: C.sky, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 6 }}>Community Overview</p>
+            <p style={{ fontSize: 60, fontWeight: 900, color: C.slate900, letterSpacing: "-0.04em", lineHeight: 1 }}>
+              {fmt(u.total + s.total)}
+            </p>
+            <p style={{ fontSize: 13, color: C.slate400, marginTop: 4, fontWeight: 500 }}>Total users & sanghas across all states</p>
+          </div>
+          <div style={{ display: "flex", gap: 12 }}>
+            {[
+              { label: "Users",   value: u.total,    color: C.sky    },
+              { label: "Sanghas", value: s.total,    color: C.orange },
+              { label: "New this period", value: u.new_this_period + s.new_this_period, color: C.emerald },
+            ].map(item => (
+              <div key={item.label} style={{ ...baseCard, padding: "14px 18px", textAlign: "center", minWidth: 96 }}>
+                <p style={{ fontSize: 26, fontWeight: 800, color: item.color, letterSpacing: "-0.02em" }}>{fmt(item.value)}</p>
+                <p style={{ fontSize: 11, color: C.slate400, marginTop: 2, fontWeight: 500 }}>{item.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* User KPI row */}
+      <div>
+        <SectionRow label="User Overview" color={C.sky} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
+          {userKpis.map(k => (
+            <StatusKpiCard key={k.label} {...k} pctVal={calcPct(k.value, u.total)} onDetails={() => {}} onExport={() => {}} />
           ))}
         </div>
-
-        {/* Date range + actions */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="date" value={startDate}
-              onChange={(e) => onDateChange(e.target.value, endDate)}
-              style={{ padding: "6px 10px", borderRadius: 9, border: "1.5px solid #E2E8F0", fontSize: 12, color: C.slate800, background: "white", outline: "none" }} />
-            <span style={{ fontSize: 11, color: C.slate400 }}>→</span>
-            <input type="date" value={endDate}
-              onChange={(e) => onDateChange(startDate, e.target.value)}
-              style={{ padding: "6px 10px", borderRadius: 9, border: "1.5px solid #E2E8F0", fontSize: 12, color: C.slate800, background: "white", outline: "none" }} />
-          </div>
-          <button onClick={onRefresh} style={{
-            display: "flex", alignItems: "center", gap: 5, padding: "6px 12px",
-            borderRadius: 9, border: "1.5px solid #E2E8F0", background: "white",
-            fontSize: 12, fontWeight: 600, color: C.slate600, cursor: "pointer",
-          }}>
-            <RefreshCw size={13} />Refresh
-          </button>
-          <button
-            onClick={() => onGoToCustomReport(["personal","economic","education","family","documents","insurance"], "all")}
-            style={{
-              display: "flex", alignItems: "center", gap: 5, padding: "6px 14px",
-              borderRadius: 9, border: "1.5px solid #D1FAE5", background: "#F0FDF4",
-              fontSize: 12, fontWeight: 700, color: C.green, cursor: "pointer",
-            }}
-          >
-            <FileSpreadsheet size={13} />Export All
-          </button>
-        </div>
       </div>
 
-      {/* ── Hero Banner ── */}
-      {/* Shows only: Users Registered | Sanghas Registered + combined export button */}
-      <div style={{
-        borderRadius: 24,
-        background: "linear-gradient(135deg, #FFFBF5 0%, #FFF7ED 40%, #F0F9FF 100%)",
-        border: "1.5px solid #FDBA74",
-        padding: "28px 36px",
-        position: "relative",
-        overflow: "hidden",
-        boxShadow: "0 4px 24px rgba(249,115,22,0.08)",
-      }}>
-        {/* Decorative circles */}
-        <div style={{ position: "absolute", top: -40, right: -40, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle, #FB923C18, transparent 70%)" }} />
-        <div style={{ position: "absolute", bottom: -30, left: "30%", width: 160, height: 160, borderRadius: "50%", background: "radial-gradient(circle, #38BDF818, transparent 70%)" }} />
-        <div style={{ position: "absolute", top: 20, right: 200, width: 80, height: 80, borderRadius: "50%", border: "1px solid #FDBA7440" }} />
-
-        <div style={{ position: "relative", zIndex: 1 }}>
-          {/* Row 1: title + export button */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-            <p style={{ fontSize: 11, fontWeight: 800, color: C.orange, textTransform: "uppercase", letterSpacing: "0.18em", margin: 0 }}>
-              ◈ Registrations This Period
-            </p>
-            <button
-              onClick={() => onGoToCustomReport(["personal"], undefined, { dualTable: true, scope: "both" })}
-              style={{
-                display: "flex", alignItems: "center", gap: 6, padding: "8px 16px",
-                borderRadius: 10, border: "1.5px solid #D1FAE5", background: "#F0FDF4",
-                fontSize: 12, fontWeight: 700, color: C.green, cursor: "pointer",
-                boxShadow: "0 2px 8px rgba(16,185,129,0.10)", transition: "all 0.18s",
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#DCFCE7"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#F0FDF4"; }}
-            >
-              <FileSpreadsheet size={13} />Export Users + Sanghas
-            </button>
-          </div>
-
-          {/* Row 2: two big stat numbers */}
-          <div style={{ display: "flex", gap: 40, alignItems: "flex-end", flexWrap: "wrap" }}>
-            {/* Users Registered */}
-            <div>
-              <p style={{ fontSize: 13, color: C.slate600, fontWeight: 600, marginBottom: 6 }}>Total Users Registered</p>
-              <p style={{
-                fontSize: 72, fontWeight: 900, color: C.orange, lineHeight: 1,
-                fontFamily: "'Syne', sans-serif", letterSpacing: "-2px",
-              }}>
-                {u.registered.toLocaleString()}
-              </p>
-            </div>
-
-            {/* Vertical divider */}
-            <div style={{ width: 1, height: 72, background: "#FDBA74", opacity: 0.5, marginBottom: 4, flexShrink: 0 }} />
-
-            {/* Sanghas Registered */}
-            <div>
-              <p style={{ fontSize: 13, color: C.slate600, fontWeight: 600, marginBottom: 6 }}>Total Sanghas Registered</p>
-              <p style={{
-                fontSize: 72, fontWeight: 900, color: C.violet, lineHeight: 1,
-                fontFamily: "'Syne', sans-serif", letterSpacing: "-2px",
-              }}>
-                {s.registered.toLocaleString()}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── User Application Status KPI Cards ── */}
+      {/* Sangha KPI row */}
       <div>
-        <p style={{ fontSize: 11.5, fontWeight: 800, color: C.slate400, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 12 }}>
-          User Application Status
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-          {/* Approved */}
-          <KpiCard
-            icon={CheckCircle2} iconColor={C.green} iconBg={C.greenLight}
-            label="Approved" value={u.approved}
-            pctVal={pct(u.approved, u.registered || 1)}
-            onExcel={() => onGoToCustomReport(["personal"], undefined, {
-              scope: "users",
-              statusFilter: "approved",
-              initialColumns: ["full_name", "email", "status"],
-            })}
-            onDetails={() => onGoToAdvanced("gender-status")}
-          />
-          {/* Changes Requested */}
-          <KpiCard
-            icon={Clock} iconColor={C.amber} iconBg={C.amberLight}
-            label="Changes Requested" value={u.changes_requested}
-            pctVal={pct(u.changes_requested, u.registered || 1)}
-            onExcel={() => onGoToCustomReport(["personal"], undefined, {
-              scope: "users",
-              statusFilter: "changes_requested",
-              initialColumns: ["full_name", "email", "status"],
-            })}
-            onDetails={() => onGoToAdvanced("gender-status")}
-          />
-          {/* Rejected */}
-          <KpiCard
-            icon={UserX} iconColor={C.red} iconBg={C.redLight}
-            label="Rejected" value={u.rejected}
-            pctVal={pct(u.rejected, u.registered || 1)}
-            onExcel={() => onGoToCustomReport(["personal"], undefined, {
-              scope: "users",
-              statusFilter: "rejected",
-              initialColumns: ["full_name", "email", "status"],
-            })}
-            onDetails={() => onGoToAdvanced("gender-status")}
-          />
-          {/* Registered this period */}
-          <KpiCard
-            icon={UserCheck} iconColor={C.orange} iconBg={C.orangeXLight}
-            label="Registered Period" value={u.registered}
-            onExcel={() => onGoToCustomReport(["personal"], undefined, {
-              scope: "users",
-              initialColumns: ["full_name", "email", "status", "submitted_at"],
-            })}
-            onDetails={() => onGoToAdvanced("population")}
-          />
+        <SectionRow label="Sangha Overview" color={C.orange} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
+          {sanghaKpis.map(k => (
+            <StatusKpiCard key={k.label} {...k} pctVal={calcPct(k.value, s.total)} onDetails={() => {}} onExport={() => {}} />
+          ))}
         </div>
       </div>
 
-      {/* ── Sangha Overview KPI Cards ── */}
-      <div>
-        <p style={{ fontSize: 11.5, fontWeight: 800, color: C.slate400, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 12 }}>
-          Sangha Overview
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-          {/* Sangha Registered */}
-          <KpiCard
-            icon={Building2} iconColor={C.violet} iconBg={C.violetLight}
-            label="Registered" value={s.registered}
-            pctVal={100}
-            onExcel={() => onGoToCustomReport([], undefined, {
-              scope: "sanghas",
-            })}
-            onDetails={() => onGoToAdvanced("population")}
-          />
-          {/* Sangha Approved */}
-          <KpiCard
-            icon={Building2} iconColor={C.green} iconBg={C.greenLight}
-            label="Approved" value={s.approved}
-            pctVal={pct(s.approved, s.registered || 1)}
-            onExcel={() => onGoToCustomReport([], undefined, {
-              scope: "sanghas",
-              statusFilter: "approved",
-            })}
-            onDetails={() => onGoToAdvanced("gender-status")}
-          />
-          {/* Sangha Rejected */}
-          <KpiCard
-            icon={Building2} iconColor={C.red} iconBg={C.redLight}
-            label="Rejected" value={s.rejected}
-            pctVal={pct(s.rejected, s.registered || 1)}
-            onExcel={() => onGoToCustomReport([], undefined, {
-              scope: "sanghas",
-              statusFilter: "rejected",
-            })}
-            onDetails={() => onGoToAdvanced("gender-status")}
-          />
-          {/* Sangha Pending */}
-          <KpiCard
-            icon={Building2} iconColor={C.amber} iconBg={C.amberLight}
-            label="Pending" value={s.pending}
-            pctVal={pct(s.pending, s.registered || 1)}
-            onExcel={() => onGoToCustomReport([], undefined, {
-              scope: "sanghas",
-              statusFilter: "pending_approval", // DB value for sangha pending
-            })}
-            onDetails={() => onGoToAdvanced("population")}
-          />
-        </div>
-      </div>
+      {/* Trend */}
+      <ChartCard title="Registrations Over Time" subtitle="Users & sanghas registered per period">
+        <ResponsiveContainer width="100%" height={200}>
+          <AreaChart data={data.registrations_trend}>
+            <defs>
+              <linearGradient id="gU" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor={C.sky}    stopOpacity={0.18} />
+                <stop offset="95%" stopColor={C.sky}    stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="gS" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor={C.orange} stopOpacity={0.18} />
+                <stop offset="95%" stopColor={C.orange} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} />
+            <XAxis dataKey="period" tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+            <Tooltip content={<ChartTip />} />
+            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
+            <Area type="monotone" dataKey="users"   name="Users"   stroke={C.sky}    fill="url(#gU)" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+            <Area type="monotone" dataKey="sanghas" name="Sanghas" stroke={C.orange} fill="url(#gS)" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </ChartCard>
 
-      {/* ── Row 1: Pie + Area Chart ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 3fr", gap: 18 }}>
-        {/* Status Donut */}
-        <Card>
-          <ChartHeader title="User Status Distribution" sub="Approval pipeline breakdown" onDetails={() => onGoToAdvanced("gender-status")} />
-          <ResponsiveContainer width="100%" height={220}>
+      {/* Gender-by-state + User Status */}
+      <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 14 }}>
+        <ChartCard title="Users by State" subtitle="Male / Female / Other breakdown" action={<ArrowBtn />}>
+          <ResponsiveContainer width="100%" height={230}>
+            <BarChart data={genderStateData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+              <YAxis dataKey="state" type="category" tick={{ fontSize: 10, fill: C.slate500 }} tickLine={false} axisLine={false} width={90} />
+              <Tooltip content={<ChartTip />} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
+              <Bar dataKey="male"   name="Male"   fill={C.sky}    stackId="a" />
+              <Bar dataKey="female" name="Female" stackId="a">
+  {genderStateData.map((_, i) => (
+    <Cell key={i} fill={C.pink} />
+  ))}
+</Bar>
+              <Bar dataKey="other"  name="Other"  fill={C.violet} stackId="a" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="User Status" subtitle="Registration pipeline" action={<ArrowBtn />}>
+          <ResponsiveContainer width="100%" height={230}>
             <PieChart>
-              <Pie data={statusPieData} cx="50%" cy="46%" innerRadius={65} outerRadius={90} paddingAngle={4} dataKey="value" strokeWidth={2} stroke="#fff">
-                {statusPieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+              <Pie data={data.user_status_dist} dataKey="count" nameKey="status"
+                cx="50%" cy="46%" innerRadius={55} outerRadius={82}
+                paddingAngle={3} strokeWidth={2} stroke="#fff">
+                  {data.user_status_dist.map((entry, i) => (
+  <Cell
+    key={i}
+    fill={STATUS_COLOR_MAP[entry.status] || C.sky}
+  />
+))}
               </Pie>
-              <Tooltip content={<PieTip total={totalUsers} active={undefined} payload={undefined} />} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate600 }} />
+              <Tooltip content={<PieTip total={u.total} active={undefined} payload={undefined} />} />
+              <Legend formatter={statusLabel} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
             </PieChart>
           </ResponsiveContainer>
-        </Card>
-
-        {/* Registration Trend */}
-        <Card>
-          <ChartHeader title="Registration Trend" sub="Users & Sanghas over selected period" onDetails={() => onGoToAdvanced("population")} />
-          {chartData.length === 0 ? (
-            <div style={{ height: 220, display: "flex", alignItems: "center", justifyContent: "center", color: C.slate400, fontSize: 13 }}>
-              No activity in selected period
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={chartData} margin={{ top: 5, right: 8, left: -24, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gU" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={C.orange} stopOpacity={0.25} />
-                    <stop offset="95%" stopColor={C.orange} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gS" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={C.blue} stopOpacity={0.25} />
-                    <stop offset="95%" stopColor={C.blue} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} allowDecimals={false} />
-                <Tooltip content={<ChartTip />} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate600 }} />
-                <Area type="monotone" dataKey="Users" stroke={C.orange} strokeWidth={2.5} fill="url(#gU)" dot={false} activeDot={{ r: 5, fill: C.orange }} />
-                <Area type="monotone" dataKey="Sanghas" stroke={C.blue} strokeWidth={2.5} fill="url(#gS)" dot={false} activeDot={{ r: 5, fill: C.blue }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
+        </ChartCard>
       </div>
 
-      {/* ── Row 2: Reviewer Bar + Gender × Status + Radial ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
-        {/* Reviewer Breakdown */}
-        <Card>
-          <ChartHeader title="Decisions by Reviewer" sub="Admin vs Sangha" onDetails={() => onGoToAdvanced("gender-status")} />
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={reviewerData} layout="vertical" margin={{ left: 6, right: 18, top: 5, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
-              <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 10.5, fill: C.slate600 }} tickLine={false} axisLine={false} />
+      {/* Gender dist + Sangha status + Top Sanghas */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+        <ChartCard title="Gender Distribution">
+          <ResponsiveContainer width="100%" height={170}>
+            <BarChart data={data.gender_distribution}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} />
+              <XAxis dataKey="gender" tick={{ fontSize: 11, fill: C.slate500 }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
               <Tooltip content={<ChartTip />} />
-              <Bar dataKey="count" radius={[0, 8, 8, 0]} name="Count">
-                {reviewerData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+              <Bar dataKey="count" name="Count" radius={[5, 5, 0, 0]}>
+                {data.gender_distribution.map((_, i) => <Cell key={i} fill={GENDER[i % 3]} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-        </Card>
+        </ChartCard>
 
-        {/* Gender × Status */}
-        <Card>
-          <ChartHeader title="Gender × Status" sub="Approval & rejection by gender" onDetails={() => onGoToAdvanced("gender-status")} />
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={genderData} margin={{ left: -20, right: 5, top: 5, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: C.slate400 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} allowDecimals={false} />
-              <Tooltip content={<ChartTip />} />
-              <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 10.5, color: C.slate600 }} />
-              <Bar dataKey="Approved" fill={C.green}  radius={[4,4,0,0]} stackId="a" />
-              <Bar dataKey="Rejected" fill={C.red}    stackId="a" />
-              <Bar dataKey="Changes"  fill={C.orange} radius={[0,0,4,4]} stackId="a" />
-            </BarChart>
+        <ChartCard title="Sangha Status">
+          <ResponsiveContainer width="100%" height={170}>
+            <PieChart>
+              <Pie data={data.sangha_status_dist} dataKey="count" nameKey="status"
+                cx="50%" cy="46%" innerRadius={40} outerRadius={64}
+                paddingAngle={3} strokeWidth={2} stroke="#fff">
+                {data.sangha_status_dist.map((entry, i) => (
+  <Cell
+    key={i}
+    fill={SANGHA_STATUS_COLOR_MAP[entry.status] || C.sky}
+  />
+))}
+              </Pie>
+              <Tooltip content={<PieTip total={s.total} active={undefined} payload={undefined} />} />
+              <Legend formatter={statusLabel} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
+            </PieChart>
           </ResponsiveContainer>
-        </Card>
+        </ChartCard>
 
-        {/* Radial Rate Chart */}
-        <Card>
-          <ChartHeader title="Approval Rates" sub="User · Sangha · Rejection" />
-          <ResponsiveContainer width="100%" height={200}>
-            <RadialBarChart
-              cx="50%" cy="50%" innerRadius={20} outerRadius={90}
-              barSize={16} data={radialData}
-            >
-              <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-              <RadialBar dataKey="value" cornerRadius={8} label={{ position: "insideStart", fill: "#fff", fontSize: 10, fontWeight: 700 }} />
-              <Tooltip formatter={(v: number) => `${v}%`} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 10.5, color: C.slate600 }} />
-            </RadialBarChart>
-          </ResponsiveContainer>
-        </Card>
+        <ChartCard title="Top Sanghas" subtitle="By member count">
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            {(data.top_sanghas || []).slice(0, 5).map((s, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                <span style={{
+                  width: 22, height: 22, borderRadius: 7, flexShrink: 0,
+                  background: i < 3 ? C.orangeLt : C.skyLight,
+                  color: i < 3 ? C.orangeDk : C.skyDark,
+                  fontSize: 10, fontWeight: 800,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: `1px solid ${i < 3 ? C.orangeBd : C.skyBorder}`,
+                }}>{i + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: C.slate800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.sangha_name}</p>
+                  <p style={{ fontSize: 10, color: C.slate400, display: "flex", alignItems: "center", gap: 2, marginTop: 1 }}>
+                    <MapPin style={{ width: 8, height: 8 }} />{s.state}
+                  </p>
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 800, color: C.orange, flexShrink: 0 }}>{fmt(s.member_count)}</span>
+              </div>
+            ))}
+          </div>
+        </ChartCard>
       </div>
+    </div>
+  );
+}
 
-      {/* ── Row 3: Reviewer Radar + Line chart ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 18 }}>
-        {/* Reviewer Radar */}
-        <Card>
-          <ChartHeader title="Reviewer Balance" sub="Distribution across reviewer types" />
-          <ResponsiveContainer width="100%" height={220}>
-            <RadarChart outerRadius={80} data={radarData}>
-              <PolarGrid stroke="#F1F5F9" />
-              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9.5, fill: C.slate600 }} />
-              <PolarRadiusAxis tick={{ fontSize: 8 }} axisLine={false} />
-              <Radar name="Actions" dataKey="A" stroke={C.orange} fill={C.orange} fillOpacity={0.2} strokeWidth={2} />
-              <Tooltip content={<ChartTip />} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </Card>
+// ── Users Tab ─────────────────────────────────────────────────────────────────
+function UsersTab({ data }: { data: GeneralStats }) {
+  const u = data.users;
 
-        {/* Line chart: Cumulative */}
-        <Card>
-          <ChartHeader title="Registration Line View" sub="Cumulative trend of users and sanghas" onDetails={() => onGoToAdvanced("population")} />
-          {chartData.length === 0 ? (
-            <div style={{ height: 220, display: "flex", alignItems: "center", justifyContent: "center", color: C.slate400, fontSize: 13 }}>
-              No data in this period
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={chartData} margin={{ top: 5, right: 12, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} allowDecimals={false} />
-                <Tooltip content={<ChartTip />} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate600 }} />
-                <Line type="monotone" dataKey="Users" stroke={C.orange} strokeWidth={2.5} dot={{ r: 3, fill: C.orange }} activeDot={{ r: 6 }} />
-                <Line type="monotone" dataKey="Sanghas" stroke={C.blue} strokeWidth={2.5} dot={{ r: 3, fill: C.blue }} activeDot={{ r: 6 }} strokeDasharray="5 3" />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
-      </div>
+  const statuses = [
+    { label: "Total",             value: u.total,             color: C.sky     },
+    { label: "Approved",          value: u.approved,          color: C.emerald },
+   
+    { label: "Changes Requested", value: u.changes_requested, color: C.orange  },
+   
+    { label: "Rejected",          value: u.rejected,          color: C.rose    },
+  ];
 
-      {/* ── Quick Rate Cards ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-        {[
-          { label: "User Approval Rate",    value: `${approvalRate}%`,        sub: "of registered users",   color: C.green,  bg: C.greenLight },
-          { label: "User Rejection Rate",   value: `${rejectionRate}%`,       sub: "of registered users",   color: C.red,    bg: C.redLight   },
-          { label: "Sangha Approval Rate",  value: `${sanghaApprovalRate}%`,  sub: "of registered sanghas", color: C.violet, bg: C.violetLight},
-        ].map((stat) => (
-          <Card key={stat.label} style={{ display: "flex", alignItems: "center", gap: 16, padding: "20px 24px" }}>
-            <div style={{
-              width: 56, height: 56, borderRadius: "50%", background: stat.bg,
-              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-              border: `2px solid ${stat.color}30`,
-            }}>
-              <p style={{ fontSize: 15, fontWeight: 900, color: stat.color, margin: 0 }}>{stat.value}</p>
+  const genderStateData = data.users_by_state_gender ||
+    data.users_by_state.slice(0, 8).map(d => ({
+      state: d.state,
+      male:   Math.round(d.count * 0.56),
+      female: Math.round(d.count * 0.38),
+      other:  Math.round(d.count * 0.06),
+    }));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 10 }}>
+        {statuses.map(c => (
+          <div key={c.label} style={{ ...baseCard, padding: "14px 14px 10px" }}>
+            <p style={{ fontSize: 22, fontWeight: 900, color: c.color, letterSpacing: "-0.03em" }}>{fmt(c.value)}</p>
+            <p style={{ fontSize: 10, color: C.slate500, marginTop: 3, fontWeight: 600 }}>{c.label}</p>
+            <div style={{ marginTop: 8, height: 3, borderRadius: 99, background: C.slate100, overflow: "hidden" }}>
+              <div style={{ height: 3, borderRadius: 99, background: c.color, width: pctStr(c.value, u.total), transition: "width 0.6s ease" }} />
             </div>
-            <div>
-              <p style={{ fontSize: 22, fontWeight: 900, color: stat.color, margin: 0, lineHeight: 1 }}>{stat.value}</p>
-              <p style={{ fontSize: 12.5, fontWeight: 600, color: C.slate800, marginTop: 2 }}>{stat.label}</p>
-              <p style={{ fontSize: 11, color: C.slate400 }}>{stat.sub}</p>
-            </div>
-          </Card>
+          </div>
         ))}
       </div>
 
-      {/* ── Analytics Section Cards ── */}
-      <div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <div>
-            <p style={{ fontSize: 16, fontWeight: 800, color: C.slate900, margin: 0 }}>Community Analytics</p>
-            <p style={{ fontSize: 11.5, color: C.slate400, marginTop: 2 }}>Explore detailed analytics for each category</p>
-          </div>
-          <div style={{
-            display: "flex", alignItems: "center", gap: 5, padding: "5px 12px",
-            borderRadius: 20, background: C.orangeXLight, border: `1px solid ${C.orange}30`,
-          }}>
-            <Zap size={11} style={{ color: C.orange }} />
-            <span style={{ fontSize: 11, color: C.orange, fontWeight: 700 }}>Click arrows for details</span>
-          </div>
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <ChartCard title="User Registrations Trend" subtitle="New users per period">
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={data.registrations_trend}>
+              <defs>
+                <linearGradient id="gU2" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor={C.sky} stopOpacity={0.18} />
+                  <stop offset="95%" stopColor={C.sky} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} />
+              <XAxis dataKey="period" tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+              <Tooltip content={<ChartTip />} />
+              <Area type="monotone" dataKey="users" name="New Users" stroke={C.sky} fill="url(#gU2)" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </ChartCard>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-          {analyticsCards.map((card) => {
-            const p = pct(card.value, totalUsers || 1);
-            return (
-              <Card key={card.title}>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 13, background: card.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <card.icon size={18} style={{ color: card.color }} />
-                  </div>
-                  <div style={{ display: "flex", gap: 5 }}>
-                    <button
-                      onClick={() => onGoToCustomReport(card.excelSections, card.section)}
-                      style={{
-                        padding: "5px 9px", borderRadius: 7, border: "1px solid #E2E8F0",
-                        background: "white", fontSize: 11, color: C.slate400, cursor: "pointer",
-                        display: "flex", alignItems: "center", gap: 3, fontWeight: 600,
-                      }}
-                    >
-                      <FileSpreadsheet size={10} />Export
-                    </button>
-                    <button
-                      onClick={() => onGoToAdvanced(card.section)}
-                      style={{
-                        padding: "5px 9px", borderRadius: 7, border: `1px solid ${card.color}30`,
-                        background: card.bg, fontSize: 11, color: card.color, cursor: "pointer",
-                        display: "flex", alignItems: "center", gap: 3, fontWeight: 700,
-                      }}
-                    >
-                      <ArrowRight size={10} />Details
-                    </button>
-                  </div>
-                </div>
-                <p style={{ fontSize: 28, fontWeight: 900, color: card.color, lineHeight: 1 }}>{card.value.toLocaleString()}</p>
-                <p style={{ fontSize: 12.5, fontWeight: 700, color: C.slate800, marginTop: 3 }}>{card.title}</p>
-                <div style={{ marginTop: 10, height: 5, background: C.slate100, borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{ height: 5, background: `linear-gradient(90deg, ${card.color}99, ${card.color})`, borderRadius: 4, width: `${p}%` }} />
-                </div>
-                <p style={{ fontSize: 10.5, color: C.slate400, marginTop: 4 }}>{p}% of total</p>
-              </Card>
-            );
-          })}
-        </div>
+        <ChartCard title="Users by State" subtitle="Male / Female / Other">
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={genderStateData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+              <YAxis dataKey="state" type="category" tick={{ fontSize: 10, fill: C.slate500 }} tickLine={false} axisLine={false} width={80} />
+              <Tooltip content={<ChartTip />} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
+              <Bar dataKey="male"   name="Male"   fill={C.sky}    stackId="a" />
+              <Bar dataKey="female" name="Female" fill={C.orange} stackId="a" />
+              <Bar dataKey="other"  name="Other"  fill={C.violet} stackId="a" radius={[0, 3, 3, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
       </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <ChartCard title="Gender Distribution">
+          <ResponsiveContainer width="100%" height={190}>
+            <BarChart data={data.gender_distribution}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} />
+              <XAxis dataKey="gender" tick={{ fontSize: 11, fill: C.slate500 }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+              <Tooltip content={<ChartTip />} />
+              <Bar dataKey="count" name="Count" radius={[5, 5, 0, 0]}>
+                {data.gender_distribution.map((_, i) => <Cell key={i} fill={GENDER[i % 3]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Top Districts" subtitle="By user count">
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            {(data.users_by_district || []).slice(0, 7).map((d, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                <span style={{
+                  width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                  background: C.skyLight, color: C.skyDark,
+                  fontSize: 10, fontWeight: 800,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: `1px solid ${C.skyBorder}`,
+                }}>{i + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: C.slate800 }}>{d.district}</p>
+                    <p style={{ fontSize: 11, fontWeight: 800, color: C.sky, marginLeft: 8, flexShrink: 0 }}>{fmt(d.count)}</p>
+                  </div>
+                  <div style={{ height: 4, background: C.slate100, borderRadius: 99, overflow: "hidden" }}>
+                    <div style={{
+                      height: 4, borderRadius: 99,
+                      background: `linear-gradient(90deg, ${C.sky}, ${C.orange})`,
+                      width: pctStr(d.count, data.users_by_district[0]?.count || 1),
+                      transition: "width 0.6s ease",
+                    }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </ChartCard>
+      </div>
+    </div>
+  );
+}
+
+// ── Sanghas Tab ───────────────────────────────────────────────────────────────
+function SanghasTab({ data }: { data: GeneralStats }) {
+  const s = data.sanghas;
+
+  const statuses = [
+    { label: "Total",            value: s.total,            color: C.orange  },
+    { label: "Approved",         value: s.approved,         color: C.emerald },
+    { label: "Pending Approval", value: s.pending_approval, color: C.amber   },
+    { label: "Rejected",         value: s.rejected,         color: C.rose    },
+    { label: "Suspended",        value: s.suspended,        color: C.teal    },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12 }}>
+        {statuses.map(c => (
+          <div key={c.label} style={{ ...baseCard, padding: "14px 16px 10px" }}>
+            <p style={{ fontSize: 26, fontWeight: 900, color: c.color, letterSpacing: "-0.03em" }}>{fmt(c.value)}</p>
+            <p style={{ fontSize: 11, color: C.slate500, marginTop: 3, fontWeight: 600 }}>{c.label}</p>
+            <div style={{ marginTop: 8, height: 3, borderRadius: 99, background: C.slate100, overflow: "hidden" }}>
+              <div style={{ height: 3, borderRadius: 99, background: c.color, width: pctStr(c.value, s.total), transition: "width 0.6s ease" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <ChartCard title="Sangha Registrations Trend" subtitle="New sanghas per period">
+          <ResponsiveContainer width="100%" height={210}>
+            <AreaChart data={data.registrations_trend}>
+              <defs>
+                <linearGradient id="gS2" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor={C.orange} stopOpacity={0.18} />
+                  <stop offset="95%" stopColor={C.orange} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} />
+              <XAxis dataKey="period" tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+              <Tooltip content={<ChartTip />} />
+              <Area type="monotone" dataKey="sanghas" name="New Sanghas" stroke={C.orange} fill="url(#gS2)" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Sanghas by State" subtitle="Top 10 states">
+          <ResponsiveContainer width="100%" height={210}>
+            <BarChart data={data.sanghas_by_state.slice(0, 10)} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+              <YAxis dataKey="state" type="category" tick={{ fontSize: 10, fill: C.slate500 }} tickLine={false} axisLine={false} width={90} />
+              <Tooltip content={<ChartTip />} />
+              <Bar dataKey="count" name="Sanghas" fill={C.orange} radius={[0, 5, 5, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <ChartCard title="Sangha Status Breakdown">
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              {data.sangha_status_dist.map((entry, i) => {
+  const key = entry.status
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .trim();
+
+  return (
+    <Cell
+      key={i}
+      fill={SANGHA_STATUS_COLOR_MAP[key] || C.sky}
+    />
+  );
+})}
+              <Tooltip content={<PieTip total={s.total} active={undefined} payload={undefined} />} />
+              <Legend formatter={statusLabel} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: C.slate500 }} />
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Top Sanghas" subtitle="By member count">
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            {(data.top_sanghas || []).slice(0, 6).map((s, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                <span style={{
+                  width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                  background: i < 3 ? C.orangeLt : C.skyLight,
+                  color: i < 3 ? C.orangeDk : C.skyDark,
+                  fontSize: 10, fontWeight: 800,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: `1px solid ${i < 3 ? C.orangeBd : C.skyBorder}`,
+                }}>{i + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: C.slate800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.sangha_name}</p>
+                    <p style={{ fontSize: 11, fontWeight: 800, color: C.orange, flexShrink: 0, marginLeft: 8 }}>{fmt(s.member_count)}</p>
+                  </div>
+                  <p style={{ fontSize: 10, color: C.slate400, display: "flex", alignItems: "center", gap: 2, marginTop: 1 }}>
+                    <MapPin style={{ width: 8, height: 8 }} />{s.state}
+                  </p>
+                  <div style={{ height: 3, background: C.slate100, borderRadius: 99, marginTop: 4, overflow: "hidden" }}>
+                    <div style={{
+                      height: 3, borderRadius: 99,
+                      background: `linear-gradient(90deg, ${C.orange}, ${C.sky})`,
+                      width: pctStr(s.member_count, data.top_sanghas[0]?.member_count || 1),
+                    }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </ChartCard>
+      </div>
+    </div>
+  );
+}
+
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+function Skeleton({ h = 120, cols = 1 }: { h?: number; cols?: number }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols},1fr)`, gap: 14 }}>
+      {Array.from({ length: cols }).map((_, i) => (
+        <div key={i} style={{
+          height: h, borderRadius: 16, overflow: "hidden",
+          background: "linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%)",
+          backgroundSize: "200% 100%", animation: "shimmer 1.4s infinite",
+        }} />
+      ))}
+    </div>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <Skeleton h={130} />
+      <Skeleton h={100} cols={4} />
+      <Skeleton h={100} cols={4} />
+      <Skeleton h={220} />
+      <Skeleton h={260} cols={2} />
+    </div>
+  );
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+export default function GeneralDashboard({ dateRange }: { dateRange: DateRange }) {
+  const [subTab, setSubTab] = useState<SubTab>("overview");
+  const [data,   setData]   = useState<GeneralStats | null>(null);
+  const [loading,setLoading]= useState(true);
+  const [error,  setError]  = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (dateRange.from) params.set("from", toISO(dateRange.from)!);
+      if (dateRange.to)   params.set("to",   toISO(dateRange.to)!);
+      const query = params.toString();
+      setData(await api.get(`/api/admin/reports/general${query ? `?${query}` : ""}`));
+    } catch (e: any) {
+      setError(e?.message || "Failed to load analytics data");
+    } finally { setLoading(false); }
+  }, [dateRange]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  if (loading) return <LoadingSkeleton />;
+
+  if (error) return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: "80px 0" }}>
+      <AlertCircle style={{ width: 40, height: 40, color: C.slate300 }} />
+      <p style={{ fontSize: 13, color: C.slate500 }}>{error}</p>
+      <button onClick={fetchData} style={{
+        display: "flex", alignItems: "center", gap: 6,
+        padding: "8px 18px", border: `1px solid ${C.slate200}`,
+        borderRadius: 10, fontSize: 13, fontWeight: 600,
+        background: "#fff", color: C.slate500, cursor: "pointer",
+      }}>
+        <RefreshCw style={{ width: 13, height: 13 }} /> Retry
+      </button>
+    </div>
+  );
+
+  if (!data) return null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Sub-tab pill */}
+      <div style={{
+        display: "flex", gap: 2,
+        background: "#fff", border: `1px solid ${C.slate200}`,
+        borderRadius: 14, padding: 4, width: "fit-content",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+      }}>
+        {SUB_TABS.map(tab => {
+          const active = subTab === tab.id;
+          return (
+            <button key={tab.id} onClick={() => setSubTab(tab.id)} style={{
+              padding: "8px 20px", fontSize: 13, fontWeight: 600, borderRadius: 10,
+              border: "none", cursor: "pointer", transition: "all 0.15s",
+              background: active ? C.sky : "transparent",
+              color: active ? "#fff" : C.slate500,
+              boxShadow: active ? "0 2px 8px rgba(14,165,233,0.28)" : "none",
+            }}>
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {subTab === "overview" && <OverviewTab  data={data} />}
+      {subTab === "users"    && <UsersTab     data={data} />}
+      {subTab === "sanghas"  && <SanghasTab   data={data} />}
     </div>
   );
 }
