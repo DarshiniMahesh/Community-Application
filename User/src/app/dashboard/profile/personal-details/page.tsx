@@ -68,7 +68,7 @@ export default function Page() {
           surnameAsPerGotra: s.surname_as_per_gotra || "",
           fathersName:       s.fathers_name || "",
           mothersName:       s.mothers_name || "",
-          maritalStatus:     s.is_married ? "Married" : "Single",
+          maritalStatus:     s.marital_status || "",
           hasDisability:     s.has_disability ? "yes" : "no",
         });
       }
@@ -85,7 +85,7 @@ export default function Page() {
     surname_as_per_gotra: formData.surnameAsPerGotra || undefined,
     fathers_name:         formData.fathersName || undefined,
     mothers_name:         formData.mothersName || undefined,
-    is_married:           formData.maritalStatus === "Married",
+    marital_status:       formData.maritalStatus,
     has_disability:       formData.hasDisability === "yes",
   });
 
@@ -266,12 +266,17 @@ export default function Page() {
             <RadioGroup value={formData.maritalStatus}
               onValueChange={v => { setFormData(p => ({ ...p, maritalStatus: v })); setErrors(e => ({ ...e, maritalStatus: "" })); }}
               className="flex gap-6">
-              {["Single", "Married"].map(opt => (
-                <div key={opt}
-                  className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 cursor-pointer transition-all ${formData.maritalStatus === opt ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
-                  onClick={() => { setFormData(p => ({ ...p, maritalStatus: opt })); setErrors(e => ({ ...e, maritalStatus: "" })); }}>
-                  <RadioGroupItem value={opt} id={`marital-${opt}`} />
-                  <Label htmlFor={`marital-${opt}`} className="font-normal cursor-pointer">{opt}</Label>
+              {[
+  { label: "Single (Never Married)", value: "single_never_married" },
+  { label: "Married",                value: "married" },
+  { label: "Single / Divorced",      value: "single_divorced" },
+  { label: "Single / Widowed",       value: "single_widowed" },
+].map(opt => (
+                <div key={opt.value}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 cursor-pointer transition-all ${formData.maritalStatus === opt.value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+                  onClick={() => { setFormData(p => ({ ...p, maritalStatus: opt.value })); setErrors(e => ({ ...e, maritalStatus: "" })); }}>
+                  <RadioGroupItem value={opt.value} id={`marital-${opt.value}`} />
+                  <Label htmlFor={`marital-${opt.value}`} className="font-normal cursor-pointer">{opt.label}</Label>
                 </div>
               ))}
             </RadioGroup>

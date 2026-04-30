@@ -244,7 +244,13 @@ export default function Page() {
             <InfoField icon={User}     label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
             <InfoField icon={Calendar} label="Date of Birth"        value={formatDate(s1.date_of_birth)} />
             <InfoField icon={User}     label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
-            <InfoField icon={Users}    label="Marital Status"       value={s1.is_married ? "Married" : "Single"} />
+            <InfoField icon={Users} label="Marital Status" value={
+  s1.marital_status === "single_never_married" ? "Single (Never Married)" :
+  s1.marital_status === "married"              ? "Married" :
+  s1.marital_status === "single_divorced"      ? "Single / Divorced" :
+  s1.marital_status === "single_widowed"       ? "Single / Widowed" :
+  null
+} />
             <InfoField icon={User}     label="Surname in Use"       value={s1.surname_in_use} />
             <InfoField icon={User}     label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
             {s1.fathers_name && <InfoField icon={User} label="Father's Name" value={s1.fathers_name} />}

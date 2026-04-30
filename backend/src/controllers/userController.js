@@ -177,7 +177,8 @@ const saveStep1 = async (req, res) => {
       gender, date_of_birth,
       surname_in_use, surname_as_per_gotra,
       fathers_name, mothers_name, mothers_maiden_name,
-      is_married, wife_name, wife_maiden_name, husbands_name,
+      marital_status,
+      wife_name, wife_maiden_name, husbands_name,
       has_disability,
     } = req.body;
 
@@ -196,7 +197,7 @@ const saveStep1 = async (req, res) => {
            gender=$4, date_of_birth=$5,
            surname_in_use=$6, surname_as_per_gotra=$7,
            fathers_name=$8, mothers_name=$9, mothers_maiden_name=$10,
-           is_married=$11, wife_name=$12, wife_maiden_name=$13, husbands_name=$14,
+           marital_status=$11, wife_name=$12, wife_maiden_name=$13, husbands_name=$14,
            has_disability=$15,
            updated_at=NOW()
          WHERE profile_id=$16`,
@@ -205,7 +206,7 @@ const saveStep1 = async (req, res) => {
           gender, cleanDOB(date_of_birth),
           surname_in_use || null, surname_as_per_gotra || null,
           fathers_name || null, mothers_name || null, mothers_maiden_name || null,
-          is_married || false, wife_name || null, wife_maiden_name || null, husbands_name || null,
+          marital_status || null, wife_name || null, wife_maiden_name || null, husbands_name || null,
           has_disability || null,
           pid,
         ]
@@ -217,7 +218,7 @@ const saveStep1 = async (req, res) => {
             gender, date_of_birth,
             surname_in_use, surname_as_per_gotra,
             fathers_name, mothers_name, mothers_maiden_name,
-            is_married, wife_name, wife_maiden_name, husbands_name,
+            marital_status, wife_name, wife_maiden_name, husbands_name,
             has_disability)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [
@@ -226,7 +227,7 @@ const saveStep1 = async (req, res) => {
           gender, cleanDOB(date_of_birth),
           surname_in_use || null, surname_as_per_gotra || null,
           fathers_name || null, mothers_name || null, mothers_maiden_name || null,
-          is_married || false, wife_name || null, wife_maiden_name || null, husbands_name || null,
+          marital_status || null, wife_name || null, wife_maiden_name || null, husbands_name || null,
           has_disability || null,
         ]
       );
