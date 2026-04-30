@@ -1460,8 +1460,10 @@ const getAdvancedReports = async (req, res) => {
       // Marital status
       safe(`
         SELECT
-          COUNT(*) FILTER (WHERE pd.is_married = true)  AS married,
-          COUNT(*) FILTER (WHERE pd.is_married = false) AS single
+          COUNT(*) FILTER (WHERE pd.marital_status = 'married')              AS married,
+          COUNT(*) FILTER (WHERE pd.marital_status = 'single_never_married') AS single_never_married,
+          COUNT(*) FILTER (WHERE pd.marital_status = 'single_divorced')      AS single_divorced,
+          COUNT(*) FILTER (WHERE pd.marital_status = 'single_widowed')       AS single_widowed
         FROM profiles p
         JOIN personal_details pd ON pd.profile_id = p.id
         WHERE p.sangha_id=$1 AND p.status='approved'
@@ -1744,8 +1746,10 @@ const getAdvancedReports = async (req, res) => {
           joint:   parseInt(ft.joint   || 0),
         },
         maritalStatus: [
-          { label: 'Married', count: parseInt(mar.married || 0) },
-          { label: 'Single',  count: parseInt(mar.single  || 0) },
+          { label: 'Married',              count: parseInt(mar.married               || 0) },
+          { label: 'Single (Never Married)',count: parseInt(mar.single_never_married || 0) },
+          { label: 'Single / Divorced',    count: parseInt(mar.single_divorced       || 0) },
+          { label: 'Single / Widowed',     count: parseInt(mar.single_widowed        || 0) },
         ].filter(m => m.count > 0),
       },
 
@@ -2025,12 +2029,16 @@ const getExportData = async (req, res) => {
 
       // ── Marital ───────────────────────────────────────────
       case 'marital': {
-        extraCols = `, pd.is_married AS "Is Married", pd.date_of_birth AS "Date of Birth"`;
+        extraCols = `, pd.marital_status AS "Marital Status", pd.date_of_birth AS "Date of Birth"`;
         const f = (filter || '').toLowerCase();
         if (f === 'married') {
-          whereCond += ` AND pd.is_married = true`;
-        } else if (f === 'single') {
-          whereCond += ` AND pd.is_married = false`;
+          whereCond += ` AND pd.marital_status = 'married'`;
+        } else if (f === 'single' || f === 'single_never_married') {
+          whereCond += ` AND pd.marital_status = 'single_never_married'`;
+        } else if (f === 'single_divorced') {
+          whereCond += ` AND pd.marital_status = 'single_divorced'`;
+        } else if (f === 'single_widowed') {
+          whereCond += ` AND pd.marital_status = 'single_widowed'`;
         }
         break;
       }

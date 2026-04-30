@@ -440,17 +440,23 @@ function ProfileViewer({ data }: { data: any }) {
               <Field label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
               <Field label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
               <Field label="Date of Birth"        value={formatDate(s1.date_of_birth)} />
-              <Field label="Marital Status"       value={s1.is_married ? "Married" : "Single"} />
+              <Field label="Marital Status" value={
+  s1.marital_status === "single_never_married" ? "Single (Never Married)" :
+  s1.marital_status === "married"              ? "Married" :
+  s1.marital_status === "single_divorced"      ? "Single / Divorced" :
+  s1.marital_status === "single_widowed"       ? "Single / Widowed" :
+  null
+} />
               <Field label="Father's Name"        value={s1.fathers_name} />
               <Field label="Mother's Name"        value={s1.mothers_name} />
               {s1.mothers_maiden_name && <Field label="Mother's Maiden Name" value={s1.mothers_maiden_name} />}
-              {s1.is_married && s1.gender?.toLowerCase() === "male" && (
+              {s1.marital_status === "married" && s1.gender?.toLowerCase() === "male" && (
                 <>
                   {s1.wife_name        && <Field label="Wife's Name"        value={s1.wife_name} />}
                   {s1.wife_maiden_name && <Field label="Wife's Maiden Name" value={s1.wife_maiden_name} />}
                 </>
               )}
-              {s1.is_married && s1.gender?.toLowerCase() === "female" && (
+              {s1.marital_status === "married" && s1.gender?.toLowerCase() === "female" && (
                 s1.husbands_name && <Field label="Husband's Name" value={s1.husbands_name} />
               )}
               <Field label="Surname in Use"       value={s1.surname_in_use} />
