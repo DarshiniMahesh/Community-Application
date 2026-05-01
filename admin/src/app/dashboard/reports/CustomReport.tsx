@@ -476,7 +476,7 @@ export default function CustomReport({ dateRange }: Props) {
     setLoading(true); setError(null);
     try {
       const exportSections = selectedSections.filter(s => s !== FAMILY_SECTION_ID);
-      const endpoint = mode === "user" ? "/api/admin/reports/custom/users" : "/api/admin/reports/custom/sanghas";
+      const endpoint = mode === "user" ? "/admin/reports/custom/users" : "/admin/reports/custom/sanghas";
       const result = await api.post(endpoint, {
         sections: exportSections.length > 0 ? exportSections : ["personal-details"],
         includeAll, includeAllStatuses: includeAll,
@@ -512,7 +512,7 @@ export default function CustomReport({ dateRange }: Props) {
     if (!profileIds.length) return;
     setFamilyLoading(true); setFamilyError(null);
     try {
-      const result = await api.post("/api/admin/reports/custom/family-members", { profileIds });
+      const result = await api.post("/admin/reports/custom/family-members", { profileIds });
       const newRows = Array.isArray(result) ? result : [];
       setFamilyEntries(prev => {
         const idx = prev.findIndex(e => e.label === label);

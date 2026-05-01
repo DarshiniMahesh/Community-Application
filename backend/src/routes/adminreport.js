@@ -10,12 +10,7 @@
 // Legacy compatibility when mounted at root:
 //   POST /sangha/reports/export/full         → adminCustomReportController.exportFull
 //   POST /sangha/reports/family-members      → adminCustomReportController.getFamilyMembers
-//
-// In app.js / server.js:
-//   const adminReportRoutes = require("./routes/adminreport");
-//   app.use("/admin/reports",  adminReportRoutes);
-//   // OR mount at root for compatibility:
-//   // app.use("/",  adminReportRoutes);
+
 
 const express = require("express");
 const router  = express.Router();
@@ -36,7 +31,7 @@ const authMiddleware = authenticate;
 const adminOnly = requireRole('admin');
 
 // ── General & Advanced dashboard endpoints ────────────────────────────────────
-router.get("/general",  getGeneralReport);
+router.get("/general", authMiddleware, adminOnly, getGeneralReport);
 router.get("/advanced", authMiddleware, adminOnly, getAdminAdvancedReportsuser);
 router.get('/sanghas',  authMiddleware, adminOnly, getAdminSanghaReports);
 

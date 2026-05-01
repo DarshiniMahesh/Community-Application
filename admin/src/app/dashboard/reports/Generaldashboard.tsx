@@ -1,4 +1,4 @@
-//Community-Application\admin\src\app\dashboard\reports\Generaldashboard.tsx
+//Community-Application\admin\src\app\dashboard\reports\GeneralDashboard.tsx
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -67,27 +67,38 @@ const C = {
   slate500:  "#64748b",
   slate700:  "#334155",
   slate800:  "#1e293b",
-  pink: "#ec4899",
-  pinkLt: "#fdf2f8",
-  pinkBd: "#f9a8d4",
+  pink:      "#ec4899",
+  pinkLt:    "#fdf2f8",
+  pinkBd:    "#f9a8d4",
   slate900:  "#0f172a",
+  // ── Gender colour constants (single source of truth) ──
+  genderMale:   "#0ea5e9",   // sky blue
+  genderFemale: "#ec4899",   // pink
+  genderOther:  "#94a3b8",   // slate-grey
+};
+
+// ── Gender colour helper — use this everywhere instead of index-based picks ──
+const genderColor = (gender: string): string => {
+  const g = gender.toLowerCase();
+  if (g === "male")   return C.genderMale;
+  if (g === "female") return C.genderFemale;
+  return C.genderOther;
 };
 
 const STATUS_COLOR_MAP: Record<string, string> = {
-  approved: C.emerald,
-  submitted: C.amber,
-  under_review: C.amber,
+  approved:          C.emerald,
+  submitted:         C.amber,
+  under_review:      C.amber,
   changes_requested: C.orange,
-  rejected: C.rose, // 🔥 THIS is what you want
-  draft: C.slate400,
+  rejected:          C.rose,
+  draft:             C.slate400,
 };
 const SANGHA_STATUS_COLOR_MAP: Record<string, string> = {
-  approved: C.emerald,
-  pending_approval: C.amber,
-  rejected: C.rose,      // 🔥 always red
-  suspended: C.teal,
+  approved:        C.emerald,
+  pending_approval:C.amber,
+  rejected:        C.rose,
+  suspended:       C.teal,
 };
-const GENDER = [C.sky, C.pink, C.violet];
 
 const fmt = (n?: number) => n == null ? "—" : n.toLocaleString("en-IN");
 const calcPct  = (p: number, t: number): number => t ? Math.round((p / t) * 100) : 0;
@@ -226,8 +237,8 @@ function StatusKpiCard({
       </div>
 
       <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-        <ActionBtn icon={BarChart2}      label="Details" hoverColor={C.sky}     hoverBg={C.skyLight}  hoverBorder={C.skyBorder}  onClick={onDetails} />
-        <ActionBtn icon={FileSpreadsheet} label="Export"  hoverColor={C.emerald} hoverBg={C.emeraldLt} hoverBorder={C.emeraldBd} onClick={onExport} />
+        <ActionBtn icon={BarChart2}       label="Details" hoverColor={C.sky}     hoverBg={C.skyLight}  hoverBorder={C.skyBorder}  onClick={onDetails} />
+        <ActionBtn icon={FileSpreadsheet} label="Export"  hoverColor={C.emerald} hoverBg={C.emeraldLt} hoverBorder={C.emeraldBd}  onClick={onExport} />
       </div>
     </div>
   );
@@ -272,9 +283,9 @@ function SectionRow({ label, color }: { label: string; color: string }) {
 
 // ── Sub-tabs ──────────────────────────────────────────────────────────────────
 const SUB_TABS: { id: SubTab; label: string }[] = [
-  { id: "overview", label: "Overview"  },
-  { id: "users",    label: "Users"     },
-  { id: "sanghas",  label: "Sanghas"   },
+  { id: "overview", label: "Overview" },
+  { id: "users",    label: "Users"    },
+  { id: "sanghas",  label: "Sanghas"  },
 ];
 
 // ── Overview Tab ─────────────────────────────────────────────────────────────
@@ -283,30 +294,30 @@ function OverviewTab({ data }: { data: GeneralStats }) {
 
   const genderStateData = data.users_by_state_gender ||
     data.users_by_state.slice(0, 8).map(d => ({
-      state: d.state,
+      state:  d.state,
       male:   Math.round(d.count * 0.56),
       female: Math.round(d.count * 0.38),
       other:  Math.round(d.count * 0.06),
     }));
 
   const userKpis = [
-    { icon: Users,        color: C.sky,     bg: C.skyLight,  border: C.skyBorder,  label: "Total Users",  value: u.total },
-    { icon: UserCheck,    color: C.emerald, bg: C.emeraldLt, border: C.emeraldBd,  label: "Approved",     value: u.approved },
-    { icon: Clock,        color: C.amber,   bg: C.amberLt,   border: C.amberBd,    label: "Pending",      value: u.submitted + u.under_review },
-    { icon: XCircle,      color: C.rose,    bg: C.roseLt,    border: C.roseBd,     label: "Rejected",     value: u.rejected },
+    { icon: Users,     color: C.sky,     bg: C.skyLight,  border: C.skyBorder, label: "Total Users", value: u.total },
+    { icon: UserCheck, color: C.emerald, bg: C.emeraldLt, border: C.emeraldBd, label: "Approved",    value: u.approved },
+    { icon: Clock,     color: C.amber,   bg: C.amberLt,   border: C.amberBd,   label: "Pending",     value: u.submitted + u.under_review },
+    { icon: XCircle,   color: C.rose,    bg: C.roseLt,    border: C.roseBd,    label: "Rejected",    value: u.rejected },
   ];
 
   const sanghaKpis = [
-    { icon: Building2,    color: C.orange,  bg: C.orangeLt,  border: C.orangeBd,   label: "Total Sanghas",  value: s.total },
-    { icon: CheckCircle2, color: C.emerald, bg: C.emeraldLt, border: C.emeraldBd,  label: "Approved",       value: s.approved },
-    { icon: Clock,        color: C.amber,   bg: C.amberLt,   border: C.amberBd,    label: "Pending",        value: s.pending_approval },
-    { icon: XCircle,      color: C.rose,    bg: C.roseLt,    border: C.roseBd,     label: "Rejected",       value: s.rejected },
+    { icon: Building2,    color: C.orange,  bg: C.orangeLt,  border: C.orangeBd,  label: "Total Sanghas", value: s.total },
+    { icon: CheckCircle2, color: C.emerald, bg: C.emeraldLt, border: C.emeraldBd, label: "Approved",      value: s.approved },
+    { icon: Clock,        color: C.amber,   bg: C.amberLt,   border: C.amberBd,   label: "Pending",       value: s.pending_approval },
+    { icon: XCircle,      color: C.rose,    bg: C.roseLt,    border: C.roseBd,    label: "Rejected",      value: s.rejected },
   ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
 
-      {/* Hero banner */}
+      {/* ── Hero banner — only Total Users + Total Sanghas ── */}
       <div style={{
         ...baseCard,
         background: "linear-gradient(135deg, #fff 0%, #f8fafc 100%)",
@@ -322,11 +333,12 @@ function OverviewTab({ data }: { data: GeneralStats }) {
             </p>
             <p style={{ fontSize: 13, color: C.slate400, marginTop: 4, fontWeight: 500 }}>Total users & sanghas across all states</p>
           </div>
+
+          {/* ── ONLY two mini-cards: Users + Sanghas ── */}
           <div style={{ display: "flex", gap: 12 }}>
             {[
-              { label: "Users",   value: u.total,    color: C.sky    },
-              { label: "Sanghas", value: s.total,    color: C.orange },
-              { label: "New this period", value: u.new_this_period + s.new_this_period, color: C.emerald },
+              { label: "Users",   value: u.total, color: C.sky    },
+              { label: "Sanghas", value: s.total, color: C.orange },
             ].map(item => (
               <div key={item.label} style={{ ...baseCard, padding: "14px 18px", textAlign: "center", minWidth: 96 }}>
                 <p style={{ fontSize: 26, fontWeight: 800, color: item.color, letterSpacing: "-0.02em" }}>{fmt(item.value)}</p>
@@ -392,13 +404,10 @@ function OverviewTab({ data }: { data: GeneralStats }) {
               <YAxis dataKey="state" type="category" tick={{ fontSize: 10, fill: C.slate500 }} tickLine={false} axisLine={false} width={90} />
               <Tooltip content={<ChartTip />} />
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
-              <Bar dataKey="male"   name="Male"   fill={C.sky}    stackId="a" />
-              <Bar dataKey="female" name="Female" stackId="a">
-  {genderStateData.map((_, i) => (
-    <Cell key={i} fill={C.pink} />
-  ))}
-</Bar>
-              <Bar dataKey="other"  name="Other"  fill={C.violet} stackId="a" radius={[0, 4, 4, 0]} />
+              {/* Order: male → female → other so legend reads left-to-right correctly */}
+              <Bar dataKey="male"   name="Male"   fill={C.genderMale}   stackId="a" />
+              <Bar dataKey="female" name="Female" fill={C.genderFemale} stackId="a" />
+              <Bar dataKey="other"  name="Other"  fill={C.genderOther}  stackId="a" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -409,12 +418,9 @@ function OverviewTab({ data }: { data: GeneralStats }) {
               <Pie data={data.user_status_dist} dataKey="count" nameKey="status"
                 cx="50%" cy="46%" innerRadius={55} outerRadius={82}
                 paddingAngle={3} strokeWidth={2} stroke="#fff">
-                  {data.user_status_dist.map((entry, i) => (
-  <Cell
-    key={i}
-    fill={STATUS_COLOR_MAP[entry.status] || C.sky}
-  />
-))}
+                {data.user_status_dist.map((entry, i) => (
+                  <Cell key={i} fill={STATUS_COLOR_MAP[entry.status] || C.sky} />
+                ))}
               </Pie>
               <Tooltip content={<PieTip total={u.total} active={undefined} payload={undefined} />} />
               <Legend formatter={statusLabel} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
@@ -425,6 +431,8 @@ function OverviewTab({ data }: { data: GeneralStats }) {
 
       {/* Gender dist + Sangha status + Top Sanghas */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+
+        {/* Gender Distribution — colour each bar by gender name */}
         <ChartCard title="Gender Distribution">
           <ResponsiveContainer width="100%" height={170}>
             <BarChart data={data.gender_distribution}>
@@ -433,7 +441,9 @@ function OverviewTab({ data }: { data: GeneralStats }) {
               <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
               <Tooltip content={<ChartTip />} />
               <Bar dataKey="count" name="Count" radius={[5, 5, 0, 0]}>
-                {data.gender_distribution.map((_, i) => <Cell key={i} fill={GENDER[i % 3]} />)}
+                {data.gender_distribution.map((entry, i) => (
+                  <Cell key={i} fill={genderColor(entry.gender)} />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -446,11 +456,8 @@ function OverviewTab({ data }: { data: GeneralStats }) {
                 cx="50%" cy="46%" innerRadius={40} outerRadius={64}
                 paddingAngle={3} strokeWidth={2} stroke="#fff">
                 {data.sangha_status_dist.map((entry, i) => (
-  <Cell
-    key={i}
-    fill={SANGHA_STATUS_COLOR_MAP[entry.status] || C.sky}
-  />
-))}
+                  <Cell key={i} fill={SANGHA_STATUS_COLOR_MAP[entry.status] || C.sky} />
+                ))}
               </Pie>
               <Tooltip content={<PieTip total={s.total} active={undefined} payload={undefined} />} />
               <Legend formatter={statusLabel} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
@@ -460,7 +467,7 @@ function OverviewTab({ data }: { data: GeneralStats }) {
 
         <ChartCard title="Top Sanghas" subtitle="By member count">
           <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-            {(data.top_sanghas || []).slice(0, 5).map((s, i) => (
+            {(data.top_sanghas || []).slice(0, 5).map((sg, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 9 }}>
                 <span style={{
                   width: 22, height: 22, borderRadius: 7, flexShrink: 0,
@@ -471,12 +478,12 @@ function OverviewTab({ data }: { data: GeneralStats }) {
                   border: `1px solid ${i < 3 ? C.orangeBd : C.skyBorder}`,
                 }}>{i + 1}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 11, fontWeight: 700, color: C.slate800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.sangha_name}</p>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: C.slate800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sg.sangha_name}</p>
                   <p style={{ fontSize: 10, color: C.slate400, display: "flex", alignItems: "center", gap: 2, marginTop: 1 }}>
-                    <MapPin style={{ width: 8, height: 8 }} />{s.state}
+                    <MapPin style={{ width: 8, height: 8 }} />{sg.state}
                   </p>
                 </div>
-                <span style={{ fontSize: 11, fontWeight: 800, color: C.orange, flexShrink: 0 }}>{fmt(s.member_count)}</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: C.orange, flexShrink: 0 }}>{fmt(sg.member_count)}</span>
               </div>
             ))}
           </div>
@@ -490,18 +497,17 @@ function OverviewTab({ data }: { data: GeneralStats }) {
 function UsersTab({ data }: { data: GeneralStats }) {
   const u = data.users;
 
+  // ── REMOVED: submitted, draft ── only show meaningful decision-state statuses
   const statuses = [
     { label: "Total",             value: u.total,             color: C.sky     },
     { label: "Approved",          value: u.approved,          color: C.emerald },
-   
     { label: "Changes Requested", value: u.changes_requested, color: C.orange  },
-   
     { label: "Rejected",          value: u.rejected,          color: C.rose    },
   ];
 
   const genderStateData = data.users_by_state_gender ||
     data.users_by_state.slice(0, 8).map(d => ({
-      state: d.state,
+      state:  d.state,
       male:   Math.round(d.count * 0.56),
       female: Math.round(d.count * 0.38),
       other:  Math.round(d.count * 0.06),
@@ -510,7 +516,7 @@ function UsersTab({ data }: { data: GeneralStats }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${statuses.length},1fr)`, gap: 10 }}>
         {statuses.map(c => (
           <div key={c.label} style={{ ...baseCard, padding: "14px 14px 10px" }}>
             <p style={{ fontSize: 22, fontWeight: 900, color: c.color, letterSpacing: "-0.03em" }}>{fmt(c.value)}</p>
@@ -541,6 +547,7 @@ function UsersTab({ data }: { data: GeneralStats }) {
           </ResponsiveContainer>
         </ChartCard>
 
+        {/* Users by State — consistent gender colours: male=blue, female=pink, other=grey */}
         <ChartCard title="Users by State" subtitle="Male / Female / Other">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={genderStateData} layout="vertical">
@@ -549,15 +556,17 @@ function UsersTab({ data }: { data: GeneralStats }) {
               <YAxis dataKey="state" type="category" tick={{ fontSize: 10, fill: C.slate500 }} tickLine={false} axisLine={false} width={80} />
               <Tooltip content={<ChartTip />} />
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
-              <Bar dataKey="male"   name="Male"   fill={C.sky}    stackId="a" />
-              <Bar dataKey="female" name="Female" fill={C.orange} stackId="a" />
-              <Bar dataKey="other"  name="Other"  fill={C.violet} stackId="a" radius={[0, 3, 3, 0]} />
+              <Bar dataKey="male"   name="Male"   fill={C.genderMale}   stackId="a" />
+              <Bar dataKey="female" name="Female" fill={C.genderFemale} stackId="a" />
+              <Bar dataKey="other"  name="Other"  fill={C.genderOther}  stackId="a" radius={[0, 3, 3, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+
+        {/* Gender Distribution — colour by gender name */}
         <ChartCard title="Gender Distribution">
           <ResponsiveContainer width="100%" height={190}>
             <BarChart data={data.gender_distribution}>
@@ -566,7 +575,9 @@ function UsersTab({ data }: { data: GeneralStats }) {
               <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
               <Tooltip content={<ChartTip />} />
               <Bar dataKey="count" name="Count" radius={[5, 5, 0, 0]}>
-                {data.gender_distribution.map((_, i) => <Cell key={i} fill={GENDER[i % 3]} />)}
+                {data.gender_distribution.map((entry, i) => (
+                  <Cell key={i} fill={genderColor(entry.gender)} />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -669,19 +680,14 @@ function SanghasTab({ data }: { data: GeneralStats }) {
         <ChartCard title="Sangha Status Breakdown">
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              {data.sangha_status_dist.map((entry, i) => {
-  const key = entry.status
-    .toLowerCase()
-    .replace(/\s+/g, "_")
-    .trim();
-
-  return (
-    <Cell
-      key={i}
-      fill={SANGHA_STATUS_COLOR_MAP[key] || C.sky}
-    />
-  );
-})}
+              <Pie data={data.sangha_status_dist} dataKey="count" nameKey="status"
+                cx="50%" cy="46%" innerRadius={55} outerRadius={84}
+                paddingAngle={3} strokeWidth={2} stroke="#fff">
+                {data.sangha_status_dist.map((entry, i) => {
+                  const key = entry.status.toLowerCase().replace(/\s+/g, "_").trim();
+                  return <Cell key={i} fill={SANGHA_STATUS_COLOR_MAP[key] || C.sky} />;
+                })}
+              </Pie>
               <Tooltip content={<PieTip total={s.total} active={undefined} payload={undefined} />} />
               <Legend formatter={statusLabel} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: C.slate500 }} />
             </PieChart>
@@ -690,7 +696,7 @@ function SanghasTab({ data }: { data: GeneralStats }) {
 
         <ChartCard title="Top Sanghas" subtitle="By member count">
           <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-            {(data.top_sanghas || []).slice(0, 6).map((s, i) => (
+            {(data.top_sanghas || []).slice(0, 6).map((sg, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 9 }}>
                 <span style={{
                   width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
@@ -702,17 +708,17 @@ function SanghasTab({ data }: { data: GeneralStats }) {
                 }}>{i + 1}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: C.slate800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.sangha_name}</p>
-                    <p style={{ fontSize: 11, fontWeight: 800, color: C.orange, flexShrink: 0, marginLeft: 8 }}>{fmt(s.member_count)}</p>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: C.slate800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sg.sangha_name}</p>
+                    <p style={{ fontSize: 11, fontWeight: 800, color: C.orange, flexShrink: 0, marginLeft: 8 }}>{fmt(sg.member_count)}</p>
                   </div>
                   <p style={{ fontSize: 10, color: C.slate400, display: "flex", alignItems: "center", gap: 2, marginTop: 1 }}>
-                    <MapPin style={{ width: 8, height: 8 }} />{s.state}
+                    <MapPin style={{ width: 8, height: 8 }} />{sg.state}
                   </p>
                   <div style={{ height: 3, background: C.slate100, borderRadius: 99, marginTop: 4, overflow: "hidden" }}>
                     <div style={{
                       height: 3, borderRadius: 99,
                       background: `linear-gradient(90deg, ${C.orange}, ${C.sky})`,
-                      width: pctStr(s.member_count, data.top_sanghas[0]?.member_count || 1),
+                      width: pctStr(sg.member_count, data.top_sanghas[0]?.member_count || 1),
                     }} />
                   </div>
                 </div>
@@ -754,10 +760,10 @@ function LoadingSkeleton() {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function GeneralDashboard({ dateRange }: { dateRange: DateRange }) {
-  const [subTab, setSubTab] = useState<SubTab>("overview");
-  const [data,   setData]   = useState<GeneralStats | null>(null);
-  const [loading,setLoading]= useState(true);
-  const [error,  setError]  = useState<string | null>(null);
+  const [subTab,  setSubTab]  = useState<SubTab>("overview");
+  const [data,    setData]    = useState<GeneralStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true); setError(null);
@@ -819,9 +825,9 @@ export default function GeneralDashboard({ dateRange }: { dateRange: DateRange }
         })}
       </div>
 
-      {subTab === "overview" && <OverviewTab  data={data} />}
-      {subTab === "users"    && <UsersTab     data={data} />}
-      {subTab === "sanghas"  && <SanghasTab   data={data} />}
+      {subTab === "overview" && <OverviewTab data={data} />}
+      {subTab === "users"    && <UsersTab    data={data} />}
+      {subTab === "sanghas"  && <SanghasTab  data={data} />}
     </div>
   );
 }
