@@ -1,20 +1,127 @@
-//Community-Application\admin\src\app\dashboard\reports\page.tsx
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  LayoutDashboard, BarChart2, FileSpreadsheet,
+  LayoutDashboard, BarChart2, FileSpreadsheet, ChevronRight,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import GeneralDashboard from "./Generaldashboard";
+import GeneralDashboard from "./GeneralDashboard";
 import AdvancedDashboard from "./AdvancedDashboard";
 import CustomReport from "./CustomReport";
 import DateRangePicker, { DateRange, toISO } from "./DateRangePicker";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ─── Types (mirrors sangha/reports/page.tsx) ──────────────────────────────────
+
+export interface Counts {
+  approved: string; rejected: string; pending: string;
+  changes_requested: string; draft: string; total: string;
+}
+export interface Trends {
+  approved_last30: string; approved_prev30: string;
+  submitted_last30: string; submitted_prev30: string;
+  total_last30: string; total_prev30: string;
+}
+export interface DailyReg {
+  date: string; registrations: string; approvals: string; rejections: string;
+}
+export interface EnhancedReport {
+  counts: {
+    approved: string;
+    rejected: string;
+    pending: string;
+    changes_requested: string;
+    draft: string;
+    total: string;
+  };
+  trends: {
+    approved_last30: string;
+    approved_prev30: string;
+    submitted_last30: string;
+    submitted_prev30: string;
+    total_last30: string;
+    total_prev30: string;
+  };
+  dailyRegistrations: Array<{
+    date: string;
+    registrations: string;
+    approvals: string;
+  }>;
+  sectionCounts: {
+    personalDetails: number;
+    locationInformation: number;
+    educationProfession: number;
+    economicDetails: number;
+    insuranceCoverage: number;
+    documentationStatus: number;
+    religiousDetails: number;
+  };
+}
+
+export interface AdvancedReport {
+  totalApproved: number;
+  totalPopulation: number;
+  statusBreakdown?: { status: string; count: number }[];
+  statusGenderBreakdown?: { status: string; male: number; female: number; other: number }[];
+  demographics: {
+    gender: { male: number; female: number; other: number };
+    ageGroups: { label: string; count: number }[];
+    ageGroupsGender?: { label: string; male: number; female: number; other: number }[];
+    familyType: { nuclear: number; joint: number };
+    maritalStatus: { label: string; count: number }[];
+    maritalStatusGender?: { label: string; male: number; female: number; other: number }[];
+  };
+  education: {
+    degrees: { label: string; count: number }[];
+    degreesGender?: { label: string; male: number; female: number; other: number }[];
+    studying: { yes: number; no: number; maleYes?: number; femaleYes?: number; otherYes?: number; maleNo?: number; femaleNo?: number; otherNo?: number };
+    working: { yes: number; no: number; maleYes?: number; femaleYes?: number; otherYes?: number; maleNo?: number; femaleNo?: number; otherNo?: number };
+    professions: { label: string; count: number }[];
+    professionsGender?: { label: string; male: number; female: number; other: number }[];
+  };
+  economic: {
+    incomeSlabs: { label: string; count: number }[];
+    assets: { label: string; owned: number; total: number }[];
+    assetsGender?: { label: string; male: number; female: number; other: number }[];
+    employment: { label: string; count: number }[];
+    employmentGender?: { label: string; male: number; female: number; other: number }[];
+  };
+  insurance: { label: string; covered?: number; notCovered?: number; yes?: number; no?: number; unknown?: number }[];
+  documents: { label: string; yes: number; no: number; unknown: number }[];
+  geographic: { city: string; count: number; pincode?: string; state?: string }[];
+  geographicGender?: { city: string; male: number; female: number; other: number }[];
+  religious?: {
+    gotras?: { label: string; count: number }[];
+    kuladevatas?: { label: string; count: number }[];
+    surnames?: { label: string; count: number }[];
+    pravaras?: { label: string; count: number }[];
+    summary?: {
+      uniqueGotras?: number;
+      uniqueKuladevatas?: number;
+      ancestralChallenges?: number;
+      uniqueSurnames?: number;
+    };
+    ancestralStats?: {
+      withChallenge?: number;
+      withoutChallenge?: number;
+      withPriest?: number;
+      withCommonRelatives?: number;
+      withUpanama?: number;
+      withDemiGods?: number;
+    };
+  };
+}
+
 export type TabId = "general" | "advanced" | "custom";
 
-// ── Colour tokens (matches Generaldashboard palette) ──────────────────────────
+export interface NavigateToAdvancedOptions {
+  section?: string;
+}
+
+// ─── Default date range (same as sangha) ────────────────────────────────────
+
+const DEFAULT_DATE_RANGE: DateRange = { from: null, to: null, preset: "allTime" };
+
+// ─── Colour tokens ────────────────────────────────────────────────────────────
 const C = {
   sky:      "#0ea5e9",
   skyLight: "#f0f9ff",
@@ -27,81 +134,49 @@ const C = {
   white:    "#ffffff",
 };
 
-// ── Default date range ────────────────────────────────────────────────────────
-const DEFAULT_DATE_RANGE: DateRange = { from: null, to: null, preset: "allTime" };
-
-// ── Tab definitions ───────────────────────────────────────────────────────────
-const TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
-  { id: "general",  label: "General Dashboard",  Icon: LayoutDashboard },
-  { id: "advanced", label: "Advanced Analytics", Icon: BarChart2        },
-  { id: "custom",   label: "Custom Report",      Icon: FileSpreadsheet  },
-];
-
-// ── Hoverable tab button ──────────────────────────────────────────────────────
-function TabBtn({
-  tab,
-  active,
-  onClick,
-}: {
-  tab: (typeof TABS)[number];
-  active: boolean;
-  onClick: () => void;
-}) {
-  const [hov, setHov] = useState(false);
-  const { Icon } = tab;
-
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "9px 20px",
-        borderRadius: 10,
-        border: "none",
-        fontSize: 13,
-        fontWeight: 600,
-        cursor: "pointer",
-        transition: "all 0.18s",
-        background: active
-          ? C.sky
-          : hov
-          ? C.slate100
-          : "transparent",
-        color: active ? C.white : hov ? C.slate800 : C.slate500,
-        boxShadow: active ? "0 2px 10px rgba(14,165,233,0.30)" : "none",
-        whiteSpace: "nowrap",
-      }}
-    >
-      <Icon style={{ width: 15, height: 15, flexShrink: 0 }} />
-      {tab.label}
-    </button>
-  );
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function AdminReportsPage() {
   const [activeTab,       setActiveTab]       = useState<TabId>("general");
   const [advancedSection, setAdvancedSection] = useState<string | undefined>();
-  const [advancedData,    setAdvancedData]    = useState<any | null>(null);
+  const [data,            setData]            = useState<EnhancedReport | null>(null);
+  const [advancedData,    setAdvancedData]    = useState<AdvancedReport | null>(null);
+  const [loading,         setLoading]         = useState(true);
   const [advancedLoading, setAdvancedLoading] = useState(false);
+  const [error,           setError]           = useState(false);
   const [dateRange,       setDateRange]       = useState<DateRange>(DEFAULT_DATE_RANGE);
   const [customInitSections, setCustomInitSections] = useState<string[]>([]);
   const [customInitCategory, setCustomInitCategory] = useState<string | undefined>();
 
-  // ── Fetch advanced data ────────────────────────────────────────────────────
+  // ── Fetch general/enhanced data ──────────────────────────────────────────
+  const fetchData = useCallback(async (range?: DateRange) => {
+    setLoading(true); setError(false);
+    try {
+      const r    = range ?? dateRange;
+      const from = toISO(r.from);
+      const to   = toISO(r.to);
+      const params = (r.preset === "allTime" || !from || !to)
+        ? ""
+        : `?dateFrom=${from}&dateTo=${to}`;
+      const result = await api.get(`/admin/reports/enhanced${params}`);
+      setData(result);
+    } catch {
+      setError(true); setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [dateRange]);
+
+  // ── Fetch advanced data ──────────────────────────────────────────────────
   const fetchAdvancedData = useCallback(async (range?: DateRange) => {
     setAdvancedLoading(true);
     try {
-      const r      = range ?? dateRange;
-      const from   = toISO(r.from);
-      const to     = toISO(r.to);
-      const params =
-        r.preset === "allTime" || !from || !to ? "" : `?from=${from}&to=${to}`;
-      const result = await api.get(`/api/admin/reports/advanced${params}`);
+      const r    = range ?? dateRange;
+      const from = toISO(r.from);
+      const to   = toISO(r.to);
+      const params = (r.preset === "allTime" || !from || !to)
+        ? ""
+        : `?dateFrom=${from}&dateTo=${to}`;
+      const result = await api.get(`/admin/reports/advanced${params}`);
       setAdvancedData(result);
     } catch {
       setAdvancedData(null);
@@ -110,22 +185,27 @@ export default function AdminReportsPage() {
     }
   }, [dateRange]);
 
-  // ── Load advanced data when switching to that tab ──────────────────────────
+  // ── Initial load ─────────────────────────────────────────────────────────
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // ── Load advanced data when switching to that tab (if not already loaded) ─
   useEffect(() => {
     if (activeTab === "advanced" && !advancedData && !advancedLoading) {
       fetchAdvancedData();
     }
   }, [activeTab, advancedData, advancedLoading, fetchAdvancedData]);
 
-  // ── Re-fetch advanced data on date-range change ────────────────────────────
+  // ── Re-fetch when date range changes, scoped to whichever tab is active ──
   useEffect(() => {
-    if (activeTab === "advanced") {
+    if (activeTab === "general") {
+      fetchData(dateRange);
+    } else if (activeTab === "advanced") {
       fetchAdvancedData(dateRange);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange]);
 
-  // ── Clear custom-report init state when navigating away ───────────────────
+  // ── Clear custom-report init state when navigating away ─────────────────
   useEffect(() => {
     if (activeTab !== "custom") {
       setCustomInitSections([]);
@@ -133,15 +213,12 @@ export default function AdminReportsPage() {
     }
   }, [activeTab]);
 
-  // ── Navigation helpers ─────────────────────────────────────────────────────
-  const goToAdvanced = useCallback(
-    (section?: string) => {
-      setAdvancedSection(section);
-      setActiveTab("advanced");
-      if (!advancedData && !advancedLoading) fetchAdvancedData();
-    },
-    [advancedData, advancedLoading, fetchAdvancedData],
-  );
+  // ── Navigation helpers ───────────────────────────────────────────────────
+  const goToAdvanced = useCallback((section?: string) => {
+    setAdvancedSection(section);
+    setActiveTab("advanced");
+    if (!advancedData && !advancedLoading) fetchAdvancedData();
+  }, [advancedData, advancedLoading, fetchAdvancedData]);
 
   const goToCustomReport = useCallback((sections: string[], category?: string) => {
     setCustomInitSections(sections);
@@ -153,115 +230,76 @@ export default function AdminReportsPage() {
     setAdvancedSection(undefined);
   }, []);
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Tabs config ──────────────────────────────────────────────────────────
+  const tabs = [
+    { id: "general"  as TabId, label: "General Dashboard",  icon: LayoutDashboard },
+    { id: "advanced" as TabId, label: "Advanced Analytics", icon: BarChart2 },
+    { id: "custom"   as TabId, label: "Custom Report",      icon: FileSpreadsheet },
+  ];
+
   return (
     <div
-      style={{
-        minHeight: "100vh",
-        background: C.slate100,
-        fontFamily:
-          "'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif",
-      }}
+      className="min-h-screen bg-slate-50"
+      style={{ fontFamily: "'Inter', sans-serif" }}
     >
-      <div
-        style={{
-          maxWidth: 1280,
-          margin: "0 auto",
-          padding: "32px 24px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 24,
-        }}
-      >
-        {/* ── Page header ─────────────────────────────────────────────────── */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+
+        {/* ── Page header ──────────────────────────────────────────────── */}
         <div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 4,
-            }}
-          >
-            <BarChart2
-              style={{ width: 20, height: 20, color: C.sky, flexShrink: 0 }}
-            />
-            <h1
-              style={{
-                fontSize: 24,
-                fontWeight: 900,
-                color: C.slate900,
-                letterSpacing: "-0.03em",
-                margin: 0,
-              }}
-            >
+          <div className="flex items-center gap-2 mb-1">
+            <BarChart2 className="w-5 h-5 text-sky-600" />
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
               Analytics &amp; Reports
             </h1>
           </div>
-          <p
-            style={{
-              fontSize: 13,
-              color: C.slate500,
-              margin: 0,
-              paddingLeft: 28,
-              fontWeight: 500,
-            }}
-          >
-            Deep insights into users and sanghas across all states
+          <p className="text-slate-500 text-sm ml-7">
+            Deep insights into your community's registration pipeline and demographics
           </p>
         </div>
 
-        {/* ── Tab bar + date picker ────────────────────────────────────────── */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          {/* Tab pill */}
-          <div
-            style={{
-              display: "flex",
-              gap: 2,
-              padding: 4,
-              background: C.white,
-              border: `1px solid ${C.slate200}`,
-              borderRadius: 14,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-            }}
-          >
-            {TABS.map((tab) => (
-              <TabBtn
+        {/* ── Tab bar + date picker ─────────────────────────────────────── */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex gap-1 p-1 bg-white border border-slate-200 rounded-2xl w-fit shadow-sm">
+            {tabs.map(tab => (
+              <button
                 key={tab.id}
-                tab={tab}
-                active={activeTab === tab.id}
                 onClick={() => setActiveTab(tab.id)}
-              />
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                  activeTab === tab.id
+                    ? "bg-sky-500 text-white shadow-md"
+                    : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+                {activeTab === tab.id && <ChevronRight className="w-3 h-3 ml-0.5" />}
+              </button>
             ))}
           </div>
 
-          {/* Date picker — only on general + advanced tabs */}
           {(activeTab === "general" || activeTab === "advanced") && (
             <DateRangePicker
               value={dateRange}
               onChange={(range) => {
                 setDateRange(range);
-                if (activeTab === "advanced") setAdvancedData(null);
+                setAdvancedData(null);
               }}
+              showReset
             />
           )}
         </div>
 
-        {/* ── Tab content ─────────────────────────────────────────────────── */}
-
-        {/* General Dashboard — has its own overview / users / sanghas sub-tabs */}
+        {/* ── Tab content ──────────────────────────────────────────────── */}
         {activeTab === "general" && (
-          <GeneralDashboard dateRange={dateRange} />
+          <GeneralDashboard
+            data={data}
+            loading={loading}
+            error={error}
+            onRefresh={fetchData}
+            onGoToAdvanced={goToAdvanced}
+            onGoToCustomReport={goToCustomReport}
+          />
         )}
-
-        {/* Advanced Analytics */}
         {activeTab === "advanced" && (
           <AdvancedDashboard
             data={advancedData}
@@ -272,8 +310,6 @@ export default function AdminReportsPage() {
             onSectionRendered={handleSectionRendered}
           />
         )}
-
-        {/* Custom Report */}
         {activeTab === "custom" && (
           <CustomReport
             initSections={customInitSections}
