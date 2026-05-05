@@ -1,4 +1,3 @@
-// Community-Application\sangha\src\app\sangha\reports\AdvancedDashboard.tsx
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
@@ -206,6 +205,54 @@ function GenderStackedBarVertical({
         {hasOther && (
           <Bar dataKey="other" name="Other" fill={GENDER_COLORS.other} stackId="g" radius={[0, 4, 4, 0]} />
         )}
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── Marital Status Bar (single count per category) ──────────────────────────
+function MaritalGroupedBar({
+  data, height = 280,
+}: {
+  data: { label: string; count: number }[];
+  height?: number;
+}) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex items-center justify-center text-slate-400 text-sm" style={{ height }}>
+        No data available
+      </div>
+    );
+  }
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <BarChart
+        data={data}
+        margin={{ left: -10, right: 16, top: 8, bottom: 40 }}
+        barCategoryGap="25%"
+        barGap={3}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+        <XAxis
+          dataKey="label"
+          tick={{ fontSize: 10, fill: "#64748b" }}
+          tickLine={false}
+          axisLine={false}
+          angle={-20}
+          textAnchor="end"
+          interval={0}
+        />
+        <YAxis
+          tick={{ fontSize: 10, fill: "#94a3b8" }}
+          tickLine={false}
+          axisLine={false}
+          allowDecimals={false}
+          label={{ value: "Number of users", angle: -90, position: "insideLeft", offset: 16, style: { fontSize: 11, fill: "#94a3b8" } }}
+        />
+        <Tooltip content={<BarTooltipContent />} cursor={{ fill: "#f8fafc" }} />
+        <Bar dataKey="count" name="Users" fill="#0ea5e9" radius={[6, 6, 0, 0]} maxBarSize={40}>
+          <LabelList dataKey="count" position="top" style={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }} />
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   );
@@ -490,14 +537,9 @@ export default function AdvancedDashboard({
   const ageBarData = ageGenderData.length > 0 ? ageGenderData
     : dem.ageGroups.map((a: any) => ({ label: a.label, male: a.count, female: 0, other: 0 }));
 
-  // ── Marital × Gender ───────────────────────────────────────
-  const maritalGenderData = (dem.maritalStatusGender || []).map((m: any) => ({
-    label: m.label, male: m.male || 0, female: m.female || 0, other: m.other || 0,
-  }));
-  const maritalFallback = dem.maritalStatus.map((m: any) => ({
-    label: m.label, male: m.count, female: 0, other: 0,
-  }));
-  const maritalBarData = maritalGenderData.length > 0 ? maritalGenderData : maritalFallback;
+  // ── Marital Detailed — one total count per status bucket ──
+  const maritalDetailedBarDataAll: { label: string; count: number }[] =
+    dem.maritalDetailedBars ?? [];
 
   // ── Degrees — all 7 standard levels always shown ───────────
   const rawDegreesGender = (edu.degreesGender || []).map((d: any) => ({
@@ -505,7 +547,6 @@ export default function AdvancedDashboard({
   }));
   const degreeMapFromData = new Map(rawDegreesGender.map((d: any) => [d.label, d]));
 
-  // Always include all 7 degrees (even those with 0 counts)
   const degreesBarData: { label: string; male: number; female: number; other?: number }[] = DEGREE_ORDER.map(label => {
     const existing = degreeMapFromData.get(label);
     return existing ?? { label, male: 0, female: 0, other: 0 };
@@ -616,27 +657,27 @@ export default function AdvancedDashboard({
 
         {/* ══ 0. STATUS OVERVIEW ═══════════════════════════════ */}
         <section>
-  <SectionHeader id="adv-status" icon={CheckCircle}
-    title="Status Overview"
-    subtitle="Registration status breakdown — approved,  rejected, changes requested"
-    color="#6366f1" />
+          <SectionHeader id="adv-status" icon={CheckCircle}
+            title="Status Overview"
+            subtitle="Registration status breakdown — approved, rejected, changes requested"
+            color="#6366f1" />
 
-  {statusGenderBarData.length > 0 ? (
-    <ChartCard title="Status by Gender" subtitle="Male (blue) · Female (pink) — registration status breakdown"
-      onExport={() => onGoToCustomReport(["personal-details"], "demographics")}>
-      <GenderStackedBar data={statusGenderBarData} height={200} />
-    </ChartCard>
-  ) : statusBreakdown.length > 0 ? (
-    <ChartCard title="Status Breakdown" subtitle="Registration status counts">
-      <GenderStackedBar data={statusBreakdown.map(s => ({ label: STATUS_LABELS[s.status] ?? s.status, male: s.count, female: 0 }))} height={200} />
-    </ChartCard>
-  ) : (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm text-center">
-      <p className="text-xs font-semibold mb-1" style={{ color: "#10b981" }}>Approved</p>
-      <p className="text-3xl font-black text-slate-900">{data.totalApproved.toLocaleString()}</p>
-    </div>
-  )}
-</section>
+          {statusGenderBarData.length > 0 ? (
+            <ChartCard title="Status by Gender" subtitle="Male (blue) · Female (pink) — registration status breakdown"
+              onExport={() => onGoToCustomReport(["personal-details"], "demographics")}>
+              <GenderStackedBar data={statusGenderBarData} height={200} />
+            </ChartCard>
+          ) : statusBreakdown.length > 0 ? (
+            <ChartCard title="Status Breakdown" subtitle="Registration status counts">
+              <GenderStackedBar data={statusBreakdown.map(s => ({ label: STATUS_LABELS[s.status] ?? s.status, male: s.count, female: 0 }))} height={200} />
+            </ChartCard>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm text-center">
+              <p className="text-xs font-semibold mb-1" style={{ color: "#10b981" }}>Approved</p>
+              <p className="text-3xl font-black text-slate-900">{data.totalApproved.toLocaleString()}</p>
+            </div>
+          )}
+        </section>
 
         {/* ══ 1. DEMOGRAPHICS ══════════════════════════════════ */}
         <section>
@@ -654,7 +695,6 @@ export default function AdvancedDashboard({
               <div className="w-px h-8 bg-white/20" />
               <div><p className="text-xl font-bold">{Math.max(0, (data.totalPopulation || 0) - total).toLocaleString()}</p><p className="text-sky-200 text-xs">Family members</p></div>
               <div className="w-px h-8 bg-white/20" />
-              
             </div>
           </div>
 
@@ -711,15 +751,23 @@ export default function AdvancedDashboard({
             </ChartCard>
           </div>
 
-          <ChartCard title="Age Group Distribution" subtitle="Male (blue) · Female (pink). other (grey) "
+          <ChartCard title="Age Group Distribution" subtitle="Male (blue) · Female (pink) · Other (grey)"
             onExport={() => onGoToCustomReport(["personal-details"], "age_group")}>
             <GenderStackedBar data={ageBarData} height={200} />
           </ChartCard>
 
-          {maritalBarData.length > 0 && (
-            <ChartCard title="Marital Status" subtitle="Male (blue) · Female (pink)"
-              className="mt-5" onExport={() => onGoToCustomReport(["personal-details"], "marital")}>
-              <GenderStackedBar data={maritalBarData} height={160} />
+          {/* ── Marital Status — one bar per status bucket ── */}
+          {maritalDetailedBarDataAll.length > 0 && (
+            <ChartCard
+              title="Users by Marital Status"
+              subtitle="Approved registered users by marital-status category"
+              className="mt-5"
+              onExport={() => onGoToCustomReport(["personal-details"], "marital")}
+            >
+              <MaritalGroupedBar
+                data={maritalDetailedBarDataAll}
+                height={Math.max(300, maritalDetailedBarDataAll.length * 55)}
+              />
             </ChartCard>
           )}
         </section>
@@ -734,7 +782,6 @@ export default function AdvancedDashboard({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <ChartCard title="Highest Degree Level" subtitle="All 7 levels — Male (blue) · Female (pink)"
               onExport={() => onGoToCustomReport(["education-profession"], "education")}>
-              {/* Always show all 7 degree levels */}
               <GenderStackedBarVertical
                 data={degreesBarData}
                 height={Math.max(280, DEGREE_ORDER.length * 38)}
@@ -895,7 +942,7 @@ export default function AdvancedDashboard({
             })}
           </div>
 
-          <ChartCard title="Asset Ownership" 
+          <ChartCard title="Asset Ownership"
             className="mt-5" onExport={() => onGoToCustomReport(["economic-details"], "asset")}>
             {assetsGenderData.length > 0 ? (
               <>
@@ -951,95 +998,94 @@ export default function AdvancedDashboard({
 
         {/* ══ 6. INSURANCE ═════════════════════════════════════ */}
         <section>
-  <SectionHeader
-    id="adv-insurance"
-    icon={Shield}
-    title="Insurance Coverage"
-    subtitle="Term, Life, Health, Konkani Card — Yes / No / Not Selected by gender"
-    color="#14b8a6"
-  />
+          <SectionHeader
+            id="adv-insurance"
+            icon={Shield}
+            title="Insurance Coverage"
+            subtitle="Term, Life, Health, Konkani Card — Yes / No / Not Selected by gender"
+            color="#14b8a6"
+          />
 
-  {data.insurance.length > 0 ? (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-      {data.insurance.map(ins => {
-        const chartData = [
-          {
-            status: "Yes",
-            Male:   (ins as any).maleYes     || 0,
-            Female: (ins as any).femaleYes   || 0,
-            Other:  (ins as any).otherYes    || 0,
-          },
-          {
-            status: "No",
-            Male:   (ins as any).maleNo      || 0,
-            Female: (ins as any).femaleNo    || 0,
-            Other:  (ins as any).otherNo     || 0,
-          },
-          {
-            status: "Not Selected",
-            Male:   (ins as any).maleUnknown   || 0,
-            Female: (ins as any).femaleUnknown || 0,
-            Other:  (ins as any).otherUnknown  || 0,
-          },
-        ];
+          {data.insurance.length > 0 ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {data.insurance.map(ins => {
+                const chartData = [
+                  {
+                    status: "Yes",
+                    Male:   (ins as any).maleYes     || 0,
+                    Female: (ins as any).femaleYes   || 0,
+                    Other:  (ins as any).otherYes    || 0,
+                  },
+                  {
+                    status: "No",
+                    Male:   (ins as any).maleNo      || 0,
+                    Female: (ins as any).femaleNo    || 0,
+                    Other:  (ins as any).otherNo     || 0,
+                  },
+                  {
+                    status: "Not Selected",
+                    Male:   (ins as any).maleUnknown   || 0,
+                    Female: (ins as any).femaleUnknown || 0,
+                    Other:  (ins as any).otherUnknown  || 0,
+                  },
+                ];
 
-        return (
-          <ChartCard
-            key={ins.label}
-            title={ins.label}
-            subtitle="Male · Female · Other — by coverage status"
-            onExport={() => onGoToCustomReport(["economic-details"], "insurance")}
-          >
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart
-                data={chartData}
-                margin={{ top: 8, right: 16, left: -10, bottom: 4 }}
-                barCategoryGap="30%"
-                barGap={3}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis
-                  dataKey="status"
-                  tick={{ fontSize: 11, fill: "#64748b" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  allowDecimals={false}
-                  tick={{ fontSize: 11, fill: "#94a3b8" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    fontSize: 12,
-                    borderRadius: 10,
-                    border: "1px solid #e2e8f0",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-                  }}
-                  cursor={{ fill: "#f8fafc" }}
-                />
-                <Legend
-                  iconType="circle"
-                  iconSize={8}
-                  wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-                />
-                <Bar dataKey="Male"   fill="#60a5fa" radius={[4, 4, 0, 0]} maxBarSize={28} />
-                <Bar dataKey="Female" fill="#f472b6" radius={[4, 4, 0, 0]} maxBarSize={28} />
-                <Bar dataKey="Other"  fill="grey" radius={[4, 4, 0, 0]} maxBarSize={28} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartCard>
-        );
-      })}
-    </div>
-  ) : (
-    <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center text-slate-400 text-sm">
-      No insurance data available.
-    </div>
-  )}
-</section>
-       
+                return (
+                  <ChartCard
+                    key={ins.label}
+                    title={ins.label}
+                    subtitle="Male · Female · Other — by coverage status"
+                    onExport={() => onGoToCustomReport(["economic-details"], "insurance")}
+                  >
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart
+                        data={chartData}
+                        margin={{ top: 8, right: 16, left: -10, bottom: 4 }}
+                        barCategoryGap="30%"
+                        barGap={3}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                        <XAxis
+                          dataKey="status"
+                          tick={{ fontSize: 11, fill: "#64748b" }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          allowDecimals={false}
+                          tick={{ fontSize: 11, fill: "#94a3b8" }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            fontSize: 12,
+                            borderRadius: 10,
+                            border: "1px solid #e2e8f0",
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                          }}
+                          cursor={{ fill: "#f8fafc" }}
+                        />
+                        <Legend
+                          iconType="circle"
+                          iconSize={8}
+                          wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                        />
+                        <Bar dataKey="Male"   fill="#60a5fa" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                        <Bar dataKey="Female" fill="#f472b6" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                        <Bar dataKey="Other"  fill="grey"    radius={[4, 4, 0, 0]} maxBarSize={28} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center text-slate-400 text-sm">
+              No insurance data available.
+            </div>
+          )}
+        </section>
 
         {/* ══ 7. DOCUMENTS ═════════════════════════════════════ */}
         <section>
@@ -1118,17 +1164,15 @@ export default function AdvancedDashboard({
             </div>
           ) : (
             <>
-              {/* ── Summary KPIs ── */}
               {religious.summary && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-                  
                 </div>
               )}
 
               {/* ── Row 1: Gotra + Kuladevata ── */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {gotraData.length > 0 && (
-                  <ChartCard title=" Gotras" subtitle="Most common gotras in the community"
+                  <ChartCard title="Gotras" subtitle="Most common gotras in the community"
                     onExport={() => onGoToCustomReport(["religious-details"], "gotra")}>
                     <SimpleBarChart data={gotraData} colorPalette={RELIGIOUS_COLORS}
                       height={Math.max(220, gotraData.length * 30)} />
@@ -1143,10 +1187,8 @@ export default function AdvancedDashboard({
                 )}
               </div>
 
-              {/* ── Row 2: Surname + Pravara ── */}
+              {/* ── Row 2: Pravara ── */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
-                
-                
                 {pravaraData.length > 0 && (
                   <ChartCard title="Pravara Distribution" subtitle="Pravara lineages in the community"
                     onExport={() => onGoToCustomReport(["religious-details"], "pravara")}>
@@ -1191,7 +1233,6 @@ export default function AdvancedDashboard({
                   subtitle="Families with ancestral challenges, priest info, upanama, demi gods & common relative names"
                   className="mt-5"
                   onExport={() => onGoToCustomReport(["religious-details"], "ancestral")}>
-                 
 
                   {/* Ancestral Challenge pie */}
                   {(religious.ancestralStats.withChallenge || 0) + (religious.ancestralStats.withoutChallenge || 0) > 0 && (
@@ -1218,7 +1259,6 @@ export default function AdvancedDashboard({
                           </PieChart>
                         </ResponsiveContainer>
                         <div className="flex flex-col justify-center gap-3">
-                          
                         </div>
                       </div>
                     </div>

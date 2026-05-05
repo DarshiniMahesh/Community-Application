@@ -64,6 +64,8 @@ export interface AdvancedReport {
     familyType: { nuclear: number; joint: number };
     maritalStatus: { label: string; count: number }[];
     maritalStatusGender?: { label: string; male: number; female: number; other: number }[];
+    /** Never married, divorced, widowed, married M/F, other — approved profiles with personal_details */
+    maritalDetailedBars?: { label: string; count: number }[];
   };
   education: {
     degrees: { label: string; count: number }[];
@@ -103,6 +105,9 @@ export interface AdvancedReport {
       withUpanama?: number;
       withDemiGods?: number;
     };
+    upanamaGenerals?: { label: string; count: number }[];
+    upanamaPropers?: { label: string; count: number }[];
+    demiGods?: { label: string; count: number }[];
   };
 }
 
