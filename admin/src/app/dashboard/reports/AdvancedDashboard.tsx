@@ -1329,39 +1329,10 @@ function UserTab({ data, loading, onGoToCustomReport }: {
             </Card>
 
             {/* Marital Status */}
-            <Card title="Marital Status" subtitle="Approved users — by marital status & gender"
-              onReport={() => goCustom?.(["personal-details"], "user")}>
-              {maritalBarData.length === 0 ? (
-                <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>No marital data</div>
-              ) : (
-                <>
-                  <div className="marital-grid">
-                    {maritalBarData.map((m, i) => {
-                      const tot = m.male + m.female + (m.other || 0);
-                      const color = MARITAL_COLORS[m.label] ?? "#94a3b8";
-                      return (
-                        <div key={i} className="marital-pill" style={{ borderLeft: `3px solid ${color}` }}>
-                          <div className="marital-dot" style={{ background: color }} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div className="marital-label">{m.label}</div>
-                            <div style={{ display: "flex", gap: 6, marginTop: 3 }}>
-                              <span style={{ fontSize: 9, fontWeight: 700, color: GC.male, background: "#e0f2fe", borderRadius: 4, padding: "1px 5px" }}>♂ {m.male.toLocaleString()}</span>
-                              <span style={{ fontSize: 9, fontWeight: 700, color: GC.female, background: "#fce7f3", borderRadius: 4, padding: "1px 5px" }}>♀ {m.female.toLocaleString()}</span>
-                            </div>
-                          </div>
-                          <div className="marital-count" style={{ color }}>{tot.toLocaleString()}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {maritalBarData.length > 2 && (
-                    <div style={{ marginTop: 12 }}>
-                      <GenderBar data={maritalBarData} height={120} />
-                    </div>
-                  )}
-                </>
-              )}
-            </Card>
+            
+                 
+                
+            
 
             {/* Family Type */}
             <Card title="Family Type" subtitle="Nuclear vs Joint — approved families"
@@ -1385,11 +1356,57 @@ function UserTab({ data, loading, onGoToCustomReport }: {
               </div>
             </Card>
           </div>
-
+         
           <Card title="Age Group Distribution" subtitle="Approved users + family members — Male · Female · Other"
             style={{ marginTop: 18 }} onReport={() => goCustom?.(["personal-details"], "user")}>
             <GenderBar data={ageBarData} height={200} />
           </Card>
+
+                <Card title="Marital Status Distribution" subtitle="Approved users — Male · Female · Other by marital category"
+  style={{ marginTop: 18 }}
+  onReport={() => goCustom?.(["personal-details"], "user")}>
+  {maritalBarData.length === 0 ? (
+    <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>No marital data</div>
+  ) : (
+    <ResponsiveContainer width="100%" height={220}>
+      <BarChart
+        data={[
+          { label: "Single (Never Married)", ...(maritalBarData.find(m => m.label === "Single (Never Married)") ?? { male: 0, female: 0, other: 0 }) },
+          { label: "Married",               ...(maritalBarData.find(m => m.label === "Married")               ?? { male: 0, female: 0, other: 0 }) },
+          { label: "Single / Divorced",     ...(maritalBarData.find(m => m.label === "Single & Divorced")     ?? { male: 0, female: 0, other: 0 }) },
+          { label: "Single / Widowed",      ...(maritalBarData.find(m => m.label === "Single & Widowed")      ?? { male: 0, female: 0, other: 0 }) },
+        ]}
+        margin={{ left: -16, right: 8, top: 8, bottom: 8 }}
+        barCategoryGap="28%"
+        barGap={3}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+        <XAxis
+          dataKey="label"
+          tick={{ fontSize: 11, fill: AXIS_X_COLOR, fontWeight: 600 }}
+          tickLine={false}
+          axisLine={false}
+          interval={0}
+          angle={0}
+          textAnchor="middle"
+          height={36}
+        />
+        <YAxis
+          tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }}
+          tickLine={false}
+          axisLine={false}
+          allowDecimals={false}
+        />
+        <Tooltip content={<BarTip />} />
+        <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "12px", color: "#111827", fontWeight: 600, paddingTop: 8 }} />
+        <Bar dataKey="male"   name="Male"   fill={GC.male}   radius={[4,4,0,0]} maxBarSize={40} />
+        <Bar dataKey="female" name="Female" fill={GC.female} radius={[4,4,0,0]} maxBarSize={40} />
+        <Bar dataKey="other"  name="Other"  fill={GC.other}  radius={[4,4,0,0]} maxBarSize={40} />
+      </BarChart>
+    </ResponsiveContainer>
+  )}
+</Card>
+          
         </section>
 
         {/* ── Education & Occupation ── */}
@@ -1419,6 +1436,11 @@ function UserTab({ data, loading, onGoToCustomReport }: {
             </Card>
           </div>
         </section>
+       
+                
+               
+         
+
 
         {/* ── Geographic ── */}
         <section className="adv-section" id="au-geographic">

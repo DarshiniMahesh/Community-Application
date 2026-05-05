@@ -641,23 +641,64 @@ const getAdminAdvancedReportsuser = async (req, res) => {
       `),
 
       // 4. Marital status by gender
-      safe(`
-        SELECT
-          CASE
-            WHEN LOWER(pd.marital_status) IN ('single_never_married','never married','never_married','unmarried','single') THEN 'Never Married'
-            WHEN LOWER(pd.marital_status) IN ('married') THEN 'Married'
-            WHEN LOWER(pd.marital_status) IN ('single_divorced','divorced') THEN 'Single / Divorced'
-            WHEN LOWER(pd.marital_status) IN ('single_widowed','widowed','widow','widower') THEN 'Single / Widowed'
-            ELSE 'Other'
-          END AS label,
-          COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
-          COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
-          COUNT(*) FILTER (WHERE pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other
-        FROM profiles p JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.status = 'approved' AND pd.marital_status IS NOT NULL AND TRIM(pd.marital_status) <> ''
-        GROUP BY 1
-        ORDER BY COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male') + COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') DESC
-      `),
+      // Replace query #4 (maritalGenderRows) with:
+safe(`
+  SELECT
+    CASE
+      WHEN LOWER(pd.marital_status) IN (
+        'single_never_married','never married','never_married','unmarried','single'
+      ) THEN 'Single (Never Married)'
+      WHEN LOWER(pd.marital_status) IN ('married')
+        THEN 'Married'
+      WHEN LOWER(pd.marital_status) IN ('single_divorced','divorced')
+        THEN 'Single & Divorced'
+      WHEN LOWER(pd.marital_status) IN ('single_widowed','widowed','widow','widower')
+        THEN 'Single & Widowed'
+      ELSE 'Other'
+    END AS label,
+    COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
+    COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='female') AS female,
+    COUNT(*) FILTER (WHERE pd.gender IS NOT NULL
+      AND LOWER(pd.gender::text) NOT IN ('male','female'))  AS other
+  FROM profiles p
+  JOIN personal_details pd ON pd.profile_id = p.id
+  WHERE p.status = 'approved'
+    AND pd.marital_status IS NOT NULL
+    AND TRIM(pd.marital_status) <> ''
+  GROUP BY 1
+  ORDER BY CASE
+    WHEN CASE
+      WHEN LOWER(pd.marital_status) IN ('single_never_married','never married','never_married','unmarried','single') THEN 'Single (Never Married)'
+      WHEN LOWER(pd.marital_status) IN ('married') THEN 'Married'
+      WHEN LOWER(pd.marital_status) IN ('single_divorced','divorced') THEN 'Single & Divorced'
+      WHEN LOWER(pd.marital_status) IN ('single_widowed','widowed','widow','widower') THEN 'Single & Widowed'
+      ELSE 'Other'
+    END = 'Single (Never Married)' THEN 1
+    WHEN CASE
+      WHEN LOWER(pd.marital_status) IN ('single_never_married','never married','never_married','unmarried','single') THEN 'Single (Never Married)'
+      WHEN LOWER(pd.marital_status) IN ('married') THEN 'Married'
+      WHEN LOWER(pd.marital_status) IN ('single_divorced','divorced') THEN 'Single & Divorced'
+      WHEN LOWER(pd.marital_status) IN ('single_widowed','widowed','widow','widower') THEN 'Single & Widowed'
+      ELSE 'Other'
+    END = 'Married' THEN 2
+    WHEN CASE
+      WHEN LOWER(pd.marital_status) IN ('single_never_married','never married','never_married','unmarried','single') THEN 'Single (Never Married)'
+      WHEN LOWER(pd.marital_status) IN ('married') THEN 'Married'
+      WHEN LOWER(pd.marital_status) IN ('single_divorced','divorced') THEN 'Single & Divorced'
+      WHEN LOWER(pd.marital_status) IN ('single_widowed','widowed','widow','widower') THEN 'Single & Widowed'
+      ELSE 'Other'
+    END = 'Single & Divorced' THEN 3
+    WHEN CASE
+      WHEN LOWER(pd.marital_status) IN ('single_never_married','never married','never_married','unmarried','single') THEN 'Single (Never Married)'
+      WHEN LOWER(pd.marital_status) IN ('married') THEN 'Married'
+      WHEN LOWER(pd.marital_status) IN ('single_divorced','divorced') THEN 'Single & Divorced'
+      WHEN LOWER(pd.marital_status) IN ('single_widowed','widowed','widow','widower') THEN 'Single & Widowed'
+      ELSE 'Other'
+    END = 'Single & Widowed' THEN 4
+    ELSE 5
+  END
+`),
+        
 
       // 5. Combined degree by gender
       safe(`

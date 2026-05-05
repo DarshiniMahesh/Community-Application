@@ -144,13 +144,6 @@ export default function AdminReportsPage() {
         ? ""
         : `?dateFrom=${from}&dateTo=${to}`;
       const result = await api.get(`/admin/reports/advanced${params}`);
-      const r    = range ?? dateRange;
-      const from = toISO(r.from);
-      const to   = toISO(r.to);
-      const params = (r.preset === "allTime" || !from || !to)
-        ? ""
-        : `?dateFrom=${from}&dateTo=${to}`;
-      const result = await api.get(`/admin/reports/advanced${params}`);
       setAdvancedData(result);
     } catch {
       setAdvancedData(null);
@@ -290,12 +283,10 @@ export default function AdminReportsPage() {
                 setAdvancedData(null);
               }}
               showReset
-              showReset
             />
           )}
         </div>
 
-        {/* ── Tab content ──────────────────────────────────────────────── */}
         {/* ── Tab content ──────────────────────────────────────────────── */}
         {activeTab === "general" && (
           <GeneralDashboard
