@@ -1,39 +1,27 @@
-//Community-Application\backend\src\controllers\adminCustomReportController.js
 // Community-Application\backend\src\controllers\adminCustomReportController.js
 //
-// Serves:
-//   POST /sangha/reports/export/full      → exportFull   (main custom table)
-//   POST /sangha/reports/family-members   → getFamilyMembers
+// Main table (exportFull) = ONE ROW PER REGISTERED USER
+//   - personal-details: includes "Primary Sangha" = sg_primary.sangha_name
+//   - education-profession: the user's own (Self/Head-of-family) education row
+//   - economic-details, insurance, documents: aggregated per profile
 //
-// Column names returned MUST match the frontend SECTIONS[].columns exactly.
+// Family sub-table (getFamilyMembers) = ONE ROW PER FAMILY MEMBER
+//
+// Sangha Memberships (getSanghaMemberships) = cross-membership
+//   Columns: User Full Name, Gender, Age, Member In, Type of Member
+//
+// Sangha Members Roster (exportSanghas + sangha-members section):
+//   Reads from sangha_members table (manually added by sangha admin) — NOT profiles
+//
+// Sangha User Table (getSanghaUsers):
+//   Returns registered users (profiles) whose primary sangha is one of the given sanghaIds
+//   Groups by sangha via _sangha_id / _sangha_name
 
-const { pool } = require("../config/db"); // adjust to your DB pool path
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function boolYesNo(val) {
-  if (val === true  || val === "true")  return "Yes";
-  if (val === false || val === "false") return "No";
-  return val ?? "—";
-}
-
-function arrayToString(arr) {
-  if (!arr) return "—";
-  if (Array.isArray(arr)) return arr.filter(Boolean).join(", ") || "—";
-  return String(arr);
-}
+const pool = require("../config/db");
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /sangha/reports/export/full
-//
-// Body: { sections: string[], includeAllStatuses: boolean,
-//         dateFrom?: string, dateTo?: string }
-//
-// Sections:  personal-details | economic-details | education-profession
-//            | location-information | religious-details
-//
-// Returns: array of flat row objects whose keys match SECTIONS[].columns
-// plus _profile_id (used by the family fetch button on each row).
+// POST /admin/reports/custom/users
+// Returns ONE ROW PER REGISTERED USER (profile)
 // ─────────────────────────────────────────────────────────────────────────────
 async function exportFull(req, res) {
   try {
@@ -49,33 +37,61 @@ async function exportFull(req, res) {
 
     if (!sections.length) return res.json([]);
 
-    // ── Base JOIN list ────────────────────────────────────────────────────────
-    // Always start from profiles + users so we always have
-    // Full Name, Email, Phone, Status, _profile_id
+    // ── Always-present base columns ───────────────────────────────────────────
     const joins  = [];
     const select = [
-      "p.id                                         AS _profile_id",
-      "TRIM(CONCAT(pd.first_name,' ',COALESCE(pd.middle_name,''),' ',pd.last_name)) AS \"Full Name\"",
-      "u.email                                       AS \"Email\"",
-      "u.phone                                       AS \"Phone\"",
-      "p.status::text                                AS \"Status\"",
+      "p.id                                                                           AS _profile_id",
+      "TRIM(CONCAT(pd.first_name,' ',COALESCE(pd.middle_name,''),' ',pd.last_name))   AS \"Full Name\"",
+      "u.email                                                                         AS \"Email\"",
+      "u.phone                                                                         AS \"Phone\"",
+      "p.status::text                                                                   AS \"Status\"",
     ];
 
-    // We always need personal_details for the name columns
-    joins.push(
-      "LEFT JOIN personal_details pd ON pd.profile_id = p.id"
-    );
+    // personal_details is always joined (needed for Full Name)
+    joins.push("LEFT JOIN personal_details pd ON pd.profile_id = p.id");
+    // Always join primary sangha so it's available for personal-details section
+    joins.push("LEFT JOIN sanghas sg_primary ON sg_primary.id = p.sangha_id");
 
     // ── Section: personal-details ─────────────────────────────────────────────
     if (sections.includes("personal-details")) {
       select.push(
-        "pd.gender::text                              AS \"Gender\"",
-        "TO_CHAR(pd.date_of_birth, 'DD-Mon-YYYY')    AS \"Date of Birth\"",
-        "pd.date_of_birth                            AS \"_dob_raw\"",   // used by Age in frontend
-        "TO_CHAR(p.submitted_at, 'DD-Mon-YYYY')      AS \"Submitted At\"",
-        "TO_CHAR(p.reviewed_at,  'DD-Mon-YYYY')      AS \"Reviewed At\"",
-        // Age is computed client-side from "Date of Birth", but we surface it too
-        "CASE WHEN pd.date_of_birth IS NOT NULL THEN EXTRACT(YEAR FROM AGE(pd.date_of_birth))::int ELSE NULL END AS \"Age\""
+        "pd.gender::text                                                               AS \"Gender\"",
+        "TO_CHAR(pd.date_of_birth, 'DD-Mon-YYYY')                                     AS \"Date of Birth\"",
+        "CASE WHEN pd.date_of_birth IS NOT NULL THEN EXTRACT(YEAR FROM AGE(pd.date_of_birth))::int ELSE NULL END AS \"Age\"",
+        "pd.fathers_name                                                               AS \"Father's Name\"",
+        "pd.mothers_name                                                               AS \"Mother's Name\"",
+        "pd.surname_in_use                                                             AS \"Surname in Use\"",
+        "pd.surname_as_per_gotra                                                       AS \"Surname as per Gotra\"",
+        "CASE WHEN pd.marital_status IS NOT NULL AND pd.marital_status <> '' THEN 'Yes' ELSE 'No' END AS \"Is Married\"",
+        "CASE WHEN LOWER(COALESCE(pd.has_disability,'no')) IN ('yes','true','1') THEN 'Yes' ELSE 'No' END AS \"Has Disability\"",
+        // ── FIX: Primary Sangha shows the sangha_name from sanghas table ────────
+        "COALESCE(sg_primary.sangha_name, '—')                                        AS \"Primary Sangha\"",
+        "TO_CHAR(p.submitted_at, 'DD-Mon-YYYY')                                       AS \"Submitted At\"",
+        "TO_CHAR(p.reviewed_at,  'DD-Mon-YYYY')                                       AS \"Reviewed At\""
+      );
+    }
+
+    // ── Section: religious-details ────────────────────────────────────────────
+    if (sections.includes("religious-details")) {
+      joins.push(
+        "LEFT JOIN religious_details rd ON rd.profile_id = p.id",
+        "LEFT JOIN family_history    fh ON fh.profile_id = p.id"
+      );
+      select.push(
+        "rd.gotra                                                                      AS \"Gotra\"",
+        "rd.pravara                                                                    AS \"Pravara\"",
+        "COALESCE(NULLIF(rd.kuladevata_other,''), rd.kuladevata)                       AS \"Kuladevata\"",
+        "rd.kuladevata_other                                                           AS \"Kuladevata Other\"",
+        "rd.surname_in_use                                                             AS \"Surname in Use\"",
+        "rd.surname_as_per_gotra                                                       AS \"Surname as per Gotra\"",
+        "rd.priest_name                                                                AS \"Priest Name\"",
+        "rd.priest_location                                                            AS \"Priest Location\"",
+        "rd.upanama_general                                                            AS \"Upanama General\"",
+        "rd.upanama_proper                                                             AS \"Upanama Proper\"",
+        "ARRAY_TO_STRING(rd.demi_gods, ', ')                                           AS \"Demi Gods\"",
+        "rd.demi_god_other                                                             AS \"Demi God Other\"",
+        "rd.ancestral_challenge                                                        AS \"Ancestral Challenge\"",
+        "rd.ancestral_challenge_notes                                                  AS \"Ancestral Challenge Notes\""
       );
     }
 
@@ -85,18 +101,107 @@ async function exportFull(req, res) {
         "LEFT JOIN addresses addr ON addr.profile_id = p.id AND addr.address_type = 'current'"
       );
       select.push(
-        "addr.city       AS \"City\"",
-        "addr.district   AS \"District\"",
-        "addr.state      AS \"State\"",
-        "addr.pincode    AS \"Pincode\""
+        "addr.flat_no                                                                  AS \"Flat/House No\"",
+        "addr.building                                                                 AS \"Building\"",
+        "addr.street                                                                   AS \"Street\"",
+        "addr.area                                                                     AS \"Area\"",
+        "addr.city                                                                     AS \"City\"",
+        "addr.taluk                                                                    AS \"Taluk\"",
+        "addr.district                                                                 AS \"District\"",
+        "addr.state                                                                    AS \"State\"",
+        "addr.pincode                                                                  AS \"Pincode\"",
+        "addr.country                                                                  AS \"Country\""
+      );
+    }
+
+    // ── Section: education-profession ─────────────────────────────────────────
+    if (sections.includes("education-profession")) {
+      joins.push(
+        `LEFT JOIN LATERAL (
+           SELECT
+             me.member_name,
+             me.member_relation,
+             me.highest_education,
+             me.profession_type::text  AS profession_type,
+             me.industry,
+             me.is_currently_studying,
+             me.is_currently_working,
+             me.id                     AS me_id
+           FROM member_education me
+           WHERE me.profile_id = p.id
+             AND (
+               LOWER(COALESCE(me.member_relation, '')) IN ('self', 'head of family', 'head', '')
+               OR me.member_name = TRIM(CONCAT(pd.first_name,' ',COALESCE(pd.middle_name,''),' ',pd.last_name))
+             )
+           ORDER BY
+             (LOWER(COALESCE(me.member_relation, '')) IN ('self', 'head of family', 'head', '')) DESC,
+             me.sort_order ASC,
+             me.created_at ASC
+           LIMIT 1
+         ) edu ON TRUE`,
+        `LEFT JOIN LATERAL (
+           SELECT STRING_AGG(
+             COALESCE(NULLIF(ml.language_other,''), ml.language), ', '
+             ORDER BY ml.language
+           ) AS langs
+           FROM member_languages ml
+           WHERE ml.member_education_id = edu.me_id
+         ) lang_agg ON TRUE`
+      );
+      select.push(
+        "COALESCE(edu.member_name, TRIM(CONCAT(pd.first_name,' ',COALESCE(pd.middle_name,''),' ',pd.last_name))) AS \"Member Name\"",
+        "COALESCE(edu.member_relation, 'Self')                                         AS \"Relation\"",
+        "COALESCE(edu.highest_education, '—')                                          AS \"Education Level\"",
+        "COALESCE(edu.profession_type, '—')                                            AS \"Profession Type\"",
+        "CASE WHEN edu.is_currently_studying THEN 'Yes' ELSE 'No' END                 AS \"Currently Studying\"",
+        "CASE WHEN edu.is_currently_working  THEN 'Yes' ELSE 'No' END                 AS \"Currently Working\"",
+        "COALESCE(edu.industry, '—')                                                   AS \"Industry\"",
+        "COALESCE(lang_agg.langs, '—')                                                 AS \"Languages Known\""
       );
     }
 
     // ── Section: economic-details ─────────────────────────────────────────────
     if (sections.includes("economic-details")) {
+      joins.push("LEFT JOIN economic_details  ed  ON ed.profile_id  = p.id");
+      select.push(
+        "ed.self_income::text                                                          AS \"Self Income\"",
+        "ed.family_income::text                                                        AS \"Family Income\"",
+        "CASE WHEN ed.fac_own_house         THEN 'Yes' ELSE 'No' END                  AS \"Owns House\"",
+        "CASE WHEN ed.fac_rented_house      THEN 'Yes' ELSE 'No' END                  AS \"Renting\"",
+        "CASE WHEN ed.fac_agricultural_land THEN 'Yes' ELSE 'No' END                  AS \"Agricultural Land\"",
+        "CASE WHEN ed.fac_car               THEN 'Yes' ELSE 'No' END                  AS \"Has Car\"",
+        "CASE WHEN ed.fac_two_wheeler       THEN 'Yes' ELSE 'No' END                  AS \"Has Two-Wheeler\"",
+        "CASE WHEN ed.inv_fixed_deposits    THEN 'Yes' ELSE 'No' END                  AS \"Fixed Deposits\"",
+        "CASE WHEN ed.inv_mutual_funds_sip  THEN 'Yes' ELSE 'No' END                  AS \"Mutual Funds/SIP\"",
+        "CASE WHEN ed.inv_shares_demat      THEN 'Yes' ELSE 'No' END                  AS \"Shares/Demat\"",
+        "CASE WHEN ed.inv_others            THEN 'Yes' ELSE 'No' END                  AS \"Other Investments\""
+      );
+    }
+
+    // ── Section: insurance (aggregate — Yes/No per coverage type) ─────────────
+    if (sections.includes("insurance")) {
       joins.push(
-        "LEFT JOIN economic_details  ed  ON ed.profile_id  = p.id",
-        // documents — one row per profile (aggregate across members)
+        `LEFT JOIN LATERAL (
+           SELECT
+             BOOL_OR(mi.health_coverage        IS NOT NULL AND array_length(mi.health_coverage, 1) > 0) AS has_health,
+             BOOL_OR(mi.life_coverage          IS NOT NULL AND array_length(mi.life_coverage, 1) > 0)   AS has_life,
+             BOOL_OR(mi.term_coverage          IS NOT NULL AND array_length(mi.term_coverage, 1) > 0)   AS has_term,
+             BOOL_OR(mi.konkani_card_coverage  IS NOT NULL AND array_length(mi.konkani_card_coverage, 1) > 0) AS has_konkani
+           FROM member_insurance mi
+           WHERE mi.profile_id = p.id
+         ) ins_agg ON TRUE`
+      );
+      select.push(
+        "CASE WHEN ins_agg.has_health  THEN 'Yes' ELSE 'No' END                       AS \"Health Coverage\"",
+        "CASE WHEN ins_agg.has_life    THEN 'Yes' ELSE 'No' END                       AS \"Life Coverage\"",
+        "CASE WHEN ins_agg.has_term    THEN 'Yes' ELSE 'No' END                       AS \"Term Coverage\"",
+        "CASE WHEN ins_agg.has_konkani THEN 'Yes' ELSE 'No' END                       AS \"Konkani Card Coverage\""
+      );
+    }
+
+    // ── Section: documents (aggregate — Yes/No per doc type) ─────────────────
+    if (sections.includes("documents")) {
+      joins.push(
         `LEFT JOIN LATERAL (
            SELECT
              BOOL_OR(md.aadhaar_coverage  IS NOT NULL) AS has_aadhaar,
@@ -109,109 +214,24 @@ async function exportFull(req, res) {
          ) doc_agg ON TRUE`
       );
       select.push(
-        "ed.self_income::text                          AS \"Self Income (Individual)\"",
-        "ed.family_income::text                        AS \"Family Income (Annual)\"",
-        "CASE WHEN ed.fac_own_house         THEN 'Yes' ELSE 'No' END AS \"Owns House\"",
-        "CASE WHEN ed.fac_agricultural_land THEN 'Yes' ELSE 'No' END AS \"Has Agricultural Land\"",
-        "CASE WHEN ed.fac_car               THEN 'Yes' ELSE 'No' END AS \"Has 4-Wheeler\"",
-        "CASE WHEN ed.fac_two_wheeler       THEN 'Yes' ELSE 'No' END AS \"Has 2-Wheeler\"",
-        "CASE WHEN ed.fac_rented_house      THEN 'Yes' ELSE 'No' END AS \"Renting\"",
-        "CASE WHEN doc_agg.has_aadhaar  THEN 'Yes' ELSE 'No' END AS \"Aadhaar\"",
-        "CASE WHEN doc_agg.has_pan      THEN 'Yes' ELSE 'No' END AS \"PAN Card\"",
-        "CASE WHEN doc_agg.has_voter    THEN 'Yes' ELSE 'No' END AS \"Voter ID\"",
-        "CASE WHEN doc_agg.has_land_doc THEN 'Yes' ELSE 'No' END AS \"Land Docs\"",
-        "CASE WHEN doc_agg.has_dl       THEN 'Yes' ELSE 'No' END AS \"DL\"",
-        "CASE WHEN ed.inv_fixed_deposits    THEN 'Yes' ELSE 'No' END AS \"Invests in Fixed Deposits\"",
-        "CASE WHEN ed.inv_mutual_funds_sip  THEN 'Yes' ELSE 'No' END AS \"Invests in Mutual Funds / SIP\"",
-        "CASE WHEN ed.inv_shares_demat      THEN 'Yes' ELSE 'No' END AS \"Invests in Shares / Demat\"",
-        "CASE WHEN ed.inv_others            THEN 'Yes' ELSE 'No' END AS \"Other Investments\""
-      );
-    }
-
-    // ── Section: education-profession ─────────────────────────────────────────
-    // One row per profile — aggregate across members (head-of-family / self row)
-    if (sections.includes("education-profession")) {
-      joins.push(
-        // Take the first (sort_order ASC) member_education row per profile
-        `LEFT JOIN LATERAL (
-           SELECT
-             me.member_name,
-             me.member_relation,
-             me.highest_education,
-             me.profession_type::text  AS profession_type,
-             me.is_currently_studying,
-             me.is_currently_working,
-             me.id                     AS me_id
-           FROM member_education me
-           WHERE me.profile_id = p.id
-           ORDER BY me.sort_order ASC, me.created_at ASC
-           LIMIT 1
-         ) edu ON TRUE`,
-        // Aggregate languages for that education row
-        `LEFT JOIN LATERAL (
-           SELECT STRING_AGG(
-             COALESCE(NULLIF(ml.language_other,''), ml.language), ', '
-             ORDER BY ml.language
-           ) AS langs
-           FROM member_languages ml
-           WHERE ml.member_education_id = edu.me_id
-         ) lang_agg ON TRUE`
-      );
-      select.push(
-        "edu.member_name                               AS \"Member Name\"",
-        "edu.member_relation                           AS \"Relation\"",
-        "edu.highest_education                         AS \"Education Level\"",
-        "edu.profession_type                           AS \"Profession\"",
-        "CASE WHEN edu.is_currently_studying THEN 'Yes' ELSE 'No' END AS \"Currently Studying\"",
-        "CASE WHEN edu.is_currently_working  THEN 'Yes' ELSE 'No' END AS \"Currently Working\"",
-        "COALESCE(lang_agg.langs, '—')                AS \"Languages Known\""
-      );
-    }
-
-    // ── Section: religious-details ────────────────────────────────────────────
-    if (sections.includes("religious-details")) {
-      joins.push(
-        "LEFT JOIN religious_details rd ON rd.profile_id = p.id",
-        "LEFT JOIN family_history    fh ON fh.profile_id = p.id"
-      );
-      select.push(
-        "rd.gotra                                      AS \"Gotra\"",
-        "rd.pravara                                    AS \"Pravara\"",
-        "COALESCE(NULLIF(rd.kuladevata_other,''), rd.kuladevata) AS \"Kuladevata\"",
-        "rd.surname_in_use                             AS \"Surname in Use\"",
-        "rd.surname_as_per_gotra                       AS \"Surname as per Gotra\"",
-        "rd.priest_name                                AS \"Priest Name\"",
-        "rd.priest_location                            AS \"Priest Location\"",
-        "rd.upanama_general                            AS \"Upanama General\"",
-        "rd.upanama_proper                             AS \"Upanama Proper\"",
-        // demi_gods is an ARRAY column
-        "ARRAY_TO_STRING(rd.demi_gods, ', ')           AS \"Demi Gods\"",
-        "rd.ancestral_challenge                        AS \"Ancestral Challenge\"",
-        "rd.ancestral_challenge_notes                  AS \"Ancestral Challenge Notes\"",
-        "fh.common_relative_names                      AS \"Common Relative Names\""
+        "CASE WHEN doc_agg.has_aadhaar  THEN 'Yes' ELSE 'No' END                      AS \"Aadhaar\"",
+        "CASE WHEN doc_agg.has_pan      THEN 'Yes' ELSE 'No' END                      AS \"PAN Card\"",
+        "CASE WHEN doc_agg.has_voter    THEN 'Yes' ELSE 'No' END                      AS \"Voter ID\"",
+        "CASE WHEN doc_agg.has_land_doc THEN 'Yes' ELSE 'No' END                      AS \"Land Docs\"",
+        "CASE WHEN doc_agg.has_dl       THEN 'Yes' ELSE 'No' END                      AS \"DL\""
       );
     }
 
     // ── Status filter ─────────────────────────────────────────────────────────
-    const statusClause = allowAllStatuses
-      ? ""
-      : "AND p.status = 'approved'";
+    const statusClause = allowAllStatuses ? "" : "AND p.status = 'approved'";
 
     // ── Date filter ───────────────────────────────────────────────────────────
     const dateParams  = [];
     let   dateClause  = "";
     let   paramOffset = 1;
+    if (dateFrom) { dateClause += ` AND p.created_at >= $${paramOffset++}`; dateParams.push(dateFrom); }
+    if (dateTo)   { dateClause += ` AND p.created_at <= $${paramOffset++}`; dateParams.push(dateTo); }
 
-    if (dateFrom) {
-      dateClause += ` AND p.created_at >= $${paramOffset++}`;
-      dateParams.push(dateFrom);
-    }
-    if (dateTo) {
-      dateClause += ` AND p.created_at <= $${paramOffset++}`;
-      dateParams.push(dateTo);
-    }
-
-    // ── Build & run query ─────────────────────────────────────────────────────
     const sql = `
       SELECT
         ${select.join(",\n        ")}
@@ -226,11 +246,9 @@ async function exportFull(req, res) {
 
     const result = await pool.query(sql, dateParams);
 
-    // Post-process — strip internal _dob_raw, ensure no nulls in display
     const rows = result.rows.map(row => {
       const out = {};
       for (const [k, v] of Object.entries(row)) {
-        if (k === "_dob_raw") continue;              // internal only
         out[k] = (v === null || v === undefined) ? "—" : v;
       }
       return out;
@@ -244,68 +262,157 @@ async function exportFull(req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /sangha/reports/family-members
-//
-// Body: { profileIds: string[] }
-//
-// Returns flat rows with ALL_FAMILY_COLUMNS keys (see frontend constant).
-// One row per family_member × their education record (LEFT JOIN so members
-// without education still appear).
+// POST /admin/reports/custom/sanghas
+// Returns rows per sangha.
+// - sangha-members section: reads from sangha_members table (roster added by sangha admin)
+//   NOT from profiles table.
+// ─────────────────────────────────────────────────────────────────────────────
+async function exportSanghas(req, res) {
+  try {
+    const {
+      sections = [],
+      includeAllStatuses = false,
+      includeAll = false,
+      dateFrom,
+      dateTo,
+    } = req.body;
+
+    const allowAllStatuses = includeAllStatuses || includeAll;
+
+    if (!sections.length) return res.json([]);
+
+    const joins  = [];
+    const select = [
+      "s.id                                                                            AS _sangha_id",
+      "s.sangha_name                                                                   AS \"Sangha Name\"",
+      "u.email                                                                         AS \"Email\"",
+      "u.phone                                                                         AS \"Phone\"",
+      "s.status::text                                                                  AS \"Status\"",
+    ];
+
+    if (sections.includes("sangha-details")) {
+      select.push(
+        "s.description                                                                 AS \"Description\"",
+        "s.sangha_phone                                                                AS \"Sangha Phone\"",
+        "s.sangha_email                                                                AS \"Sangha Email\"",
+        "CASE WHEN s.is_blocked THEN 'Yes' ELSE 'No' END                              AS \"Is Blocked\"",
+        "TO_CHAR(s.created_at, 'DD-Mon-YYYY')                                         AS \"Created At\""
+      );
+    }
+
+    if (sections.includes("sangha-location")) {
+      select.push(
+        "s.address_line                                                                AS \"Address Line 1\"",
+        "s.address_line2                                                               AS \"Address Line 2\"",
+        "s.address_line3                                                               AS \"Address Line 3\"",
+        "s.city                                                                        AS \"City\"",
+        "s.village_town                                                                AS \"Village/Town\"",
+        "s.taluk                                                                       AS \"Taluk\"",
+        "s.district                                                                    AS \"District\"",
+        "s.state                                                                       AS \"State\"",
+        "s.pincode                                                                     AS \"Pincode\""
+      );
+    }
+
+    // ── sangha-members: reads from sangha_members (roster), NOT profiles ─────
+    // This table stores members manually added by the sangha admin,
+    // as well as auto-synced entries when a user profile is approved.
+    if (sections.includes("sangha-members")) {
+      joins.push(
+        `JOIN sangha_members sm ON sm.sangha_id = s.id`
+      );
+      select.push(
+        `TRIM(CONCAT(sm.first_name,' ',COALESCE(sm.middle_name,''),' ',sm.last_name)) AS "Member Name"`,
+        `COALESCE(sm.gender, '—')                                                     AS "Gender"`,
+        `TO_CHAR(sm.dob, 'DD-Mon-YYYY')                                               AS "Date of Birth"`,
+        `CASE WHEN sm.dob IS NOT NULL THEN EXTRACT(YEAR FROM AGE(sm.dob))::int ELSE NULL END AS "Age"`,
+        `COALESCE(sm.phone, '—')                                                      AS "Member Phone"`,
+        `COALESCE(sm.email, '—')                                                      AS "Member Email"`,
+        `COALESCE(sm.role, '—')                                                       AS "Role"`,
+        `COALESCE(sm.member_type, '—')                                                AS "Member Type"`
+      );
+    }
+
+    const statusClause = allowAllStatuses ? "" : "AND s.status = 'approved'";
+
+    const dateParams  = [];
+    let   dateClause  = "";
+    let   paramOffset = 1;
+    if (dateFrom) { dateClause += ` AND s.created_at >= $${paramOffset++}`; dateParams.push(dateFrom); }
+    if (dateTo)   { dateClause += ` AND s.created_at <= $${paramOffset++}`; dateParams.push(dateTo); }
+
+    const sql = `
+      SELECT
+        ${select.join(",\n        ")}
+      FROM sanghas s
+      JOIN users u ON u.id = s.sangha_auth_id
+      ${joins.join("\n      ")}
+      WHERE u.is_deleted = false
+        ${statusClause}
+        ${dateClause}
+      ORDER BY s.created_at DESC
+    `;
+
+    const result = await pool.query(sql, dateParams);
+
+    const rows = result.rows.map(row => {
+      const out = {};
+      for (const [k, v] of Object.entries(row)) {
+        if (k === "_sangha_id") { out[k] = v; continue; }
+        out[k] = (v === null || v === undefined || v === "") ? "—" : v;
+      }
+      return out;
+    });
+
+    return res.json(rows);
+  } catch (err) {
+    console.error("[exportSanghas]", err);
+    return res.status(500).json({ message: "Failed to export sangha report", error: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/reports/custom/family-members
+// Returns ONE ROW PER FAMILY MEMBER
 // ─────────────────────────────────────────────────────────────────────────────
 async function getFamilyMembers(req, res) {
   try {
     const { profileIds = [] } = req.body;
-
     if (!profileIds.length) return res.json([]);
 
-    // Parameterised IN list  ($1, $2, …)
     const placeholders = profileIds.map((_, i) => `$${i + 1}`).join(", ");
 
     const sql = `
       SELECT
-        -- Owner (registered user)
         TRIM(CONCAT(
           pd_owner.first_name, ' ',
           COALESCE(pd_owner.middle_name, ''), ' ',
           pd_owner.last_name
-        ))                                                 AS "Owner (Registered User)",
+        ))                                                   AS "Owner",
 
-        -- Family member identity
-        fm.name                                            AS "Family Member Name",
-        fm.relation                                        AS "Relation",
-        TO_CHAR(fm.dob, 'DD-Mon-YYYY')                    AS "Date of Birth",
-        fm.gender::text                                    AS "Gender",
-        fm.status::text                                    AS "Status",
+        fm.name                                              AS "Family Member Name",
+        fm.relation                                          AS "Relation",
+        TO_CHAR(fm.dob, 'DD-Mon-YYYY')                      AS "Date of Birth",
+        fm.gender::text                                      AS "Gender",
+        fm.status::text                                      AS "Status",
         CASE
-          WHEN LOWER(fm.disability) IN ('yes','true','1') THEN 'Yes'
-          WHEN LOWER(fm.disability) IN ('no','false','0') THEN 'No'
-          ELSE COALESCE(fm.disability, 'No')
-        END                                                AS "Disability",
+          WHEN LOWER(COALESCE(fm.disability,'no')) IN ('yes','true','1') THEN 'Yes'
+          ELSE 'No'
+        END                                                  AS "Disability",
 
-        -- Insurance (from member_insurance matched by name+relation)
-        ARRAY_TO_STRING(mi.health_coverage,        ', ')  AS "Health Coverage",
-        ARRAY_TO_STRING(mi.life_coverage,          ', ')  AS "Life Coverage",
-        ARRAY_TO_STRING(mi.term_coverage,          ', ')  AS "Term Coverage",
-        ARRAY_TO_STRING(mi.konkani_card_coverage,  ', ')  AS "Konkani Card Coverage",
+        COALESCE(ARRAY_TO_STRING(mi.health_coverage,       ', '), '—') AS "Health Coverage",
+        COALESCE(ARRAY_TO_STRING(mi.life_coverage,         ', '), '—') AS "Life Coverage",
+        COALESCE(ARRAY_TO_STRING(mi.term_coverage,         ', '), '—') AS "Term Coverage",
+        COALESCE(ARRAY_TO_STRING(mi.konkani_card_coverage, ', '), '—') AS "Konkani Card Coverage",
 
-        -- Education (member_educations — one degree row per member_education)
-        medu.degree_name                                   AS "Degree Name",
-        medu.degree_type                                   AS "Type of Degree",
-        medu.university                                    AS "University",
-        TO_CHAR(medu.start_date, 'DD-Mon-YYYY')           AS "Start Date",
-        TO_CHAR(medu.end_date,   'DD-Mon-YYYY')           AS "End Date",
-        medu.certificate                                   AS "Certificate",
+        CASE WHEN me.is_currently_studying THEN 'Yes' ELSE 'No' END    AS "Currently Studying",
+        CASE WHEN me.is_currently_working  THEN 'Yes' ELSE 'No' END    AS "Currently Working",
+        COALESCE(me.profession_type::text, '—')                         AS "Type of Profession",
+        COALESCE(me.industry, '—')                                      AS "Industry",
+        COALESCE(me.highest_education, '—')                             AS "Education Level",
 
-        -- member_education (profession / study flags)
-        CASE WHEN me.is_currently_studying THEN 'Yes' ELSE 'No' END  AS "Currently Studying",
-        CASE WHEN me.is_currently_working  THEN 'Yes' ELSE 'No' END  AS "Currently Working",
-        me.profession_type::text                           AS "Type of Profession",
-        me.industry                                        AS "Industry / Field",
+        COALESCE(lang_agg.langs, '—')                                  AS "Languages Known",
 
-        -- Languages (aggregated)
-        COALESCE(lang_agg.langs, '—')                     AS "Languages Known",
-
-        -- Documents
         CASE WHEN md.aadhaar_coverage  IS NOT NULL THEN 'Yes' ELSE 'No' END AS "Aadhaar",
         CASE WHEN md.pan_coverage      IS NOT NULL THEN 'Yes' ELSE 'No' END AS "PAN Card",
         CASE WHEN md.voter_id_coverage IS NOT NULL THEN 'Yes' ELSE 'No' END AS "Voter ID",
@@ -313,39 +420,26 @@ async function getFamilyMembers(req, res) {
         CASE WHEN md.dl_coverage       IS NOT NULL THEN 'Yes' ELSE 'No' END AS "DL"
 
       FROM family_members fm
+      JOIN family_info      fi         ON fi.id          = fm.family_info_id
+      JOIN profiles         p          ON p.id           = fi.profile_id
+      JOIN personal_details pd_owner   ON pd_owner.profile_id = p.id
 
-      -- Owner's profile chain
-      JOIN family_info     fi         ON fi.id         = fm.family_info_id
-      JOIN profiles        p          ON p.id          = fi.profile_id
-      JOIN personal_details pd_owner  ON pd_owner.profile_id = p.id
-
-      -- member_education matched by name + relation (self/head row first)
       LEFT JOIN LATERAL (
         SELECT me.*
         FROM member_education me
-        WHERE me.profile_id    = fm.profile_id
+        WHERE me.profile_id = p.id
           AND (
-            -- try exact match on name & relation
-            (me.member_name     = fm.name     AND me.member_relation = fm.relation)
-            -- fallback: same relation only
-            OR (me.member_relation = fm.relation)
+            (me.member_name = fm.name AND me.member_relation = fm.relation)
+            OR me.member_relation = fm.relation
+            OR me.member_name    = fm.name
           )
         ORDER BY
           (me.member_name = fm.name AND me.member_relation = fm.relation) DESC,
+          (me.member_name = fm.name) DESC,
           me.sort_order ASC
         LIMIT 1
       ) me ON TRUE
 
-      -- One degree row per member_education (first/primary degree)
-      LEFT JOIN LATERAL (
-        SELECT *
-        FROM member_educations medu2
-        WHERE medu2.member_education_id = me.id
-        ORDER BY medu2.sort_order ASC, medu2.created_at ASC
-        LIMIT 1
-      ) medu ON TRUE
-
-      -- Languages
       LEFT JOIN LATERAL (
         SELECT STRING_AGG(
           COALESCE(NULLIF(ml.language_other,''), ml.language), ', '
@@ -355,38 +449,40 @@ async function getFamilyMembers(req, res) {
         WHERE ml.member_education_id = me.id
       ) lang_agg ON TRUE
 
-      -- Insurance matched by name + relation
       LEFT JOIN LATERAL (
         SELECT *
         FROM member_insurance mi2
-        WHERE mi2.profile_id = fm.profile_id
+        WHERE mi2.profile_id = p.id
           AND (
             (mi2.member_name = fm.name AND mi2.member_relation = fm.relation)
             OR mi2.member_relation = fm.relation
+            OR mi2.member_name    = fm.name
           )
         ORDER BY
           (mi2.member_name = fm.name AND mi2.member_relation = fm.relation) DESC,
+          (mi2.member_name = fm.name) DESC,
           mi2.sort_order ASC
         LIMIT 1
       ) mi ON TRUE
 
-      -- Documents matched by name + relation
       LEFT JOIN LATERAL (
         SELECT *
         FROM member_documents md2
-        WHERE md2.profile_id = fm.profile_id
+        WHERE md2.profile_id = p.id
           AND (
             (md2.member_name = fm.name AND md2.member_relation = fm.relation)
             OR md2.member_relation = fm.relation
+            OR md2.member_name    = fm.name
           )
         ORDER BY
           (md2.member_name = fm.name AND md2.member_relation = fm.relation) DESC,
+          (md2.member_name = fm.name) DESC,
           md2.sort_order ASC
         LIMIT 1
       ) md ON TRUE
 
       WHERE fm.profile_id = ANY(ARRAY[${placeholders}]::uuid[])
-        AND fm.status <> 'passed_away'   -- include all active members; remove to show all
+        AND fm.status <> 'passed_away'
 
       ORDER BY
         pd_owner.first_name ASC,
@@ -396,8 +492,6 @@ async function getFamilyMembers(req, res) {
     `;
 
     const result = await pool.query(sql, profileIds);
-
-    // Replace nulls with "—" for clean frontend display
     const rows = result.rows.map(row => {
       const out = {};
       for (const [k, v] of Object.entries(row)) {
@@ -413,7 +507,181 @@ async function getFamilyMembers(req, res) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/reports/custom/sangha-memberships
+//
+// Cross-membership table: "Which sanghas is each user ALSO a member of?"
+// A user submits their profile to ONE primary sangha (profiles.sangha_id),
+// but can be a member of MANY sanghas via member_sanghas table.
+//
+// Columns: User Full Name, Gender, Age, Member In, Type of Member
+// ─────────────────────────────────────────────────────────────────────────────
+async function getSanghaMemberships(req, res) {
+  try {
+    const { profileIds = [] } = req.body;
+    if (!profileIds.length) return res.json([]);
+
+    const placeholders = profileIds.map((_, i) => `$${i + 1}`).join(", ");
+
+    const sql = `
+      SELECT
+        -- User identification
+        TRIM(CONCAT(
+          pd.first_name, ' ',
+          COALESCE(pd.middle_name, ''), ' ',
+          pd.last_name
+        ))                                        AS "User Full Name",
+
+        -- Demographics
+        COALESCE(pd.gender::text, '—')            AS "Gender",
+
+        CASE
+          WHEN pd.date_of_birth IS NOT NULL
+          THEN EXTRACT(YEAR FROM AGE(pd.date_of_birth))::int
+          ELSE NULL
+        END                                       AS "Age",
+
+        -- Which sangha this membership entry refers to
+        COALESCE(ms.sangha_name, '—')             AS "Member In",
+
+        -- Type of member — from the sangha_members roster entry matched by email/phone
+        COALESCE(sm_match.member_type, '—')       AS "Type of Member"
+
+      FROM member_sanghas ms
+      JOIN profiles         p   ON p.id  = ms.profile_id
+      JOIN users            u   ON u.id  = p.user_id
+      JOIN personal_details pd  ON pd.profile_id = p.id
+      LEFT JOIN LATERAL (
+        SELECT sm.member_type
+        FROM sangha_members sm
+        WHERE sm.sangha_id = ms.sangha_id
+          AND (
+            (u.email IS NOT NULL AND sm.email = u.email)
+            OR (u.phone IS NOT NULL AND sm.phone = u.phone)
+          )
+        LIMIT 1
+      ) sm_match ON TRUE
+
+      WHERE ms.profile_id = ANY(ARRAY[${placeholders}]::uuid[])
+        AND ms.status = 'approved'
+
+      ORDER BY
+        pd.first_name ASC,
+        ms.sort_order ASC,
+        ms.created_at ASC
+    `;
+
+    const result = await pool.query(sql, profileIds);
+    const rows = result.rows.map(row => {
+      const out = {};
+      for (const [k, v] of Object.entries(row)) {
+        out[k] = (v === null || v === undefined || v === "") ? "—" : v;
+      }
+      return out;
+    });
+
+    return res.json(rows);
+  } catch (err) {
+    console.error("[getSanghaMemberships]", err);
+    return res.status(500).json({ message: "Failed to fetch sangha memberships", error: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/reports/custom/sangha-users
+//
+// Returns registered users (from profiles table) whose PRIMARY sangha
+// is one of the given sanghaIds.
+//
+// Response rows include _sangha_id and _sangha_name so the frontend
+// can group them by sangha (each sangha gets a header row + user rows).
+//
+// Columns: Full Name, Email, Phone, Status, Gender, Date of Birth, Age,
+//          City, District, State, Submitted At, Reviewed At
+// ─────────────────────────────────────────────────────────────────────────────
+async function getSanghaUsers(req, res) {
+  try {
+    const { sanghaIds = [] } = req.body;
+    if (!sanghaIds.length) return res.json([]);
+
+    const placeholders = sanghaIds.map((_, i) => `$${i + 1}`).join(", ");
+
+    const sql = `
+      SELECT
+        -- Internal grouping keys (not shown as columns in the table)
+        p.sangha_id                                                                    AS _sangha_id,
+        s.sangha_name                                                                  AS _sangha_name,
+
+        -- User identity
+        TRIM(CONCAT(
+          pd.first_name, ' ',
+          COALESCE(pd.middle_name, ''), ' ',
+          pd.last_name
+        ))                                                                             AS "Full Name",
+        u.email                                                                        AS "Email",
+        u.phone                                                                        AS "Phone",
+        p.status::text                                                                 AS "Status",
+
+        -- Demographics
+        COALESCE(pd.gender::text, '—')                                                AS "Gender",
+        TO_CHAR(pd.date_of_birth, 'DD-Mon-YYYY')                                      AS "Date of Birth",
+        CASE
+          WHEN pd.date_of_birth IS NOT NULL
+          THEN EXTRACT(YEAR FROM AGE(pd.date_of_birth))::int
+          ELSE NULL
+        END                                                                            AS "Age",
+
+        -- Location (current address)
+        COALESCE(addr.city, '—')                                                       AS "City",
+        COALESCE(addr.district, '—')                                                   AS "District",
+        COALESCE(addr.state, '—')                                                      AS "State",
+
+        -- Timestamps
+        TO_CHAR(p.submitted_at, 'DD-Mon-YYYY')                                        AS "Submitted At",
+        TO_CHAR(p.reviewed_at,  'DD-Mon-YYYY')                                        AS "Reviewed At"
+
+      FROM profiles p
+      JOIN sanghas s          ON s.id = p.sangha_id
+      JOIN users u            ON u.id = p.user_id
+      LEFT JOIN personal_details pd ON pd.profile_id = p.id
+      LEFT JOIN LATERAL (
+        SELECT city, district, state
+        FROM addresses
+        WHERE profile_id = p.id AND address_type = 'current'
+        LIMIT 1
+      ) addr ON TRUE
+
+      WHERE p.sangha_id = ANY(ARRAY[${placeholders}]::uuid[])
+        AND u.is_deleted = false
+
+      ORDER BY
+        s.sangha_name ASC,
+        pd.first_name ASC,
+        p.created_at DESC
+    `;
+
+    const result = await pool.query(sql, sanghaIds);
+    const rows = result.rows.map(row => {
+      const out = {};
+      for (const [k, v] of Object.entries(row)) {
+        // Preserve internal keys as-is; fill blanks for display columns
+        if (k === "_sangha_id" || k === "_sangha_name") { out[k] = v; continue; }
+        out[k] = (v === null || v === undefined || v === "") ? "—" : v;
+      }
+      return out;
+    });
+
+    return res.json(rows);
+  } catch (err) {
+    console.error("[getSanghaUsers]", err);
+    return res.status(500).json({ message: "Failed to fetch sangha users", error: err.message });
+  }
+}
+
 module.exports = {
   exportFull,
+  exportSanghas,
   getFamilyMembers,
+  getSanghaMemberships,
+  getSanghaUsers,
 };

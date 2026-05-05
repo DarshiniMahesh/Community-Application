@@ -6,6 +6,7 @@ const ac = require('../controllers/adminController');
 console.log('getUserPendingDetail loaded:', typeof ac.getUserPendingDetail);
 // ── Public ───────────────────────────────────────────────────
 router.post('/login', ac.loginAdmin);
+router.use('/reports', require('./adminreport'));
 
 // ── All routes below require admin auth ──────────────────────
 router.use(authenticate);

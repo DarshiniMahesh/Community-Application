@@ -1,48 +1,30 @@
-// Community-Application\backend\src\routes\adminreport.js
-//
-// Mounts:
-//   GET  /admin/reports/general              → adminreportController.getGeneralReport
-//   GET  /admin/reports/advanced             → adminreportController.getAdvancedReport
-//   POST /admin/reports/custom/users         → adminCustomReportController.exportFull
-//   POST /admin/reports/custom/sanghas       → adminCustomReportController.exportFull
-//   POST /admin/reports/custom/family-members → adminCustomReportController.getFamilyMembers
-//
-// Legacy compatibility when mounted at root:
-//   POST /sangha/reports/export/full         → adminCustomReportController.exportFull
-//   POST /sangha/reports/family-members      → adminCustomReportController.getFamilyMembers
-
-
 const express = require("express");
 const router  = express.Router();
-const { authenticate, requireRole } = require('../middlewares/auth');
+const { authenticate, requireRole } = require("../middlewares/auth");
 
-const { getGeneralReport, getAdvancedReport, getAdminAdvancedReportsuser, getAdminSanghaReports } =
-  require("../controllers/adminreportController");
+const {
+  getGeneralReport,
+  getEnhancedReport,
+  getAdminAdvancedReportsuser,
+  getAdminSanghaReports,
+} = require("../controllers/adminreportController");
 
-const { exportFull, getFamilyMembers } =
-  require("../controllers/adminCustomReportController");
+const { exportFull, exportSanghas, getFamilyMembers, getSanghaMemberships,getSanghaUsers } = require("../controllers/adminCustomReportController");
 
-// ── Middleware ────────────────────────────────────────────────────────────────
-// Uncomment and attach your auth guard:
-// const { verifyToken, requireAdmin } = require("../middleware/auth");
-// router.use(verifyToken, requireAdmin);
+// ── Middleware aliases ────────────────────────────────────────
+const auth      = authenticate;
+const adminOnly = requireRole("admin");
 
-const authMiddleware = authenticate;
-const adminOnly = requireRole('admin');
+// ── Dashboard endpoints ───────────────────────────────────────
+router.get("/general",  auth, adminOnly, getGeneralReport);
+router.get("/enhanced", auth, adminOnly, getEnhancedReport);
+router.get("/advanced", auth, adminOnly, getAdminAdvancedReportsuser);
+router.get("/sanghas",  auth, adminOnly, getAdminSanghaReports);
 
-// ── General & Advanced dashboard endpoints ────────────────────────────────────
-router.get("/general", authMiddleware, adminOnly, getGeneralReport);
-router.get("/advanced", authMiddleware, adminOnly, getAdminAdvancedReportsuser);
-router.get('/sanghas',  authMiddleware, adminOnly, getAdminSanghaReports);
-
-
-// ── Custom Report endpoints for admin frontend ───────────────────────────────
-router.post("/custom/users",   exportFull);
-router.post("/custom/sanghas", exportFull);
-router.post("/custom/family-members", getFamilyMembers);
-
-// ── Legacy compatibility endpoints (if route mounted at root) ───────────────
-router.post("/sangha/reports/export/full",    exportFull);
-router.post("/sangha/reports/family-members", getFamilyMembers);
-
+// ── Custom report endpoints ───────────────────────────────────
+router.post("/custom/users",           auth, adminOnly, exportFull);
+router.post("/custom/sanghas",         auth, adminOnly, exportSanghas);
+router.post("/custom/family-members",      auth, adminOnly, getFamilyMembers);
+router.post("/custom/sangha-memberships",  auth, adminOnly, getSanghaMemberships);
+router.post("/custom/sangha-users", auth, adminOnly, getSanghaUsers);
 module.exports = router;
