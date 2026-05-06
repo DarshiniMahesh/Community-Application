@@ -312,8 +312,46 @@ function calcAge(dob: string | null | undefined): string {
   return String(age);
 }
 
+// ─── Format income values for display ─────────────────────────────────────────
+function formatIncome(val: any): string {
+  if (!val || val === "null" || val === "undefined") return "—";
+  const str = String(val).trim().toLowerCase();
+  
+  // Handle patterns like "2_3l" → "2-3 Lakh"
+  const match = str.match(/^(\d+)_(\d+)l$/);
+  if (match) {
+    return `${match[1]}-${match[2]} Lakh`;
+  }
+  
+  // Handle patterns like "5l" → "5 Lakh"
+  const singleMatch = str.match(/^(\d+)l$/);
+  if (singleMatch) {
+    return `${singleMatch[1]} Lakh`;
+  }
+  
+  // Handle patterns like "1_2cr" → "1-2 Crore"
+  const croreMatch = str.match(/^(\d+)_(\d+)cr$/);
+  if (croreMatch) {
+    return `${croreMatch[1]}-${croreMatch[2]} Crore`;
+  }
+  
+  // Handle patterns like "5cr" → "5 Crore"
+  const singleCroreMatch = str.match(/^(\d+)cr$/);
+  if (singleCroreMatch) {
+    return `${singleCroreMatch[1]} Crore`;
+  }
+  
+  // Return original if no pattern matches
+  return String(val);
+}
+
 // ─── Normalize a value for Excel export ───────────────────────────────────────
-function normalizeForExcel(val: any): string {
+function normalizeForExcel(val: any, colName?: string): string {
+  // Format income columns for Excel
+  if (colName && (colName === "Self Income (Individual)" || colName === "Family Income (Annual)")) {
+    return formatIncome(val);
+  }
+  
   if (val === true  || val === "true"  || val === "True")  return "Yes";
   if (val === false || val === "false" || val === "False") return "No";
   if (val === null || val === undefined || val === "")     return "Not Selected";
@@ -615,7 +653,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
     setColumnFilters(prev => prev.filter(f => f.column !== col));
   };
 
-  // ── Excel download — booleans → Yes/No, nulls → Not Selected ─────────────
+  // ── Excel download — booleans → Yes/No, nulls → Not Selected, income formatted ───
   const handleDownload = async () => {
     setDownloading(true);
     try {
@@ -626,7 +664,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
             const age = calcAge(row["Date of Birth"]);
             obj[col] = age === "—" ? "Not Selected" : age;
           } else {
-            obj[col] = normalizeForExcel(row[col]);
+            obj[col] = normalizeForExcel(row[col], col);
           }
         });
         return obj;
@@ -644,7 +682,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
       const exportData = filteredFamilyRows.map(row => {
         const obj: TableRow = {};
         familyVisibleCols.forEach(col => {
-          obj[col] = normalizeForExcel(row[col]);
+          obj[col] = normalizeForExcel(row[col], col);
         });
         return obj;
       });
@@ -1046,7 +1084,11 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
                           let displayVal: any = val;
                           let cellClass = "text-slate-700";
 
-                          if (col === "Age") {
+                          // Format income columns
+                          if (col === "Self Income (Individual)" || col === "Family Income (Annual)") {
+                            displayVal = formatIncome(val);
+                            cellClass = "text-slate-700 font-medium";
+                          } else if (col === "Age") {
                             displayVal = calcAge(row["Date of Birth"]);
                             cellClass  = "text-slate-700 font-mono";
                           } else if (col === "Status") {
@@ -1076,7 +1118,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
                               key={col}
                               className={`px-3 py-2.5 text-xs whitespace-nowrap max-w-[200px] truncate ${cellClass}`}
                             >
-                              {col === "Age"
+                              {col === "Age" || col === "Self Income (Individual)" || col === "Family Income (Annual)"
                                 ? displayVal
                                 : (displayVal !== undefined && displayVal !== null ? String(displayVal) : "—")}
                             </td>
