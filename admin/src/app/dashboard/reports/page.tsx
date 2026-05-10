@@ -17,7 +17,7 @@ export interface GeneralReport {
   users: {
     total: number; approved: number; submitted: number;
     under_review: number; changes_requested: number;
-    draft: number; rejected: number; new_this_period: number;
+     rejected: number; new_this_period: number;
   };
   sanghas: {
     total: number; approved: number; pending_approval: number;

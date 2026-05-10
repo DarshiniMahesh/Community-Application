@@ -10,7 +10,7 @@ import {
   Users, GraduationCap, MapPin, Wallet, Shield, FileText,
   Home, AlertCircle, Sparkles, Filter, BookOpen, CheckCircle,
   ChevronRight, Building2, Globe, Star,
-  BarChart3, Clock, UserCheck, RefreshCw, ExternalLink,
+  BarChart3, Clock, UserCheck, RefreshCw, ExternalLink, X,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -39,7 +39,6 @@ const SECTION_MAP: Record<string, { tab: "users" | "sanghas"; domId: string }> =
   "as-geographic": { tab: "sanghas", domId: "as-geographic"    },
   "as-members":    { tab: "sanghas", domId: "as-members"       },
   "as-member-type":{ tab: "sanghas", domId: "as-member-type"   },
-  "as-profiles":   { tab: "sanghas", domId: "as-profiles"      },
   "as-top":        { tab: "sanghas", domId: "as-top"           },
 };
 
@@ -121,9 +120,10 @@ const CSS = `
   .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;}
   .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
   .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  .grid-3-kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
   .grid-2-1{display:grid;grid-template-columns:2fr 1fr;gap:18px;}
-  @media(max-width:900px){.grid-2,.grid-3,.grid-4,.grid-2-1{grid-template-columns:1fr;}}
-  @media(max-width:1100px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-3{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:900px){.grid-2,.grid-3,.grid-4,.grid-2-1,.grid-3-kpi{grid-template-columns:1fr;}}
+  @media(max-width:1100px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-3{grid-template-columns:repeat(2,1fr);}.grid-3-kpi{grid-template-columns:repeat(2,1fr);}}
   .asset-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;}
   @media(max-width:900px){.asset-grid{grid-template-columns:repeat(2,1fr);}}
   @media(max-width:1100px){.asset-grid{grid-template-columns:repeat(3,1fr);}}
@@ -260,7 +260,7 @@ export interface AdminSanghaReport {
   statusBreakdown: Array<{ status: string; count: number }>;
   stateDistribution: Array<{ state: string; count: number }>;
   districtDistribution: Array<{ district: string; count: number }>;
-  sanghasByMemberCount: Array<{
+    sanghasByMemberCount: Array<{
     sangha_name:     string;
     state:           string;
     total_members:   number;
@@ -273,6 +273,7 @@ export interface AdminSanghaReport {
     joint_secretary: number;
     member:          number;
     advisor:         number;
+    legal_advisor:   number;
     other_role:      number;
     no_role:         number;
   }>;
@@ -287,7 +288,16 @@ export interface AdminSanghaReport {
     parttime_other:  number;
     total:           number;
   }>;
-  topSanghas: Array<{ sangha_name: string; total_users: number; approved: number; state: string; district: string; status: string }>;
+  topSanghas: Array<{
+    sangha_name: string;
+    total_users: number;
+    approved: number;
+    rejected?: number;
+    changes_requested?: number;
+    state: string;
+    district: string;
+    status: string;
+  }>;
   profileStatusAcrossSanghas: { approved: number; rejected: number; submitted: number; draft: number; changes_requested: number };
 }
 
@@ -303,15 +313,6 @@ const SANGHA_STATUS_LABELS: Record<string, string> = {
 const PROFILE_STATUS_COLORS: Record<string, string> = {
   approved: "#10b981", rejected: "#ef4444", submitted: "#f59e0b",
   changes_requested: "#f97316", draft: "#94a3b8",
-};
-
-const MARITAL_COLORS: Record<string, string> = {
-  "Married":       "#0ea5e9",
-  "Never Married": "#10b981",
-  "Single":        "#10b981",
-  "Divorced":      "#f59e0b",
-  "Widowed":       "#8b5cf6",
-  "Other":         "#94a3b8",
 };
 
 const GEO_PALETTE   = ["#0d9488","#14b8a6","#2dd4bf","#5eead4","#99f6e4","#0891b2","#06b6d4","#22d3ee"];
@@ -342,13 +343,13 @@ const USER_NAV = [
   { id: "au-religious",    label: "Religious Details",      icon: BookOpen,      color: "#a855f7" },
 ];
 
+// ── Profile Analytics ("as-profiles") removed from SANGHA_NAV ────────────────
 const SANGHA_NAV = [
   { id: "as-overview",    label: "Sangha Overview",    icon: Building2,   color: "#6366f1" },
   { id: "as-status",      label: "Status Breakdown",   icon: CheckCircle, color: "#10b981" },
   { id: "as-geographic",  label: "Geographic Spread",  icon: Globe,       color: "#14b8a6" },
   { id: "as-members",     label: "Member by Role",     icon: Users,       color: "#0ea5e9" },
   { id: "as-member-type", label: "Full / Part-Time",   icon: UserCheck,   color: "#f59e0b" },
-  { id: "as-profiles",    label: "Profile Analytics",  icon: BarChart3,   color: "#8b5cf6" },
   { id: "as-top",         label: "Top Sanghas",        icon: Star,        color: "#f97316" },
 ];
 
@@ -361,8 +362,8 @@ function SkeletonBlock({ style }: { style?: React.CSSProperties }) {
 function LoadingState() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <div className="grid-4">
-        {[...Array(4)].map((_, i) => <SkeletonBlock key={i} style={{ height: 110 }} />)}
+      <div className="grid-3-kpi">
+        {[...Array(3)].map((_, i) => <SkeletonBlock key={i} style={{ height: 110 }} />)}
       </div>
       <SkeletonBlock style={{ height: 280 }} />
       <div className="grid-2">
@@ -562,6 +563,7 @@ function SanghaMembersChart({
     { key: "accountant",      label: "Accountant",     color: "#06b6d4" },
     { key: "auditor",         label: "Auditor",        color: "#8b5cf6" },
     { key: "advisor",         label: "Advisor",        color: "#f97316" },
+    { key: "legal_advisor",   label: "Legal Advisor",  color: "#ec4899" },
     { key: "member",          label: "Common Member",  color: "#f59e0b" },
     { key: "other_role",      label: "Other",          color: "#64748b" },
   ] as const;
@@ -733,7 +735,7 @@ function SanghaMembersChart({
   );
 }
 
-// ─── SanghaMemberTypeChart (NEW) ──────────────────────────────────────────────
+// ─── SanghaMemberTypeChart ────────────────────────────────────────────────────
 function SanghaMemberTypeChart({
   data,
   onReport,
@@ -749,7 +751,6 @@ function SanghaMemberTypeChart({
   const [selectedSanghas, setSelectedSanghas] = useState<string[]>(() =>
     rows.slice(0, 8).map(r => r.sangha_name)
   );
-  const [filterMode, setFilterMode] = useState<"all" | "fulltime" | "parttime">("all");
   const [ddOpen, setDdOpen] = useState(false);
   const ddRef = useRef<HTMLDivElement>(null);
 
@@ -761,76 +762,94 @@ function SanghaMemberTypeChart({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Build chart data from selected sanghas
-  const chartData = useMemo(() => {
-    return rows
+  const rechartsData = useMemo(() =>
+    rows
       .filter(r => selectedSanghas.includes(r.sangha_name))
       .map(r => ({
-        name:            r.sangha_name.length > 20 ? r.sangha_name.slice(0, 19) + "…" : r.sangha_name,
-        fullName:        r.sangha_name,
-        // Full-time
-        "FT Male":       filterMode === "parttime" ? 0 : (r.fulltime_male   || 0),
-        "FT Female":     filterMode === "parttime" ? 0 : (r.fulltime_female || 0),
-        // Part-time
-        "PT Male":       filterMode === "fulltime" ? 0 : (r.parttime_male   || 0),
-        "PT Female":     filterMode === "fulltime" ? 0 : (r.parttime_female || 0),
-      }));
-  }, [rows, selectedSanghas, filterMode]);
+        name: r.sangha_name.length > 16 ? r.sangha_name.slice(0, 15) + "…" : r.sangha_name,
+        fullName: r.sangha_name,
+        ft_male:   r.fulltime_male   || 0,
+        ft_female: r.fulltime_female || 0,
+        pt_male:   r.parttime_male   || 0,
+        pt_female: r.parttime_female || 0,
+      })),
+    [rows, selectedSanghas]
+  );
 
-  const FILTER_MODES = [
-    { id: "all",      label: "All",        color: "#374151" },
-    { id: "fulltime", label: "Full-Time",  color: "#0ea5e9" },
-    { id: "parttime", label: "Part-Time",  color: "#f59e0b" },
-  ];
 
-  const FT_COLORS = { male: "#0ea5e9", female: "#38bdf8" };
-  const PT_COLORS = { male: "#f59e0b", female: "#fbbf24" };
-
+const FT_MALE_COLOR   = "#6366f1";  
+const FT_FEMALE_COLOR = "#a78bfa";   
+const PT_MALE_COLOR   = "#f59e0b";   
+const PT_FEMALE_COLOR = "#fcd34d";   
   if (!rows.length) {
     return (
       <div className="no-data">
         <Users style={{ width: 36, height: 36, opacity: 0.3 }} />
         <span>No full-time / part-time member data available.</span>
-        <span style={{ fontSize: 11, color: "#374151" }}>Ensure <code>sangha_members.member_type</code> is populated.</span>
+        <span style={{ fontSize: 11, color: "#374151" }}>
+          Ensure <code>sangha_members.member_type</code> is populated.
+        </span>
       </div>
     );
   }
 
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null;
+    const row = rechartsData.find(d => d.name === label);
+    const ftMale   = payload.find((p: any) => p.dataKey === "ft_male")?.value   ?? 0;
+    const ftFemale = payload.find((p: any) => p.dataKey === "ft_female")?.value ?? 0;
+    const ptMale   = payload.find((p: any) => p.dataKey === "pt_male")?.value   ?? 0;
+    const ptFemale = payload.find((p: any) => p.dataKey === "pt_female")?.value ?? 0;
+    return (
+      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 16px", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,.1)", minWidth: 200 }}>
+        <p style={{ fontWeight: 800, color: "#111827", marginBottom: 8, fontSize: 13 }}>{row?.fullName || label}</p>
+        <div style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
+          <p style={{ fontWeight: 700, color: FT_MALE_COLOR, fontSize: 11, marginBottom: 4, textTransform: "uppercase" }}>Full-Time</p>
+          <div style={{ display: "flex", gap: 16 }}>
+            <span style={{ color: "#374151" }}>Male: <strong style={{ color: FT_MALE_COLOR }}>{ftMale}</strong></span>
+            <span style={{ color: "#374151" }}>Female: <strong style={{ color: FT_FEMALE_COLOR, filter: "brightness(0.7)" }}>{ftFemale}</strong></span>
+            <span style={{ color: "#374151" }}>Total: <strong style={{ color: "#111827" }}>{ftMale + ftFemale}</strong></span>
+          </div>
+        </div>
+        <div>
+          <p style={{ fontWeight: 700, color: PT_MALE_COLOR, fontSize: 11, marginBottom: 4, textTransform: "uppercase" }}>Part-Time</p>
+          <div style={{ display: "flex", gap: 16 }}>
+            <span style={{ color: "#374151" }}>Male: <strong style={{ color: PT_MALE_COLOR }}>{ptMale}</strong></span>
+            <span style={{ color: "#374151" }}>Female: <strong style={{ color: PT_FEMALE_COLOR, filter: "brightness(0.7)" }}>{ptFemale}</strong></span>
+            <span style={{ color: "#374151" }}>Total: <strong style={{ color: "#111827" }}>{ptMale + ptFemale}</strong></span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const CustomXAxisTick = ({ x, y, payload }: any) => {
+    const row = rechartsData.find(d => d.name === payload.value);
+    const name = row?.name || payload.value;
+    const words = name.split(" ");
+    const mid = Math.ceil(words.length / 2);
+    const line1 = words.slice(0, mid).join(" ");
+    const line2 = words.slice(mid).join(" ");
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text x={0} y={0} dy={14} textAnchor="middle" fill={AXIS_X_COLOR} fontSize={11} fontWeight={600}>
+          <tspan x={0} dy={0}>{line1}</tspan>
+          {line2 && <tspan x={0} dy={14}>{line2}</tspan>}
+        </text>
+      </g>
+    );
+  };
+
   return (
     <Card
       title="Full-Time & Part-Time Members by Sangha"
-      subtitle="Male (dark) · Female (light) — Full-Time (blue) · Part-Time (amber)"
+      subtitle="X-axis: sanghas · Y-axis: member count · Blue = Full-Time · Amber = Part-Time · Dark = Male · Light = Female"
       badge={`${rows.length} sanghas`}
       onReport={onReport}
     >
-      {/* Controls row */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-
-        {/* Filter mode pills */}
-        <div style={{ display: "flex", gap: 4, background: "#f8fafc", borderRadius: 10, padding: 3, border: "1px solid #e2e8f0" }}>
-          {FILTER_MODES.map(m => (
-            <button
-              key={m.id}
-              onClick={() => setFilterMode(m.id as any)}
-              style={{
-                padding: "5px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                border: "none", cursor: "pointer", transition: "all 0.15s",
-                background: filterMode === m.id ? "#fff" : "transparent",
-                color: filterMode === m.id ? m.color : "#374151",
-                boxShadow: filterMode === m.id ? "0 1px 3px rgba(0,0,0,.07)" : "none",
-              }}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Sangha multi-select */}
         <div ref={ddRef} style={{ position: "relative" }}>
-          <button
-            onClick={() => setDdOpen(p => !p)}
-            className="geo-filter-btn"
-          >
+          <button onClick={() => setDdOpen(p => !p)} className="geo-filter-btn">
             <Filter style={{ width: 13, height: 13 }} />
             Filter Sanghas
             {selectedSanghas.length < rows.length && (
@@ -840,137 +859,82 @@ function SanghaMemberTypeChart({
           {ddOpen && (
             <div className="geo-dropdown" style={{ width: 280 }}>
               <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                <button onClick={() => setSelectedSanghas(rows.map(r => r.sangha_name))}
-                  style={{ flex: 1, fontSize: 11, fontWeight: 600, color: "#0284c7", background: "#e0f2fe", border: "none", borderRadius: 6, padding: "4px 0", cursor: "pointer" }}>
-                  Select All
-                </button>
-                <button onClick={() => setSelectedSanghas(rows.slice(0, 8).map(r => r.sangha_name))}
-                  style={{ flex: 1, fontSize: 11, fontWeight: 600, color: "#374151", background: "#f1f5f9", border: "none", borderRadius: 6, padding: "4px 0", cursor: "pointer" }}>
-                  Top 8
-                </button>
+                <button onClick={() => setSelectedSanghas(rows.map(r => r.sangha_name))} style={{ flex: 1, fontSize: 11, fontWeight: 600, color: "#0284c7", background: "#e0f2fe", border: "none", borderRadius: 6, padding: "4px 0", cursor: "pointer" }}>All</button>
+                <button onClick={() => setSelectedSanghas(rows.slice(0, 8).map(r => r.sangha_name))} style={{ flex: 1, fontSize: 11, fontWeight: 600, color: "#374151", background: "#f1f5f9", border: "none", borderRadius: 6, padding: "4px 0", cursor: "pointer" }}>Top 8</button>
               </div>
               {rows.map(r => (
                 <label key={r.sangha_name} className="geo-dropdown-item">
-                  <input
-                    type="checkbox"
-                    checked={selectedSanghas.includes(r.sangha_name)}
-                    onChange={() => setSelectedSanghas(prev =>
-                      prev.includes(r.sangha_name)
-                        ? prev.length > 1 ? prev.filter(n => n !== r.sangha_name) : prev
-                        : [...prev, r.sangha_name]
-                    )}
-                  />
-                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, color: "#374151" }}>
-                    {r.sangha_name}
-                  </span>
+                  <input type="checkbox" checked={selectedSanghas.includes(r.sangha_name)}
+                    onChange={() => setSelectedSanghas(prev => prev.includes(r.sangha_name) ? prev.length > 1 ? prev.filter(n => n !== r.sangha_name) : prev : [...prev, r.sangha_name])} />
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, color: "#374151" }}>{r.sangha_name}</span>
                   <span className="geo-dropdown-item-count">{r.total}</span>
                 </label>
               ))}
             </div>
           )}
         </div>
-
-        {/* Selected chips */}
         {selectedSanghas.length < rows.length && selectedSanghas.slice(0, 3).map(name => (
           <span key={name} className="geo-chip" style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {name.length > 16 ? name.slice(0, 15) + "…" : name}
             <button className="geo-chip-x" onClick={() => setSelectedSanghas(p => p.length > 1 ? p.filter(n => n !== name) : p)}>×</button>
           </span>
         ))}
-        {selectedSanghas.length > 3 && (
-          <span style={{ fontSize: 11, color: "#374151", fontWeight: 500 }}>+{selectedSanghas.length - 3} more</span>
-        )}
+        {selectedSanghas.length > 3 && <span style={{ fontSize: 11, color: "#374151", fontWeight: 500 }}>+{selectedSanghas.length - 3} more</span>}
       </div>
 
-      {/* Bar chart */}
-      {chartData.length === 0 ? (
-        <div className="no-data"><span>No sanghas selected</span></div>
-      ) : (
-        <ResponsiveContainer width="100%" height={Math.max(260, chartData.length * 52)}>
-          <BarChart
-            data={chartData}
-            layout="vertical"
-            margin={{ left: 8, right: 40, top: 5, bottom: 5 }}
-            barGap={2}
-            barCategoryGap="28%"
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-            <XAxis
-              type="number"
-              tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_X_COLOR, fontWeight: 600 }}
-              tickLine={false}
-              axisLine={false}
-              allowDecimals={false}
-            />
-            <YAxis
-              dataKey="name"
-              type="category"
-              width={180}
-              tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }}
-              tickLine={false}
-              axisLine={false}
-            />
-            <Tooltip
-              content={({ active, payload, label }) => {
-                if (!active || !payload?.length) return null;
-                const fullName = chartData.find(d => d.name === label)?.fullName || label;
-                return (
-                  <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,.1)", minWidth: 180 }}>
-                    <p style={{ fontWeight: 700, color: "#111827", marginBottom: 6, fontSize: 13 }}>{fullName}</p>
-                    {payload.map((p: any) => (
-                      <p key={p.name} style={{ fontSize: 12, color: p.fill, marginTop: 3, display: "flex", justifyContent: "space-between", gap: 16 }}>
-                        <span style={{ color: "#374151", fontWeight: 500 }}>{p.name}</span>
-                        <span style={{ fontWeight: 700, color: "#111827" }}>{p.value.toLocaleString()}</span>
-                      </p>
-                    ))}
-                  </div>
-                );
-              }}
-            />
-            <Legend
-              iconType="circle"
-              iconSize={9}
-              wrapperStyle={{ fontSize: "12px", color: "#111827", fontWeight: 600, paddingTop: 14 }}
-            />
-            {(filterMode === "all" || filterMode === "fulltime") && (
-              <>
-                <Bar dataKey="FT Male"   name="FT Male"   fill={FT_COLORS.male}   stackId="ft" radius={[0,0,0,0]} maxBarSize={18}>
-                  <LabelList dataKey="FT Male"   position="right" style={{ fontSize: 10, fontWeight: 700, fill: "#111827" }} formatter={(v: number) => v > 0 ? v : ""} />
-                </Bar>
-                <Bar dataKey="FT Female" name="FT Female" fill={FT_COLORS.female} stackId="ft" radius={[0,4,4,0]} maxBarSize={18} />
-              </>
-            )}
-            {(filterMode === "all" || filterMode === "parttime") && (
-              <>
-                <Bar dataKey="PT Male"   name="PT Male"   fill={PT_COLORS.male}   stackId="pt" radius={[0,0,0,0]} maxBarSize={18}>
-                  <LabelList dataKey="PT Male"   position="right" style={{ fontSize: 10, fontWeight: 700, fill: "#111827" }} formatter={(v: number) => v > 0 ? v : ""} />
-                </Bar>
-                <Bar dataKey="PT Female" name="PT Female" fill={PT_COLORS.female} stackId="pt" radius={[0,4,4,0]} maxBarSize={18} />
-              </>
-            )}
-          </BarChart>
-        </ResponsiveContainer>
-      )}
-
-      {/* Summary legend */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 16, paddingTop: 14, borderTop: "1px solid #f1f5f9" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", marginBottom: 16 }}>
         {[
-          { color: FT_COLORS.male,   label: "Full-Time Male"   },
-          { color: FT_COLORS.female, label: "Full-Time Female" },
-          { color: PT_COLORS.male,   label: "Part-Time Male"   },
-          { color: PT_COLORS.female, label: "Part-Time Female" },
+          { color: FT_MALE_COLOR, label: "Full-Time Male", pattern: "solid" },
+          { color: FT_FEMALE_COLOR, label: "Full-Time Female", pattern: "light" },
+          { color: PT_MALE_COLOR, label: "Part-Time Male", pattern: "solid" },
+          { color: PT_FEMALE_COLOR, label: "Part-Time Female", pattern: "light" },
         ].map(item => (
           <span key={item.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151", fontWeight: 500 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: item.color, display: "inline-block", flexShrink: 0 }} />
+            <span style={{ width: 12, height: 12, borderRadius: 3, background: item.color, border: item.pattern === "light" ? "1.5px solid rgba(0,0,0,0.15)" : "none", display: "inline-block", flexShrink: 0 }} />
             {item.label}
           </span>
         ))}
       </div>
+
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 0 }}>
+        <div style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", paddingRight: 4, flexShrink: 0, userSelect: "none" }}>Members</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {rechartsData.length === 0 ? (
+            <div className="no-data"><span>No sanghas selected</span></div>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(320, rechartsData.length * 80)}>
+              <BarChart data={rechartsData} margin={{ top: 10, right: 20, left: -10, bottom: rechartsData.length > 4 ? 60 : 40 }} barCategoryGap="25%" barGap={4}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="name" tick={<CustomXAxisTick />} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} interval={0} height={rechartsData.length > 4 ? 60 : 50} />
+                <YAxis tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.03)" }} />
+                <Bar dataKey="ft_male" name="FT Male" fill={FT_MALE_COLOR} stackId="ft" maxBarSize={32} radius={[0,0,4,4]} />
+                <Bar dataKey="ft_female" name="FT Female" fill={FT_FEMALE_COLOR} stackId="ft" maxBarSize={32} radius={[4,4,0,0]}>
+                  <LabelList content={({ x, y, width, index }: any) => {
+                    const row = rechartsData[index]; if (!row) return null;
+                    const total = (row.ft_male || 0) + (row.ft_female || 0); if (total === 0) return null;
+                    return <text x={Number(x) + Number(width) / 2} y={Number(y) - 4} textAnchor="middle" fontSize={10} fontWeight={700} fill={FT_MALE_COLOR}>{total}</text>;
+                  }} />
+                </Bar>
+                <Bar dataKey="pt_male" name="PT Male" fill={PT_MALE_COLOR} stackId="pt" maxBarSize={32} radius={[0,0,4,4]} />
+                <Bar dataKey="pt_female" name="PT Female" fill={PT_FEMALE_COLOR} stackId="pt" maxBarSize={32} radius={[4,4,0,0]}>
+                  <LabelList content={({ x, y, width, index }: any) => {
+                    const row = rechartsData[index]; if (!row) return null;
+                    const total = (row.pt_male || 0) + (row.pt_female || 0); if (total === 0) return null;
+                    return <text x={Number(x) + Number(width) / 2} y={Number(y) - 4} textAnchor="middle" fontSize={10} fontWeight={700} fill={PT_MALE_COLOR}>{total}</text>;
+                  }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+      <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>Sanghas</div>
     </Card>
   );
 }
 
-// ─── TopSanghasChart (NEW — bar chart replacing table) ────────────────────────
+// ─── TopSanghasChart (updated: filter + rejected/changes_requested tabs, no state reference) ──
 function TopSanghasChart({
   data,
   onReport,
@@ -983,24 +947,43 @@ function TopSanghasChart({
     [data.topSanghas]
   );
 
-  const [view, setView] = useState<"total" | "approved">("total");
-
-  const chartData = useMemo(() =>
-    sorted.map(s => ({
-      name:     s.sangha_name.length > 22 ? s.sangha_name.slice(0, 21) + "…" : s.sangha_name,
-      fullName: s.sangha_name,
-      state:    s.state || "—",
-      total:    s.total_users,
-      approved: s.approved,
-      status:   s.status,
-    })),
-    [sorted]
+  const [view, setView] = useState<"total" | "approved" | "rejected" | "changes_requested">("total");
+  const [selectedSanghas, setSelectedSanghas] = useState<string[]>(() =>
+    sorted.map(s => s.sangha_name)
   );
+  const [ddOpen, setDdOpen] = useState(false);
+  const ddRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ddRef.current && !ddRef.current.contains(e.target as Node)) setDdOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const VIEW_OPTS = [
-    { id: "total",    label: "Total Users",    color: "#6366f1" },
-    { id: "approved", label: "Approved Only",  color: "#10b981" },
+    { id: "total",             label: "Total Users",       color: "#6366f1" },
+    { id: "approved",          label: "Approved",          color: "#10b981" },
+    { id: "rejected",          label: "Rejected",          color: "#ef4444" },
+    { id: "changes_requested", label: "Changes Requested", color: "#f97316" },
   ];
+
+  const chartData = useMemo(() =>
+    sorted
+      .filter(s => selectedSanghas.includes(s.sangha_name))
+      .map(s => ({
+        name:              s.sangha_name.length > 22 ? s.sangha_name.slice(0, 21) + "…" : s.sangha_name,
+        fullName:          s.sangha_name,
+        total:             s.total_users,
+        approved:          s.approved,
+        rejected:          s.rejected          || 0,
+        changes_requested: s.changes_requested || 0,
+      })),
+    [sorted, selectedSanghas]
+  );
+
+  const activeColor = VIEW_OPTS.find(v => v.id === view)?.color ?? "#6366f1";
 
   if (!sorted.length) {
     return <div className="no-data"><span>No top sangha data</span></div>;
@@ -1009,98 +992,177 @@ function TopSanghasChart({
   return (
     <Card
       title="Top Sanghas by Registered Users"
-      subtitle="Ranked by total profile count — switch to view total or approved"
+      subtitle="Ranked by total profile count — filter sanghas or switch metric view"
       badge={`Top ${sorted.length}`}
       onReport={onReport}
     >
-      {/* Toggle */}
-      <div style={{ display: "flex", gap: 4, background: "#f8fafc", borderRadius: 10, padding: 3, border: "1px solid #e2e8f0", width: "fit-content", marginBottom: 18 }}>
-        {VIEW_OPTS.map(v => (
-          <button
-            key={v.id}
-            onClick={() => setView(v.id as any)}
-            style={{
-              padding: "5px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-              border: "none", cursor: "pointer", transition: "all 0.15s",
-              background: view === v.id ? "#fff" : "transparent",
-              color: view === v.id ? v.color : "#374151",
-              boxShadow: view === v.id ? "0 1px 3px rgba(0,0,0,.07)" : "none",
-            }}
-          >{v.label}</button>
+      {/* View toggle + Sangha filter row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+        {/* View tabs */}
+        <div style={{ display: "flex", gap: 4, background: "#f8fafc", borderRadius: 10, padding: 3, border: "1px solid #e2e8f0" }}>
+          {VIEW_OPTS.map(v => (
+            <button
+              key={v.id}
+              onClick={() => setView(v.id as any)}
+              style={{
+                padding: "5px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                border: "none", cursor: "pointer", transition: "all 0.15s",
+                background: view === v.id ? "#fff" : "transparent",
+                color: view === v.id ? v.color : "#374151",
+                boxShadow: view === v.id ? "0 1px 3px rgba(0,0,0,.07)" : "none",
+                whiteSpace: "nowrap",
+              }}
+            >{v.label}</button>
+          ))}
+        </div>
+
+        {/* Sangha filter */}
+        <div ref={ddRef} style={{ position: "relative" }}>
+          <button onClick={() => setDdOpen(p => !p)} className="geo-filter-btn">
+            <Filter style={{ width: 13, height: 13 }} />
+            Filter Sanghas
+            {selectedSanghas.length < sorted.length && (
+              <span className="geo-filter-badge">{selectedSanghas.length}</span>
+            )}
+          </button>
+          {ddOpen && (
+            <div className="geo-dropdown" style={{ width: 280 }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                <button onClick={() => setSelectedSanghas(sorted.map(s => s.sangha_name))} style={{ flex: 1, fontSize: 11, fontWeight: 600, color: "#0284c7", background: "#e0f2fe", border: "none", borderRadius: 6, padding: "4px 0", cursor: "pointer" }}>All</button>
+                <button onClick={() => setSelectedSanghas(sorted.slice(0, 10).map(s => s.sangha_name))} style={{ flex: 1, fontSize: 11, fontWeight: 600, color: "#374151", background: "#f1f5f9", border: "none", borderRadius: 6, padding: "4px 0", cursor: "pointer" }}>Tby default op 10</button>
+              </div>
+              {sorted.map(s => (
+                <label key={s.sangha_name} className="geo-dropdown-item">
+                  <input
+                    type="checkbox"
+                    checked={selectedSanghas.includes(s.sangha_name)}
+                    onChange={() => setSelectedSanghas(prev =>
+                      prev.includes(s.sangha_name)
+                        ? prev.length > 1 ? prev.filter(n => n !== s.sangha_name) : prev
+                        : [...prev, s.sangha_name]
+                    )}
+                  />
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, color: "#374151" }}>{s.sangha_name}</span>
+                  <span className="geo-dropdown-item-count">{s.total_users}</span>
+                </label>
+              ))}
+              {selectedSanghas.length < sorted.length && (
+                <button className="geo-clear" onClick={() => setSelectedSanghas(sorted.map(s => s.sangha_name))}>Show all</button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Active filter chips */}
+        {selectedSanghas.length < sorted.length && selectedSanghas.slice(0, 2).map(name => (
+          <span key={name} className="geo-chip" style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {name.length > 16 ? name.slice(0, 15) + "…" : name}
+            <button className="geo-chip-x" onClick={() => setSelectedSanghas(p => p.length > 1 ? p.filter(n => n !== name) : p)}>×</button>
+          </span>
         ))}
+        {selectedSanghas.length < sorted.length && selectedSanghas.length > 2 && (
+          <span style={{ fontSize: 11, color: "#374151", fontWeight: 500 }}>+{selectedSanghas.length - 2} more</span>
+        )}
       </div>
 
       <ResponsiveContainer width="100%" height={Math.max(320, chartData.length * 38)}>
-        <BarChart
-          data={chartData}
-          layout="vertical"
-          margin={{ left: 8, right: 60, top: 5, bottom: 5 }}
-          barCategoryGap="30%"
-        >
+        <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 60, top: 5, bottom: 5 }} barCategoryGap="30%">
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-          <XAxis
-            type="number"
-            tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_X_COLOR, fontWeight: 600 }}
-            tickLine={false}
-            axisLine={false}
-            allowDecimals={false}
-          />
-          <YAxis
-            dataKey="name"
-            type="category"
-            width={200}
-            tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }}
-            tickLine={false}
-            axisLine={false}
-          />
+          <XAxis type="number" tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_X_COLOR, fontWeight: 600 }} tickLine={false} axisLine={false} allowDecimals={false} />
+          <YAxis dataKey="name" type="category" width={200} tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }} tickLine={false} axisLine={false} />
           <Tooltip
             content={({ active, payload, label }) => {
               if (!active || !payload?.length) return null;
               const row = chartData.find(d => d.name === label);
               return (
                 <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,.1)" }}>
-                  <p style={{ fontWeight: 700, color: "#111827", marginBottom: 4 }}>{row?.fullName || label}</p>
-                  <p style={{ fontSize: 11, color: "#374151" }}>State: <strong>{row?.state}</strong></p>
-                  <p style={{ fontSize: 11, color: "#374151", marginTop: 3 }}>Total Users: <strong style={{ color: "#6366f1" }}>{row?.total?.toLocaleString()}</strong></p>
-                  <p style={{ fontSize: 11, color: "#374151", marginTop: 3 }}>Approved: <strong style={{ color: "#10b981" }}>{row?.approved?.toLocaleString()}</strong></p>
+                  <p style={{ fontWeight: 700, color: "#111827", marginBottom: 6 }}>{row?.fullName || label}</p>
+                  <p style={{ fontSize: 11, color: "#374151" }}>Total Users: <strong style={{ color: "#6366f1" }}>{row?.total?.toLocaleString()}</strong></p>
+                  <p style={{ fontSize: 11, color: "#374151", marginTop: 2 }}>Approved: <strong style={{ color: "#10b981" }}>{row?.approved?.toLocaleString()}</strong></p>
+                  <p style={{ fontSize: 11, color: "#374151", marginTop: 2 }}>Rejected: <strong style={{ color: "#ef4444" }}>{row?.rejected?.toLocaleString()}</strong></p>
+                  <p style={{ fontSize: 11, color: "#374151", marginTop: 2 }}>Changes Req.: <strong style={{ color: "#f97316" }}>{row?.changes_requested?.toLocaleString()}</strong></p>
                 </div>
               );
             }}
           />
-          <Bar
-            dataKey={view}
-            name={view === "total" ? "Total Users" : "Approved"}
-            radius={[0, 6, 6, 0]}
-            maxBarSize={28}
-          >
-            {chartData.map((entry, idx) => (
-              <Cell
-                key={idx}
-                fill={view === "approved" ? "#10b981" : `hsl(${240 + idx * 5}, 75%, ${55 + idx * 0.5}%)`}
-              />
+          <Bar dataKey={view} name={VIEW_OPTS.find(v => v.id === view)?.label ?? view} radius={[0,6,6,0]} maxBarSize={28}>
+            {chartData.map((_, idx) => (
+              <Cell key={idx} fill={
+                view === "approved"          ? "#10b981" :
+                view === "rejected"          ? "#ef4444" :
+                view === "changes_requested" ? "#f97316" :
+                `hsl(${240 + idx * 5}, 75%, ${55 + idx * 0.5}%)`
+              } />
             ))}
-            <LabelList
-              dataKey={view}
-              position="right"
-              style={{ fontSize: 11, fontWeight: 700, fill: "#111827" }}
-            />
+            <LabelList dataKey={view} position="right" style={{ fontSize: 11, fontWeight: 700, fill: "#111827" }} />
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+    </Card>
+  );
+}
 
-      {/* State legend below chart */}
-      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #f1f5f9" }}>
-        <p style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>State reference</p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 14px" }}>
-          {sorted.map((s, i) => (
-            <span key={i} style={{ fontSize: 11, color: "#374151" }}>
-              <strong style={{ color: "#111827" }}>{i + 1}.</strong>{" "}
-              {s.sangha_name.length > 18 ? s.sangha_name.slice(0, 17) + "…" : s.sangha_name}
-              {" "}— <span style={{ color: "#0284c7", fontWeight: 600 }}>{s.state || "—"}</span>
-            </span>
-          ))}
+// ─── GeoFilterCard — reusable card with filter dropdown for state/district ────
+function GeoFilterCard({
+  title, subtitle, badge, data, palette, onReport,
+  labelKey,
+}: {
+  title: string; subtitle: string; badge: string;
+  data: { label: string; count: number }[];
+  palette: string[]; onReport?: () => void; labelKey: string;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [ddOpen, setDdOpen]     = useState(false);
+  const ddRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ddRef.current && !ddRef.current.contains(e.target as Node)) setDdOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const displayed = useMemo(() => {
+    if (selected.length === 0) return data.slice(0, 12);
+    return data.filter(d => selected.includes(d.label));
+  }, [data, selected]);
+
+  return (
+    <Card title={title} subtitle={subtitle} badge={badge} onReport={onReport}>
+      {/* Filter bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        <div ref={ddRef} style={{ position: "relative" }}>
+          <button onClick={() => setDdOpen(p => !p)} className="geo-filter-btn">
+            <Filter style={{ width: 13, height: 13 }} />
+            Filter {labelKey}
+            {selected.length > 0 && <span className="geo-filter-badge">{selected.length}</span>}
+          </button>
+          {ddOpen && (
+            <div className="geo-dropdown" style={{ width: 240 }}>
+              {data.map(d => (
+                <label key={d.label} className="geo-dropdown-item">
+                  <input type="checkbox" checked={selected.includes(d.label)}
+                    onChange={() => setSelected(prev => prev.includes(d.label) ? prev.filter(s => s !== d.label) : [...prev, d.label])} />
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label}</span>
+                  <span className="geo-dropdown-item-count">{d.count}</span>
+                </label>
+              ))}
+              {selected.length > 0 && (
+                <button className="geo-clear" onClick={() => setSelected([])}>Clear selection</button>
+              )}
+            </div>
+          )}
         </div>
+        {selected.slice(0, 3).map(s => (
+          <span key={s} className="geo-chip">
+            {s.length > 14 ? s.slice(0, 13) + "…" : s}
+            <button className="geo-chip-x" onClick={() => setSelected(p => p.filter(x => x !== s))}>×</button>
+          </span>
+        ))}
+        {selected.length > 3 && <span style={{ fontSize: 11, color: "#374151", fontWeight: 500 }}>+{selected.length - 3} more</span>}
       </div>
+      <SimpleBar data={displayed} palette={palette} height={Math.max(220, displayed.length * 34)} />
     </Card>
   );
 }
@@ -1299,7 +1361,6 @@ function UserTab({ data, loading, onGoToCustomReport }: {
           </div>
 
           <div className="grid-3">
-            {/* Gender Distribution */}
             <Card title="Gender Distribution" subtitle="Approved users — Male · Female · Other"
               onReport={() => goCustom?.(["personal-details"], "user")}>
               {genderData.length === 0 ? (
@@ -1328,13 +1389,6 @@ function UserTab({ data, loading, onGoToCustomReport }: {
               )}
             </Card>
 
-            {/* Marital Status */}
-            
-                 
-                
-            
-
-            {/* Family Type */}
             <Card title="Family Type" subtitle="Nuclear vs Joint — approved families"
               onReport={() => goCustom?.(["family-information"], "user")}>
               <ResponsiveContainer width="100%" height={120}>
@@ -1356,57 +1410,41 @@ function UserTab({ data, loading, onGoToCustomReport }: {
               </div>
             </Card>
           </div>
-         
+
           <Card title="Age Group Distribution" subtitle="Approved users + family members — Male · Female · Other"
             style={{ marginTop: 18 }} onReport={() => goCustom?.(["personal-details"], "user")}>
             <GenderBar data={ageBarData} height={200} />
           </Card>
 
-                <Card title="Marital Status Distribution" subtitle="Approved users — Male · Female · Other by marital category"
-  style={{ marginTop: 18 }}
-  onReport={() => goCustom?.(["personal-details"], "user")}>
-  {maritalBarData.length === 0 ? (
-    <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>No marital data</div>
-  ) : (
-    <ResponsiveContainer width="100%" height={220}>
-      <BarChart
-        data={[
-          { label: "Single (Never Married)", ...(maritalBarData.find(m => m.label === "Single (Never Married)") ?? { male: 0, female: 0, other: 0 }) },
-          { label: "Married",               ...(maritalBarData.find(m => m.label === "Married")               ?? { male: 0, female: 0, other: 0 }) },
-          { label: "Single / Divorced",     ...(maritalBarData.find(m => m.label === "Single & Divorced")     ?? { male: 0, female: 0, other: 0 }) },
-          { label: "Single / Widowed",      ...(maritalBarData.find(m => m.label === "Single & Widowed")      ?? { male: 0, female: 0, other: 0 }) },
-        ]}
-        margin={{ left: -16, right: 8, top: 8, bottom: 8 }}
-        barCategoryGap="28%"
-        barGap={3}
-      >
-        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-        <XAxis
-          dataKey="label"
-          tick={{ fontSize: 11, fill: AXIS_X_COLOR, fontWeight: 600 }}
-          tickLine={false}
-          axisLine={false}
-          interval={0}
-          angle={0}
-          textAnchor="middle"
-          height={36}
-        />
-        <YAxis
-          tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }}
-          tickLine={false}
-          axisLine={false}
-          allowDecimals={false}
-        />
-        <Tooltip content={<BarTip />} />
-        <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "12px", color: "#111827", fontWeight: 600, paddingTop: 8 }} />
-        <Bar dataKey="male"   name="Male"   fill={GC.male}   radius={[4,4,0,0]} maxBarSize={40} />
-        <Bar dataKey="female" name="Female" fill={GC.female} radius={[4,4,0,0]} maxBarSize={40} />
-        <Bar dataKey="other"  name="Other"  fill={GC.other}  radius={[4,4,0,0]} maxBarSize={40} />
-      </BarChart>
-    </ResponsiveContainer>
-  )}
-</Card>
-          
+          <Card title="Marital Status Distribution" subtitle="Approved users — Male · Female · Other by marital category"
+            style={{ marginTop: 18 }} onReport={() => goCustom?.(["personal-details"], "user")}>
+            {maritalBarData.length === 0 ? (
+              <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>No marital data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart
+                  data={[
+                    { label: "Single (Never Married)", ...(maritalBarData.find(m => m.label === "Single (Never Married)") ?? { male: 0, female: 0, other: 0 }) },
+                    { label: "Married",               ...(maritalBarData.find(m => m.label === "Married")               ?? { male: 0, female: 0, other: 0 }) },
+                    { label: "Single / Divorced",     ...(maritalBarData.find(m => m.label === "Single & Divorced")     ?? { male: 0, female: 0, other: 0 }) },
+                    { label: "Single / Widowed",      ...(maritalBarData.find(m => m.label === "Single & Widowed")      ?? { male: 0, female: 0, other: 0 }) },
+                  ]}
+                  margin={{ left: -16, right: 8, top: 8, bottom: 8 }}
+                  barCategoryGap="28%"
+                  barGap={3}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: AXIS_X_COLOR, fontWeight: 600 }} tickLine={false} axisLine={false} interval={0} angle={0} textAnchor="middle" height={36} />
+                  <YAxis tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip content={<BarTip />} />
+                  <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "12px", color: "#111827", fontWeight: 600, paddingTop: 8 }} />
+                  <Bar dataKey="male"   name="Male"   fill={GC.male}   radius={[4,4,0,0]} maxBarSize={40} />
+                  <Bar dataKey="female" name="Female" fill={GC.female} radius={[4,4,0,0]} maxBarSize={40} />
+                  <Bar dataKey="other"  name="Other"  fill={GC.other}  radius={[4,4,0,0]} maxBarSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
         </section>
 
         {/* ── Education & Occupation ── */}
@@ -1436,11 +1474,6 @@ function UserTab({ data, loading, onGoToCustomReport }: {
             </Card>
           </div>
         </section>
-       
-                
-               
-         
-
 
         {/* ── Geographic ── */}
         <section className="adv-section" id="au-geographic">
@@ -1598,12 +1631,11 @@ function UserTab({ data, loading, onGoToCustomReport }: {
                 const totalNo  = (ins.maleNo  || 0) + (ins.femaleNo  || 0) + (ins.otherNo  || 0);
                 const totalUnk = (ins.maleUnknown || 0) + (ins.femaleUnknown || 0) + (ins.otherUnknown || 0);
                 const totalAll = totalYes + totalNo + totalUnk;
-                const coveragePct = (totalYes + totalNo) > 0
-                  ? Math.round(totalYes / (totalYes + totalNo) * 100) : 0;
+                const coveragePct = (totalYes + totalNo) > 0 ? Math.round(totalYes / (totalYes + totalNo) * 100) : 0;
                 const chartData = [
-                  { status: "Yes (Covered)",   Male: ins.maleYes    || 0, Female: ins.femaleYes  || 0, Other: ins.otherYes   || 0 },
-                  { status: "No",              Male: ins.maleNo     || 0, Female: ins.femaleNo   || 0, Other: ins.otherNo    || 0 },
-                  { status: "Not Selected",    Male: ins.maleUnknown|| 0, Female: ins.femaleUnknown|| 0, Other: ins.otherUnknown|| 0 },
+                  { status: "Yes (Covered)", Male: ins.maleYes || 0, Female: ins.femaleYes || 0, Other: ins.otherYes || 0 },
+                  { status: "No",            Male: ins.maleNo  || 0, Female: ins.femaleNo  || 0, Other: ins.otherNo  || 0 },
+                  { status: "Not Selected",  Male: ins.maleUnknown || 0, Female: ins.femaleUnknown || 0, Other: ins.otherUnknown || 0 },
                 ];
                 return (
                   <Card key={ins.label} title={ins.label}
@@ -1707,11 +1739,8 @@ function UserTab({ data, loading, onGoToCustomReport }: {
               <Card title="Document Holders Comparison" subtitle="Holders · Non-Holders · Unknown — approved users"
                 style={{ marginTop: 18 }} onReport={() => goCustom?.(["documents"], "user")}>
                 <ResponsiveContainer width="100%" height={240}>
-                  <BarChart
-                    data={data.documents.map(d => ({ name: d.label, Holders: d.yes, "Non-Holders": d.no, Unknown: d.unknown }))}
-                    margin={{ left: -20, right: 5, top: 8, bottom: 5 }}
-                    barCategoryGap="25%" barGap={3}
-                  >
+                  <BarChart data={data.documents.map(d => ({ name: d.label, Holders: d.yes, "Non-Holders": d.no, Unknown: d.unknown }))}
+                    margin={{ left: -20, right: 5, top: 8, bottom: 5 }} barCategoryGap="25%" barGap={3}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                     <XAxis dataKey="name" tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_X_COLOR, fontWeight: 600 }} tickLine={false} axisLine={false} />
                     <YAxis tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }} tickLine={false} axisLine={false} allowDecimals={false} />
@@ -1846,13 +1875,8 @@ function SanghaTab({ data, loading, onGoToCustomReport }: {
 
   const statusTotal     = data.statusBreakdown.reduce((s, r) => s + r.count, 0) || 1;
   const approvedSanghas = data.statusBreakdown.find(s => s.status === 'approved')?.count || 0;
+  const rejectedSanghas = data.statusBreakdown.find(s => s.status === 'rejected')?.count || 0;
   const pendingSanghas  = data.statusBreakdown.find(s => s.status === 'pending_approval')?.count || 0;
-  const profileStatusTotal = Object.values(data.profileStatusAcrossSanghas || {}).reduce((a, b) => a + b, 0) || 1;
-  const profilePieData = Object.entries(data.profileStatusAcrossSanghas || {}).map(([k, v]) => ({
-    name: ({ approved: "Approved", rejected: "Rejected", submitted: "Submitted", draft: "Draft", changes_requested: "Changes Req." }[k] ?? k),
-    value: v as number,
-    color: PROFILE_STATUS_COLORS[k] ?? "#94a3b8",
-  })).filter(d => d.value > 0);
 
   const goCustom = onGoToCustomReport;
 
@@ -1886,22 +1910,34 @@ function SanghaTab({ data, loading, onGoToCustomReport }: {
             <div className="adv-sec-icon"><Building2 style={{ width: 18, height: 18, color: "#6366f1" }} /></div>
             <div><div className="adv-sec-title">Sangha Overview</div><div className="adv-sec-sub">Platform-wide counts and key metrics</div></div>
           </div>
+
+          {/* Hero: total, approved, rejected, approval rate */}
           <div className="hero-banner hero-violet">
             <div className="hero-eyebrow">Total Sanghas on Platform</div>
             <div className="hero-num">{data.totalSanghas.toLocaleString()}</div>
             <div className="hero-row">
-              <div className="hero-stat"><div className="hero-stat-v">{approvedSanghas.toLocaleString()}</div><div className="hero-stat-l">Approved</div></div>
+              <div className="hero-stat">
+                <div className="hero-stat-v">{approvedSanghas.toLocaleString()}</div>
+                <div className="hero-stat-l">Approved</div>
+              </div>
               <div className="hero-divider" />
-              <div className="hero-stat"><div className="hero-stat-v">{pendingSanghas.toLocaleString()}</div><div className="hero-stat-l">Pending</div></div>
+              <div className="hero-stat">
+                <div className="hero-stat-v">{rejectedSanghas.toLocaleString()}</div>
+                <div className="hero-stat-l">Rejected</div>
+              </div>
               <div className="hero-divider" />
-              <div className="hero-stat"><div className="hero-stat-v">{approvedSanghas > 0 ? Math.round(approvedSanghas / data.totalSanghas * 100) : 0}%</div><div className="hero-stat-l">Approval Rate</div></div>
+              <div className="hero-stat">
+                <div className="hero-stat-v">{approvedSanghas > 0 ? Math.round(approvedSanghas / data.totalSanghas * 100) : 0}%</div>
+                <div className="hero-stat-l">Approval Rate</div>
+              </div>
             </div>
           </div>
-          <div className="grid-4">
-            <KpiCard label="Total Sanghas"    value={data.totalSanghas}                   icon={Building2} color="#6366f1" sub="registered on platform" />
-            <KpiCard label="Approved"         value={approvedSanghas}                     icon={UserCheck} color="#10b981" sub="active sanghas" />
-            <KpiCard label="Pending Approval" value={pendingSanghas}                      icon={Clock}     color="#f59e0b" sub="awaiting review" />
-            <KpiCard label="States Covered"   value={data.stateDistribution?.length || 0} icon={Globe}     color="#0ea5e9" sub="unique states" />
+
+          {/* KPIs: 3 cards — States Covered removed */}
+          <div className="grid-3-kpi">
+            <KpiCard label="Total Sanghas"    value={data.totalSanghas}  icon={Building2} color="#6366f1" sub="registered on platform" />
+            <KpiCard label="Approved"         value={approvedSanghas}    icon={UserCheck} color="#10b981" sub="active sanghas" />
+            <KpiCard label="Pending Approval" value={pendingSanghas}      icon={Clock}     color="#f59e0b" sub="awaiting review" />
           </div>
         </section>
 
@@ -1936,21 +1972,31 @@ function SanghaTab({ data, loading, onGoToCustomReport }: {
           </Card>
         </section>
 
-        {/* ── Geographic Spread ── */}
+        {/* ── Geographic Spread — with filter buttons ── */}
         <section className="adv-section" id="as-geographic">
           <div className="adv-sec-header">
             <div className="adv-sec-icon"><Globe style={{ width: 18, height: 18, color: "#14b8a6" }} /></div>
             <div><div className="adv-sec-title">Geographic Spread</div><div className="adv-sec-sub">State and district distribution of sanghas</div></div>
           </div>
           <div className="grid-2">
-            <Card title="Sanghas by State" subtitle="Top states" badge={`${data.stateDistribution?.length || 0} states`} onReport={() => goCustom?.(["sangha-location"], "sangha")}>
-              <SimpleBar data={(data.stateDistribution || []).slice(0, 12).map(r => ({ label: r.state || "Unknown", count: r.count }))}
-                palette={STATE_PALETTE} height={Math.max(220, Math.min((data.stateDistribution?.length || 0), 12) * 34)} />
-            </Card>
-            <Card title="Sanghas by District" subtitle="Top districts" badge={`${data.districtDistribution?.length || 0} districts`} onReport={() => goCustom?.(["sangha-location"], "sangha")}>
-              <SimpleBar data={(data.districtDistribution || []).slice(0, 12).map(r => ({ label: r.district || "Unknown", count: r.count }))}
-                palette={GEO_PALETTE} height={Math.max(220, Math.min((data.districtDistribution?.length || 0), 12) * 34)} />
-            </Card>
+            <GeoFilterCard
+              title="Sanghas by State"
+              subtitle="Filter to compare specific states"
+              badge={`${data.stateDistribution?.length || 0} states`}
+              data={(data.stateDistribution || []).map(r => ({ label: r.state || "Unknown", count: r.count }))}
+              palette={STATE_PALETTE}
+              onReport={() => goCustom?.(["sangha-location"], "sangha")}
+              labelKey="States"
+            />
+            <GeoFilterCard
+              title="Sanghas by District"
+              subtitle="Filter to compare specific districts"
+              badge={`${data.districtDistribution?.length || 0} districts`}
+              data={(data.districtDistribution || []).map(r => ({ label: r.district || "Unknown", count: r.count }))}
+              palette={GEO_PALETTE}
+              onReport={() => goCustom?.(["sangha-location"], "sangha")}
+              labelKey="Districts"
+            />
           </div>
         </section>
 
@@ -1963,7 +2009,7 @@ function SanghaTab({ data, loading, onGoToCustomReport }: {
           <SanghaMembersChart data={data} onReport={() => goCustom?.(["sangha-members"], "sangha")} />
         </section>
 
-        {/* ── Full / Part-Time (NEW) ── */}
+        {/* ── Full / Part-Time ── */}
         <section className="adv-section" id="as-member-type">
           <div className="adv-sec-header">
             <div className="adv-sec-icon"><UserCheck style={{ width: 18, height: 18, color: "#f59e0b" }} /></div>
@@ -1975,42 +2021,14 @@ function SanghaTab({ data, loading, onGoToCustomReport }: {
           <SanghaMemberTypeChart data={data} onReport={() => goCustom?.(["sangha-members"], "sangha")} />
         </section>
 
-        {/* ── Profile Analytics ── */}
-        <section className="adv-section" id="as-profiles">
-          <div className="adv-sec-header">
-            <div className="adv-sec-icon"><BarChart3 style={{ width: 18, height: 18, color: "#8b5cf6" }} /></div>
-            <div><div className="adv-sec-title">Profile Analytics Across Sanghas</div><div className="adv-sec-sub">Approval rate and status distribution platform-wide</div></div>
-          </div>
-          <Card title="Profile Status Platform-Wide" subtitle="All profiles across all sanghas" onReport={() => goCustom?.(["sangha-details"], "sangha")}>
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={profilePieData} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={3} dataKey="value" strokeWidth={2} stroke="#fff">
-                  {profilePieData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-                <Tooltip content={(props) => <PieTip {...props} total={profileStatusTotal} />} />
-                <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "12px", color: "#111827", fontWeight: 600 }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="status-pills" style={{ marginTop: 14 }}>
-              {profilePieData.map(d => (
-                <div key={d.name} className="status-pill">
-                  <div className="status-pill-left">
-                    <span className="status-dot" style={{ background: d.color }} />
-                    <span className="status-name">{d.name}</span>
-                  </div>
-                  <span className="status-count">{d.value.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </section>
+        {/* ── Profile Analytics section DELETED ── */}
 
-        {/* ── Top Sanghas (bar chart) ── */}
+        {/* ── Top Sanghas ── */}
         {(data.topSanghas || []).length > 0 && (
           <section className="adv-section" id="as-top">
             <div className="adv-sec-header">
               <div className="adv-sec-icon"><Star style={{ width: 18, height: 18, color: "#f97316" }} /></div>
-              <div><div className="adv-sec-title">Top Sanghas</div><div className="adv-sec-sub">Ranked by total registered users — switch between total and approved counts</div></div>
+              <div><div className="adv-sec-title">Top Sanghas</div><div className="adv-sec-sub">Ranked by total registered users — filter sanghas or switch metric view</div></div>
             </div>
             <TopSanghasChart data={data} onReport={() => goCustom?.(["sangha-details", "sangha-members"], "sangha")} />
           </section>

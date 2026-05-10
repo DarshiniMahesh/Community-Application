@@ -1,3 +1,4 @@
+//Community-Application\admin\src\app\dashboard\reports\CustomReport.tsx
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -120,7 +121,6 @@ export const USER_SECTIONS: {
     columns: ["Member Name", "Relation", "Aadhaar", "PAN Card", "Voter ID", "Land Docs", "DL"],
   },
   {
-    // Cross-membership: "Which sanghas is this user ALSO a member of?"
     id: "sangha-membership", label: "Sangha Memberships", icon: "🏛️",
     color: C.emerald,
     columns: [],
@@ -148,7 +148,6 @@ export const SANGHA_SECTIONS: {
     ],
   },
   {
-    // Sangha's own roster — members added by sangha admin (sangha_members table)
     id: "sangha-members", label: "Sangha Members (Roster)", icon: "👥",
     color: C.emerald,
     columns: [
@@ -157,7 +156,6 @@ export const SANGHA_SECTIONS: {
     ],
   },
   {
-    // Users (registered profiles) who belong to this sangha as their PRIMARY sangha
     id: "sangha-user-table", label: "User Table", icon: "👤",
     color: C.sky,
     columns: [],
@@ -182,14 +180,12 @@ const FAMILY_COLS = [
 const FAMILY_CORE = ["Owner", "Family Member Name", "Relation"];
 
 // ─── Sangha Membership table columns ─────────────────────────────────────────
-// Cross-membership: which sanghas is this user ALSO a member of?
 const SANGHA_MEMBERSHIP_COLS = [
   "User Full Name", "Gender", "Age", "Member In", "Type of Member",
 ];
 const SANGHA_MEMBERSHIP_CORE = ["User Full Name", "Member In"];
 
 // ─── Sangha User Table columns ────────────────────────────────────────────────
-// Users whose PRIMARY sangha is this sangha (from profiles table)
 const SANGHA_USER_TABLE_COLS = [
   "Full Name", "Email", "Phone", "Status",
   "Gender", "Date of Birth", "Age",
@@ -197,6 +193,9 @@ const SANGHA_USER_TABLE_COLS = [
   "Submitted At", "Reviewed At",
 ];
 const SANGHA_USER_TABLE_CORE = ["Full Name", "Status"];
+
+// ─── Income columns set (for formatting) ─────────────────────────────────────
+const INCOME_COLS = new Set(["Self Income", "Family Income"]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface TableRow { [key: string]: any; }
@@ -210,6 +209,21 @@ interface Props {
   initSections?: string[];
   initCategory?: string;
   onClearInit?: () => void;
+}
+
+// ─── Income slab formatter ────────────────────────────────────────────────────
+function formatIncomeSlab(val: string): string {
+  if (!val || val === "—") return val;
+  return val
+    .replace(/above_(\d+)cr/i,      "Above $1 Crore")
+    .replace(/above_(\d+)l/i,       "Above $1 Lakh")
+    .replace(/below_(\d+)l/i,       "Below $1 Lakh")
+    .replace(/(\d+)_(\d+)cr/i,      "$1–$2 Crore")
+    .replace(/(\d+)cr/i,            "$1 Crore")
+    .replace(/(\d+)_(\d+)l/i,       "$1–$2 Lakh")
+    .replace(/(\d+)l/i,             "$1 Lakh")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -269,6 +283,40 @@ function statusColor(val: string): string {
   if (s === "changes_requested")      return C.orange;
   if (s === "pending_approval")       return C.amber;
   return C.slate700;
+}
+
+function resolveCellDisplay(col: string, val: unknown): {
+  text: string; color: string; fontWeight: number | string;
+} {
+  let text       = val !== undefined && val !== null ? String(val) : "—";
+  let color      = C.slate700;
+  let fontWeight: number | string = 400;
+
+  if (INCOME_COLS.has(col) && text !== "—") {
+    text = formatIncomeSlab(text);
+  }
+
+  if (col === "Status" && val) {
+    color      = statusColor(String(val));
+    fontWeight = 600;
+  }
+
+  if (col === "Gender") {
+    const g = String(val ?? "").toLowerCase();
+    if (g === "male")        color = C.sky;
+    else if (g === "female") color = C.pink;
+  }
+
+  if (typeof val === "boolean") {
+    text       = val ? "✓ Yes" : "No";
+    color      = val ? C.emerald : C.slate400;
+    fontWeight = val ? 600 : 400;
+  }
+
+  if (!val && val !== false && val !== 0) color = C.slate300;
+  if (text === "—") color = C.slate300;
+
+  return { text, color, fontWeight };
 }
 
 // ─── Portal filter dropdown ───────────────────────────────────────────────────
@@ -357,16 +405,17 @@ function Btn({
   onClick, disabled, children, variant = "default", small = false,
 }: {
   onClick?: () => void; disabled?: boolean; children: React.ReactNode;
-  variant?: "emerald" | "violet" | "sky" | "default" | "ghost" | "ghostEmerald"; small?: boolean;
+  variant?: "emerald" | "violet" | "sky" | "default" | "ghost" | "ghostEmerald" | "orange"; small?: boolean;
 }) {
   const [hov, setHov] = useState(false);
   const map = {
-    emerald:      { bg: hov ? C.emeraldDk : C.emerald, color: C.white, border: "none" },
-    violet:       { bg: hov ? C.violetDk : C.violet,   color: C.white, border: "none" },
-    sky:          { bg: hov ? C.skyDark : C.sky,        color: C.white, border: "none" },
-    default:      { bg: hov ? C.slate100 : C.white,     color: C.slate600, border: `1px solid ${C.slate200}` },
-    ghost:        { bg: hov ? C.violetLt : "transparent", color: C.violetDk, border: `1px solid ${hov ? C.violetBd : C.slate200}` },
-    ghostEmerald: { bg: hov ? C.emeraldLt : "transparent", color: C.emeraldDk, border: `1px solid ${hov ? C.emeraldBd : C.slate200}` },
+    emerald:      { bg: hov ? C.emeraldDk : C.emerald,         color: C.white,     border: "none" },
+    violet:       { bg: hov ? C.violetDk  : C.violet,          color: C.white,     border: "none" },
+    sky:          { bg: hov ? C.skyDark   : C.sky,             color: C.white,     border: "none" },
+    orange:       { bg: hov ? "#ea580c"   : "#f97316",         color: C.white,     border: "none" },
+    default:      { bg: hov ? C.slate100  : C.white,           color: C.slate600,  border: `1px solid ${C.slate200}` },
+    ghost:        { bg: hov ? C.violetLt  : "transparent",     color: C.violetDk,  border: `1px solid ${hov ? C.violetBd : C.slate200}` },
+    ghostEmerald: { bg: hov ? C.emeraldLt : "transparent",     color: C.emeraldDk, border: `1px solid ${hov ? C.emeraldBd : C.slate200}` },
   };
   const s = map[variant];
   return (
@@ -383,7 +432,7 @@ function Btn({
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.4 : 1,
         transition: "all 0.15s",
-        boxShadow: (variant === "emerald" || variant === "violet" || variant === "sky") && !disabled
+        boxShadow: (["emerald","violet","sky","orange"].includes(variant)) && !disabled
           ? "0 2px 8px rgba(0,0,0,0.14)" : "none",
         whiteSpace: "nowrap",
       }}
@@ -417,16 +466,21 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
 }
 
 // ─── Checkbox ─────────────────────────────────────────────────────────────────
-function Checkbox({ checked }: { checked: boolean }) {
+function Checkbox({ checked, indeterminate = false }: { checked: boolean; indeterminate?: boolean }) {
   return (
     <div style={{
       width: 18, height: 18, borderRadius: 5, flexShrink: 0,
-      border: `2px solid ${checked ? C.sky : C.slate300}`,
-      background: checked ? C.sky : C.white,
+      border: `2px solid ${checked || indeterminate ? C.sky : C.slate300}`,
+      background: checked ? C.sky : indeterminate ? `${C.sky}33` : C.white,
       display: "flex", alignItems: "center", justifyContent: "center",
       transition: "all 0.15s",
     }}>
-      {checked && <Check style={{ width: 11, height: 11, color: C.white }} strokeWidth={3} />}
+      {checked
+        ? <Check style={{ width: 11, height: 11, color: C.white }} strokeWidth={3} />
+        : indeterminate
+          ? <div style={{ width: 8, height: 2, background: C.sky, borderRadius: 1 }} />
+          : null
+      }
     </div>
   );
 }
@@ -518,7 +572,7 @@ const tdStyle: React.CSSProperties = {
   fontSize: 11, padding: "9px 12px", whiteSpace: "nowrap",
 };
 
-// ─── Reusable Sub-table (Family / Sangha Membership / Sangha User Table) ─────
+// ─── Reusable Sub-table ───────────────────────────────────────────────────────
 interface SubTableProps {
   title: string;
   icon: React.ReactNode;
@@ -562,7 +616,7 @@ function SubTable({
   onSearchChange, onRemoveEntry, onClearAll,
   onOpenFilter, onDeleteCol, onToggleCol,
   onRemoveColFilter, onClearColFilters,
-  onDownload, downloading, tableRef, maxRows = 1000, rowHoverColor,
+  onDownload, downloading, tableRef, maxRows = 10000, rowHoverColor,
 }: SubTableProps) {
   const activeFilters = colFilters.filter(f => f.value);
   const [showColPanel, setShowColPanel] = useState(false);
@@ -615,7 +669,6 @@ function SubTable({
           </Btn>
         )}
 
-        {/* Search */}
         <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 280 }}>
           <Search style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, color: C.slate400 }} />
           <input
@@ -638,7 +691,6 @@ function SubTable({
           )}
         </div>
 
-        {/* Column visibility toggle panel */}
         <div style={{ position: "relative" }}>
           <button
             onClick={() => setShowColPanel(p => !p)}
@@ -684,7 +736,6 @@ function SubTable({
           )}
         </div>
 
-        {/* Active filters */}
         {activeFilters.map(f => (
           <Pill key={f.column} color={accentDark} bg={accentLight} border={accentBorder}>
             <SlidersHorizontal style={{ width: 10, height: 10 }} />
@@ -744,25 +795,15 @@ function SubTable({
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.slice(0, maxRows).map((row, idx) => (
+                {filteredRows.map((row, idx) => (
                   <tr key={idx} style={{ borderBottom: `1px solid ${C.slate100}`, transition: "background 0.1s" }}
                     onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = rowHoverColor}
                     onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = C.white}>
                     <td style={{ ...tdStyle, color: C.slate400, fontFamily: "monospace" }}>{idx + 1}</td>
                     {visibleCols.map(col => {
-                      const val  = row[col];
-                      const text = val !== undefined && val !== null ? String(val) : "—";
-                      let color  = text === "—" ? C.slate300 : C.slate700;
-                      let fw: any = 400;
-                      if (col === "Status" && val) { color = statusColor(String(val)); fw = 600; }
-                      if (col === "Gender") {
-                        const g = String(val ?? "").toLowerCase();
-                        if (g === "male") color = C.sky;
-                        else if (g === "female") color = C.pink;
-                      }
-                      if (typeof val === "boolean") { color = val ? C.emerald : C.slate400; fw = val ? 600 : 400; }
+                      const { text, color, fontWeight } = resolveCellDisplay(col, row[col]);
                       return (
-                        <td key={col} style={{ ...tdStyle, color, fontWeight: fw, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <td key={col} style={{ ...tdStyle, color, fontWeight, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {text}
                         </td>
                       );
@@ -783,7 +824,7 @@ function SubTable({
   );
 }
 
-// ─── Sangha User Table — grouped by sangha with header rows ──────────────────
+// ─── Sangha User Table ────────────────────────────────────────────────────────
 interface SanghaUserTableProps {
   entries: SanghaUserTableEntry[];
   loading: boolean;
@@ -828,7 +869,6 @@ function SanghaUserTable({
   const accentBorder = C.skyBorder;
   const accentDark   = C.skyDark;
 
-  // Group filtered rows by sangha
   const groupedRows = useMemo(() => {
     const groups: { sanghaId: string; sanghaName: string; rows: TableRow[] }[] = [];
     const seenMap = new Map<string, number>();
@@ -914,7 +954,6 @@ function SanghaUserTable({
           )}
         </div>
 
-        {/* Column visibility toggle panel */}
         <div style={{ position: "relative" }}>
           <button
             onClick={() => setShowColPanel(p => !p)}
@@ -960,7 +999,6 @@ function SanghaUserTable({
           )}
         </div>
 
-        {/* Active filters */}
         {activeFilters.map(f => (
           <Pill key={f.column} color={accentDark} bg={accentLight} border={accentBorder}>
             <SlidersHorizontal style={{ width: 10, height: 10 }} />
@@ -1021,35 +1059,20 @@ function SanghaUserTable({
               <tbody>
                 {groupedRows.map(group => (
                   <>
-                    {/* Sangha header row — spans all columns */}
                     <tr key={`header-${group.sanghaId}`} style={{ background: `${accentLight}`, borderTop: `2px solid ${accentBorder}`, borderBottom: `1px solid ${accentBorder}` }}>
                       <td
                         colSpan={visibleCols.length + 1}
-                        style={{
-                          padding: "8px 16px",
-                          fontSize: 12,
-                          fontWeight: 800,
-                          color: accentDark,
-                          letterSpacing: "0.01em",
-                        }}
+                        style={{ padding: "8px 16px", fontSize: 12, fontWeight: 800, color: accentDark, letterSpacing: "0.01em" }}
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <Building2 style={{ width: 14, height: 14, color: accentColor }} />
                           {group.sanghaName}
-                          <span style={{
-                            marginLeft: 8,
-                            fontSize: 10, fontWeight: 600,
-                            color: accentColor,
-                            background: C.white,
-                            border: `1px solid ${accentBorder}`,
-                            padding: "1px 8px", borderRadius: 999,
-                          }}>
+                          <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: accentColor, background: C.white, border: `1px solid ${accentBorder}`, padding: "1px 8px", borderRadius: 999 }}>
                             {group.rows.length} user{group.rows.length !== 1 ? "s" : ""}
                           </span>
                         </div>
                       </td>
                     </tr>
-                    {/* User rows for this sangha */}
                     {group.rows.map((row, idx) => (
                       <tr
                         key={`${group.sanghaId}-${idx}`}
@@ -1059,19 +1082,9 @@ function SanghaUserTable({
                       >
                         <td style={{ ...tdStyle, color: C.slate400, fontFamily: "monospace" }}>{idx + 1}</td>
                         {visibleCols.map(col => {
-                          const val  = row[col];
-                          const text = val !== undefined && val !== null ? String(val) : "—";
-                          let color  = text === "—" ? C.slate300 : C.slate700;
-                          let fw: any = 400;
-                          if (col === "Status" && val) { color = statusColor(String(val)); fw = 600; }
-                          if (col === "Gender") {
-                            const g = String(val ?? "").toLowerCase();
-                            if (g === "male") color = C.sky;
-                            else if (g === "female") color = C.pink;
-                          }
-                          if (typeof val === "boolean") { color = val ? C.emerald : C.slate400; fw = val ? 600 : 400; }
+                          const { text, color, fontWeight } = resolveCellDisplay(col, row[col]);
                           return (
-                            <td key={col} style={{ ...tdStyle, color, fontWeight: fw, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            <td key={col} style={{ ...tdStyle, color, fontWeight, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {text}
                             </td>
                           );
@@ -1096,7 +1109,9 @@ function SanghaUserTable({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function CustomReport({ dateRange, initSections = [], initCategory, onClearInit }: Props) {
-  const [mode, setMode] = useState<SectionMode>("user");
+  const [mode, setMode] = useState<SectionMode>(
+    () => (initCategory === "sangha" ? "sangha" : "user")
+  );
 
   const sections    = mode === "user" ? USER_SECTIONS   : SANGHA_SECTIONS;
   const baseCols    = mode === "user" ? USER_BASE_COLS  : SANGHA_BASE_COLS;
@@ -1110,6 +1125,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
   const [loading,          setLoading]          = useState(false);
   const [error,            setError]            = useState<string | null>(null);
   const [downloading,      setDownloading]      = useState(false);
+  const [exportingAll,     setExportingAll]     = useState(false);
   const [searchQuery,      setSearchQuery]      = useState("");
   const [sidebarSearch,    setSidebarSearch]    = useState("");
   const [includeAll,       setIncludeAll]       = useState(false);
@@ -1127,7 +1143,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
   const [famVisibleCols,   setFamVisibleCols]   = useState<string[]>(FAMILY_COLS);
   const familySectionRef = useRef<HTMLDivElement>(null);
 
-  // ── Sangha Membership state (cross-membership) ──────────────────────────
+  // ── Sangha Membership state ─────────────────────────────────────────────
   const [membershipEntries,    setMembershipEntries]    = useState<SanghaMembershipEntry[]>([]);
   const [membershipLoading,    setMembershipLoading]    = useState(false);
   const [membershipError,      setMembershipError]      = useState<string | null>(null);
@@ -1149,9 +1165,8 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
   const [sanghaUserVisibleCols,setSanghaUserVisibleCols]= useState<string[]>(SANGHA_USER_TABLE_COLS);
   const sanghaUserTableRef = useRef<HTMLDivElement>(null);
 
-  // ── Apply initSections on mount or when they change ────────────────────
+  // ── Apply initSections on mount ─────────────────────────────────────────
   const initApplied = useRef(false);
-  const skipModeReset = useRef(false);
 
   useEffect(() => {
     if (!initSections || initSections.length === 0) return;
@@ -1161,25 +1176,31 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     const targetBaseCols    = targetMode === "user" ? USER_BASE_COLS : SANGHA_BASE_COLS;
     const targetMasterOrder = buildMasterOrder(targetBaseCols, availableSections);
 
-    const validIds = initSections.filter(id => availableSections.some(s => s.id === id));
+    const validIds = initSections.filter(id =>
+      availableSections.some(s => s.id === id)
+    );
 
     const desired = new Set<string>(targetBaseCols);
     validIds.forEach(sid => {
-      if (sid === FAMILY_SECTION_ID || sid === SANGHA_MEMBERSHIP_SECTION_ID || sid === SANGHA_USER_TABLE_SECTION_ID) return;
+      if (
+        sid === FAMILY_SECTION_ID ||
+        sid === SANGHA_MEMBERSHIP_SECTION_ID ||
+        sid === SANGHA_USER_TABLE_SECTION_ID
+      ) return;
       availableSections.find(s => s.id === sid)?.columns.forEach(c => desired.add(c));
     });
     const derivedColumns = sortedCols(Array.from(desired), targetMasterOrder);
 
-    skipModeReset.current = true;
-    setMode(targetMode);
     setColumnFilters([]);
     setRows([]);
     setSearchQuery("");
     setSectionOpen({});
-    setFamilyEntries([]); setFamilySearch(""); setFamColFilters([]);
+    setFamilyEntries([]);    setFamilySearch("");    setFamColFilters([]);
     setMembershipEntries([]); setMembershipSearch(""); setMembershipColFilters([]);
     setSanghaUserEntries([]); setSanghaUserSearch(""); setSanghaUserColFilters([]);
     setError(null);
+
+    setMode(targetMode);
 
     if (validIds.length > 0) {
       setSelectedSections(validIds);
@@ -1193,13 +1214,15 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     onClearInit?.();
   }, [initSections, initCategory]); // eslint-disable-line
 
-  // ── Reset on mode change ────────────────────────────────────────────────
   useEffect(() => {
-    if (skipModeReset.current) { skipModeReset.current = false; return; }
+    if (initApplied.current) {
+      initApplied.current = false;
+      return;
+    }
     setSelectedSections([]);
     setVisibleColumns(mode === "user" ? USER_BASE_COLS : SANGHA_BASE_COLS);
     setColumnFilters([]); setRows([]); setSearchQuery(""); setSectionOpen({});
-    setFamilyEntries([]); setFamilySearch(""); setFamColFilters([]);
+    setFamilyEntries([]);     setFamilySearch("");     setFamColFilters([]);
     setMembershipEntries([]); setMembershipSearch(""); setMembershipColFilters([]);
     setSanghaUserEntries([]); setSanghaUserSearch(""); setSanghaUserColFilters([]);
     setError(null);
@@ -1220,7 +1243,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     setColumnFilters(prev => prev.filter(f => desired.has(f.column)));
   }, [selectedSections]); // eslint-disable-line
 
-  // ── Auto-fetch family when section selected and rows available ──────────
+  // ── Auto-fetch family ───────────────────────────────────────────────────
   const prevFamilySelected = useRef(false);
   useEffect(() => {
     const isSelected = selectedSections.includes(FAMILY_SECTION_ID);
@@ -1234,7 +1257,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     prevFamilySelected.current = isSelected;
   }, [selectedSections]); // eslint-disable-line
 
-  // ── Auto-fetch membership when section selected and rows available ───────
+  // ── Auto-fetch membership ───────────────────────────────────────────────
   const prevMembershipSelected = useRef(false);
   useEffect(() => {
     const isSelected = selectedSections.includes(SANGHA_MEMBERSHIP_SECTION_ID);
@@ -1248,7 +1271,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     prevMembershipSelected.current = isSelected;
   }, [selectedSections]); // eslint-disable-line
 
-  // ── Auto-fetch sangha user table when section selected ───────────────────
+  // ── Auto-fetch sangha user table ────────────────────────────────────────
   const prevSanghaUserSelected = useRef(false);
   useEffect(() => {
     const isSelected = mode === "sangha" && selectedSections.includes(SANGHA_USER_TABLE_SECTION_ID);
@@ -1286,7 +1309,6 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Auto-trigger sub-tables after rows load
   const prevRowsLength = useRef(0);
   useEffect(() => {
     if (rows.length > 0 && prevRowsLength.current === 0) {
@@ -1306,7 +1328,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     prevRowsLength.current = rows.length;
   }, [rows]); // eslint-disable-line
 
-  // ── Filtered main rows ──────────────────────────────────────────────────
+  // ── Filtered rows ───────────────────────────────────────────────────────
   const filteredRows = useMemo(() => {
     let r = rows;
     columnFilters.forEach(({ column, value }) => {
@@ -1363,7 +1385,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     finally { setFamilyLoading(false); }
   }, []);
 
-  // ── Sangha Membership fetch (cross-membership) ──────────────────────────
+  // ── Sangha Membership fetch ─────────────────────────────────────────────
   const triggerMembershipFetch = useCallback(async (profileIds: string[], label: string) => {
     if (!profileIds.length) return;
     setMembershipLoading(true); setMembershipError(null);
@@ -1387,7 +1409,6 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     try {
       const result = await api.post("/admin/reports/custom/sangha-users", { sanghaIds });
       const newRows = Array.isArray(result) ? result : [];
-      // Group by sangha
       const groupMap = new Map<string, { sanghaId: string; sanghaName: string; rows: TableRow[] }>();
       newRows.forEach(row => {
         const sid   = String(row._sangha_id ?? "");
@@ -1402,9 +1423,9 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
   }, []);
 
   // ── Combined sub-table rows ─────────────────────────────────────────────
-  const allFamilyRows     = useMemo(() => familyEntries.flatMap(e => e.rows),      [familyEntries]);
-  const allMembershipRows = useMemo(() => membershipEntries.flatMap(e => e.rows),  [membershipEntries]);
-  const allSanghaUserRows = useMemo(() => sanghaUserEntries.flatMap(e => e.rows),  [sanghaUserEntries]);
+  const allFamilyRows     = useMemo(() => familyEntries.flatMap(e => e.rows),     [familyEntries]);
+  const allMembershipRows = useMemo(() => membershipEntries.flatMap(e => e.rows), [membershipEntries]);
+  const allSanghaUserRows = useMemo(() => sanghaUserEntries.flatMap(e => e.rows), [sanghaUserEntries]);
 
   const filteredFamilyRows = useMemo(() => {
     let r = allFamilyRows;
@@ -1476,6 +1497,22 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
   const deleteSanghaUserCol    = (col: string) => { if (SANGHA_USER_TABLE_CORE.includes(col)) return; setSanghaUserVisibleCols(p => p.filter(c => c !== col)); setSanghaUserColFilters(p => p.filter(f => f.column !== col)); };
   const toggleSanghaUserCol    = (col: string) => { if (SANGHA_USER_TABLE_CORE.includes(col)) return; setSanghaUserVisibleCols(p => p.includes(col) ? p.filter(c => c !== col) : [...p, col]); };
 
+  // ── Select All ──────────────────────────────────────────────────────────
+  const allSectionIds  = sections.map(s => s.id);
+  const allSelected    = allSectionIds.every(id => selectedSections.includes(id));
+  const someSelected   = allSectionIds.some(id => selectedSections.includes(id)) && !allSelected;
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelectedSections([]);
+    } else {
+      setSelectedSections(allSectionIds);
+      const openState: Record<string, boolean> = {};
+      allSectionIds.forEach(id => { openState[id] = true; });
+      setSectionOpen(openState);
+    }
+  };
+
   // ── Filter open handlers ────────────────────────────────────────────────
   const handleOpenFilter = (col: string, e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation(); setOpenFamFilter(null); setOpenMembershipFilter(null); setOpenSanghaUserFilter(null);
@@ -1498,28 +1535,46 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     setOpenSanghaUserFilter({ col, rect: (e.currentTarget as HTMLButtonElement).getBoundingClientRect() });
   };
 
-  // ── Downloads ───────────────────────────────────────────────────────────
+  // ── Individual Downloads ────────────────────────────────────────────────
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const data = filteredRows.map(r => { const o: TableRow = {}; visibleColumns.forEach(c => { o[c] = r[c] ?? ""; }); return o; });
+      const data = filteredRows.map(r => {
+        const o: TableRow = {};
+        visibleColumns.forEach(c => {
+          const raw = r[c] ?? "";
+          o[c] = INCOME_COLS.has(c) && raw ? formatIncomeSlab(String(raw)) : raw;
+        });
+        return o;
+      });
       await downloadExcel(data, `Admin-${mode}-report`);
     } finally { setDownloading(false); }
   };
+
   const handleFamDownload = async () => {
     setFamDownloading(true);
     try {
-      const data = filteredFamilyRows.map(r => { const o: TableRow = {}; famVisibleCols.forEach(c => { o[c] = r[c] ?? ""; }); return o; });
+      const data = filteredFamilyRows.map(r => {
+        const o: TableRow = {};
+        famVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+        return o;
+      });
       await downloadExcel(data, "Admin-family-members");
     } finally { setFamDownloading(false); }
   };
+
   const handleMembershipDownload = async () => {
     setMembershipDownloading(true);
     try {
-      const data = filteredMembershipRows.map(r => { const o: TableRow = {}; membershipVisibleCols.forEach(c => { o[c] = r[c] ?? ""; }); return o; });
+      const data = filteredMembershipRows.map(r => {
+        const o: TableRow = {};
+        membershipVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+        return o;
+      });
       await downloadExcel(data, "Admin-sangha-memberships");
     } finally { setMembershipDownloading(false); }
   };
+
   const handleSanghaUserDownload = async () => {
     setSanghaUserDownloading(true);
     try {
@@ -1532,15 +1587,83 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     } finally { setSanghaUserDownloading(false); }
   };
 
+  // ── Export All (multi-sheet) ────────────────────────────────────────────
+  const handleExportAll = async () => {
+    setExportingAll(true);
+    try {
+      const XLSX = await import("xlsx");
+      const wb   = XLSX.utils.book_new();
+
+      // Sheet 1: Main table
+      if (filteredRows.length > 0) {
+        const mainData = filteredRows.map(r => {
+          const o: TableRow = {};
+          visibleColumns.forEach(c => {
+            const raw = r[c] ?? "";
+            o[c] = INCOME_COLS.has(c) && raw ? formatIncomeSlab(String(raw)) : raw;
+          });
+          return o;
+        });
+        const ws = XLSX.utils.json_to_sheet(mainData);
+        XLSX.utils.book_append_sheet(wb, ws, mode === "user" ? "Users" : "Sanghas");
+      }
+
+      // Sheet 2: Family Members (user mode only)
+      if (mode === "user" && filteredFamilyRows.length > 0) {
+        const famData = filteredFamilyRows.map(r => {
+          const o: TableRow = {};
+          famVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+          return o;
+        });
+        const ws = XLSX.utils.json_to_sheet(famData);
+        XLSX.utils.book_append_sheet(wb, ws, "Family Members");
+      }
+
+      // Sheet 3: Sangha Memberships (user mode only)
+      if (mode === "user" && filteredMembershipRows.length > 0) {
+        const memData = filteredMembershipRows.map(r => {
+          const o: TableRow = {};
+          membershipVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+          return o;
+        });
+        const ws = XLSX.utils.json_to_sheet(memData);
+        XLSX.utils.book_append_sheet(wb, ws, "Sangha Memberships");
+      }
+
+      // Sheet 4: Sangha Users (sangha mode only)
+      if (mode === "sangha" && filteredSanghaUserRows.length > 0) {
+        const sudData = filteredSanghaUserRows.map(r => {
+          const o: TableRow = { "Sangha Name": r._sangha_name ?? r["Sangha Name"] ?? "" };
+          sanghaUserVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+          return o;
+        });
+        const ws = XLSX.utils.json_to_sheet(sudData);
+        XLSX.utils.book_append_sheet(wb, ws, "Sangha Users");
+      }
+
+      if (wb.SheetNames.length === 0) return;
+
+      const filename = `Admin-${mode}-full-export-${new Date().toISOString().split("T")[0]}.xlsx`;
+      XLSX.writeFile(wb, filename);
+    } finally {
+      setExportingAll(false);
+    }
+  };
+
   // ── Derived flags ───────────────────────────────────────────────────────
   const activeFilters           = columnFilters.filter(f => f.value);
-  const isFamilySelected        = mode === "user" && selectedSections.includes(FAMILY_SECTION_ID);
-  const isMembershipSelected    = mode === "user" && selectedSections.includes(SANGHA_MEMBERSHIP_SECTION_ID);
+  const isFamilySelected        = mode === "user"   && selectedSections.includes(FAMILY_SECTION_ID);
+  const isMembershipSelected    = mode === "user"   && selectedSections.includes(SANGHA_MEMBERSHIP_SECTION_ID);
   const isSanghaUserSelected    = mode === "sangha" && selectedSections.includes(SANGHA_USER_TABLE_SECTION_ID);
-  const showFamilyTable         = isFamilySelected && (familyEntries.length > 0 || familyLoading || !!familyError);
+  const showFamilyTable         = isFamilySelected     && (familyEntries.length > 0     || familyLoading     || !!familyError);
   const showMembershipTable     = isMembershipSelected && (membershipEntries.length > 0 || membershipLoading || !!membershipError);
   const showSanghaUserTable     = isSanghaUserSelected && (sanghaUserEntries.length > 0 || sanghaUserLoading || !!sanghaUserError);
   const dateLabel               = fmtDateRange(dateRange);
+
+  const hasAnyData = filteredRows.length > 0
+    || filteredFamilyRows.length > 0
+    || filteredMembershipRows.length > 0
+    || filteredSanghaUserRows.length > 0;
 
   const sanghaBaseCols = new Set([
     "Sangha Name", "Email", "Phone", "Status",
@@ -1655,9 +1778,39 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
 
           {/* Section list */}
           <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+
+            {/* ── Select All ── */}
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "9px 12px", borderRadius: 10,
+              background: allSelected ? C.skyLight : someSelected ? `${C.sky}0d` : C.slate50,
+              border: `1px solid ${allSelected ? C.skyBorder : someSelected ? `${C.sky}40` : C.slate200}`,
+              marginBottom: 2, transition: "all 0.15s",
+            }}>
+              <button
+                onClick={handleSelectAll}
+                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, flex: 1 }}
+              >
+                <Checkbox checked={allSelected} indeterminate={someSelected} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: allSelected ? C.skyDark : someSelected ? C.sky : C.slate600 }}>
+                  {allSelected ? "Deselect All" : "Select All"}
+                </span>
+              </button>
+              <span style={{
+                fontSize: 10, fontWeight: 700,
+                color: allSelected ? C.skyDark : C.slate400,
+                background: allSelected ? C.white : C.slate100,
+                border: `1px solid ${allSelected ? C.skyBorder : C.slate200}`,
+                padding: "2px 8px", borderRadius: 999,
+              }}>
+                {selectedSections.length}/{sections.length}
+              </span>
+            </div>
+
             {sidebarFiltered.length === 0 && (
               <p style={{ fontSize: 11, color: C.slate400, textAlign: "center", padding: "24px 0" }}>No sections match</p>
             )}
+
             {sidebarFiltered.map(sec => {
               const isSelected  = selectedSections.includes(sec.id);
               const isOpen      = sectionOpen[sec.id] ?? false;
@@ -1670,7 +1823,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
               const isSanghaMemRoster= sec.id === "sangha-members";
               const isSubTable       = isFamSec || isMembSec || isSanghaUserSec;
 
-              const subColor   = isSanghaUserSec ? C.sky     : C.emerald;
+              const subColor   = isSanghaUserSec ? C.sky      : C.emerald;
               const subColorLt = isSanghaUserSec ? C.skyLight : C.emeraldLt;
               const subColorBd = isSanghaUserSec ? C.skyBorder : C.emeraldBd;
               const subColorDk = isSanghaUserSec ? C.skyDark  : C.emeraldDk;
@@ -1722,7 +1875,6 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
                     )}
                   </div>
 
-                  {/* Sub-table hint block */}
                   {isSubTable && isSelected && hintText && (
                     <div style={{ padding: "0 12px 10px" }}>
                       <div style={{ display: "flex", gap: 8, padding: "8px 10px", borderRadius: 8, background: subColorLt, border: `1px solid ${subColorBd}` }}>
@@ -1735,7 +1887,6 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
                     </div>
                   )}
 
-                  {/* Sangha-members roster inline hint */}
                   {isSanghaMemRoster && isSelected && rosterHint && (
                     <div style={{ padding: "0 12px 10px" }}>
                       <div style={{ display: "flex", gap: 8, padding: "8px 10px", borderRadius: 8, background: C.emeraldLt, border: `1px solid ${C.emeraldBd}` }}>
@@ -1774,7 +1925,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
             })}
           </div>
 
-          {/* ── Mode context footer ──────────────────────────────────────── */}
+          {/* Mode context footer */}
           <div style={{ padding: "12px 14px", borderTop: `1px solid ${C.slate100}`, background: C.slate50 }}>
             {mode === "user" ? (
               <div style={{ fontSize: 10, color: C.slate400, lineHeight: 1.6 }}>
@@ -1854,9 +2005,20 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
               {filteredRows.length !== rows.length && ` of ${rows.length.toLocaleString()}`}
             </span>
 
+            {/* Individual sheet download */}
             <Btn onClick={handleDownload} disabled={downloading || filteredRows.length === 0} variant="emerald">
-              {downloading ? <Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} /> : <Download style={{ width: 13, height: 13 }} />}
+              {downloading
+                ? <Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} />
+                : <Download style={{ width: 13, height: 13 }} />}
               Download Excel
+            </Btn>
+
+            {/* Export All — multi-sheet */}
+            <Btn onClick={handleExportAll} disabled={exportingAll || !hasAnyData} variant="orange">
+              {exportingAll
+                ? <Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} />
+                : <FileSpreadsheet style={{ width: 13, height: 13 }} />}
+              Export All
             </Btn>
           </div>
 
@@ -1924,27 +2086,17 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
                             {sanghaNum}
                           </td>
                           {visibleColumns.map(col => {
-                            const val  = row[col];
-                            let text   = val !== undefined && val !== null ? String(val) : "—";
-                            let color  = C.slate700;
-                            let fw: any = 400;
-
-                            if (col === "Status" && val) { color = statusColor(String(val)); fw = 600; }
-                            if (col === "Gender") {
-                              const g = String(val ?? "").toLowerCase();
-                              if (g === "male") color = C.sky;
-                              else if (g === "female") color = C.pink;
-                            }
-                            if (typeof val === "boolean") { text = val ? "✓ Yes" : "No"; color = val ? C.emerald : C.slate400; fw = val ? 600 : 400; }
-                            if (!val && val !== false && val !== 0) color = C.slate300;
-
+                            const { text, color, fontWeight } = resolveCellDisplay(col, row[col]);
                             const isDimmed = mode === "sangha" && !isFirst && sanghaBaseCols.has(col);
-
                             return (
                               <td key={col} style={{
-                                ...tdStyle, color: isDimmed ? C.slate300 : color,
-                                fontWeight: fw, maxWidth: 200,
-                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                ...tdStyle,
+                                color: isDimmed ? C.slate300 : color,
+                                fontWeight,
+                                maxWidth: 200,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
                               }}>
                                 {isDimmed ? "" : text}
                               </td>
@@ -1966,7 +2118,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
         </div>
       </div>
 
-      {/* ── Family Members Table ────────────────────────────────────────────── */}
+      {/* ── Family Members Table ──────────────────────────────────────────── */}
       {showFamilyTable && (
         <SubTable
           tableRef={familySectionRef}
@@ -2007,7 +2159,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
         />
       )}
 
-      {/* ── Sangha Memberships Table (Cross-membership) ─────────────────────── */}
+      {/* ── Sangha Memberships Table ──────────────────────────────────────── */}
       {showMembershipTable && (
         <SubTable
           tableRef={membershipSectionRef}
@@ -2048,7 +2200,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
         />
       )}
 
-      {/* ── Sangha User Table ───────────────────────────────────────────────── */}
+      {/* ── Sangha User Table ─────────────────────────────────────────────── */}
       {showSanghaUserTable && (
         <SanghaUserTable
           tableRef={sanghaUserTableRef}
@@ -2084,7 +2236,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
         />
       )}
 
-      {/* ── Portal filter dropdowns ─────────────────────────────────────────── */}
+      {/* ── Portal filter dropdowns ───────────────────────────────────────── */}
       {openFilter && (
         <FilterDropdownPortal
           col={openFilter.col} anchorRect={openFilter.rect}

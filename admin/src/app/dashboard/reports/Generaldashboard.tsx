@@ -123,6 +123,9 @@ const baseCard: React.CSSProperties = {
   boxShadow:    "0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)",
 };
 
+// ── FIX 2: Dark axis label style used across all charts ──────────────────────
+const AXIS_TICK_STYLE = { fontSize: 12, fill: "#111827", fontWeight: 600 };
+
 // ── Tooltips ──────────────────────────────────────────────────────────────────
 const ChartTip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
@@ -380,68 +383,70 @@ export default function GeneralDashboard({
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       <style>{`@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
 
-      {/* ── Hero Banner ─────────────────────────────────────────────────── */}
+      {/* ── FIX 1: Hero Banner — separate approved users & approved sanghas ── */}
+      {/* ── Hero Banner ── */}
+<div style={{
+  ...baseCard,
+  background: "linear-gradient(135deg,#fff 0%,#f8fafc 100%)",
+  padding: "24px 28px", position: "relative", overflow: "hidden",
+}}>
+  <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse 700px 300px at 100% 0%,rgba(14,165,233,0.05) 0%,transparent 70%)", pointerEvents: "none" }} />
+  <div style={{ position: "absolute", right: -40, top: -40, width: 200, height: 200, borderRadius: "50%", border: `1px solid ${C.slate100}`, pointerEvents: "none" }} />
+  <div style={{ position: "relative" }}>
+    {/* Title */}
+    <p style={{ fontSize: 10, fontWeight: 800, color: C.sky, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 16 }}>Community Overview</p>
+
+    {/* Two side-by-side stat blocks */}
+    <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+
+      {/* Block 1: Users */}
       <div style={{
         ...baseCard,
-        background: "linear-gradient(135deg,#fff 0%,#f8fafc 100%)",
-        padding: "24px 28px", position: "relative", overflow: "hidden",
+        flex: 1,
+        minWidth: 200,
+        padding: "20px 24px",
+        background: C.skyLight,
+        border: `1px solid ${C.skyBorder}`,
       }}>
-        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse 700px 300px at 100% 0%,rgba(14,165,233,0.05) 0%,transparent 70%)", pointerEvents: "none" }} />
-        <div style={{ position: "absolute", right: -40, top: -40, width: 200, height: 200, borderRadius: "50%", border: `1px solid ${C.slate100}`, pointerEvents: "none" }} />
-        <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
-          {/* Left: big total number */}
-          <div>
-            <p style={{ fontSize: 10, fontWeight: 800, color: C.sky, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 6 }}>Community Overview</p>
-            <p style={{ fontSize: 60, fontWeight: 900, color: C.slate900, letterSpacing: "-0.04em", lineHeight: 1 }}>
-              {fmt(u.total + s.total)}
-            </p>
-            <p style={{ fontSize: 13, color: C.slate400, marginTop: 4, fontWeight: 500 }}>Total users & sanghas across all states</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: C.sky, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Users style={{ width: 16, height: 16, color: "#fff" }} />
           </div>
-
-          {/* Right: exactly 2 mini cards */}
-          <div style={{ display: "flex", gap: 12 }}>
-
-            {/* Card 1: Users — approved & rejected */}
-            <div style={{ ...baseCard, padding: "16px 20px", minWidth: 160 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-                <Users style={{ width: 13, height: 13, color: C.sky }} />
-                <p style={{ fontSize: 11, fontWeight: 700, color: C.slate500, textTransform: "uppercase", letterSpacing: "0.06em" }}>Users</p>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: C.slate500, fontWeight: 500 }}>Approved</span>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: C.emerald, letterSpacing: "-0.02em" }}>{fmt(u.approved)}</span>
-                </div>
-                <div style={{ height: 1, background: C.slate100 }} />
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: C.slate500, fontWeight: 500 }}>Rejected</span>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: C.rose, letterSpacing: "-0.02em" }}>{fmt(u.rejected)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Card 2: Sanghas — approved & rejected */}
-            <div style={{ ...baseCard, padding: "16px 20px", minWidth: 160 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-                <Building2 style={{ width: 13, height: 13, color: C.orange }} />
-                <p style={{ fontSize: 11, fontWeight: 700, color: C.slate500, textTransform: "uppercase", letterSpacing: "0.06em" }}>Sanghas</p>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: C.slate500, fontWeight: 500 }}>Approved</span>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: C.emerald, letterSpacing: "-0.02em" }}>{fmt(s.approved)}</span>
-                </div>
-                <div style={{ height: 1, background: C.slate100 }} />
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: C.slate500, fontWeight: 500 }}>Rejected</span>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: C.rose, letterSpacing: "-0.02em" }}>{fmt(s.rejected)}</span>
-                </div>
-              </div>
-            </div>
-
-          </div>
+          <p style={{ fontSize: 12, fontWeight: 700, color: C.skyDark, textTransform: "uppercase", letterSpacing: "0.08em" }}>Total Approved Users</p>
         </div>
+        <p style={{ fontSize: 52, fontWeight: 900, color: C.skyDark, letterSpacing: "-0.04em", lineHeight: 1 }}>
+          {fmt(u.approved)}
+        </p>
       </div>
+
+      {/* Block 2: Sanghas */}
+      <div style={{
+        ...baseCard,
+        flex: 1,
+        minWidth: 200,
+        padding: "20px 24px",
+        background: C.orangeLt,
+        border: `1px solid ${C.orangeBd}`,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: C.orange, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Building2 style={{ width: 16, height: 16, color: "#fff" }} />
+          </div>
+          <p style={{ fontSize: 12, fontWeight: 700, color: C.orangeDk, textTransform: "uppercase", letterSpacing: "0.08em" }}>Total Approved Sanghas</p>
+        </div>
+        <p style={{ fontSize: 52, fontWeight: 900, color: C.orangeDk, letterSpacing: "-0.04em", lineHeight: 1 }}>
+          {fmt(s.approved)}
+        </p>
+      </div>
+
+    </div>
+  </div>
+</div>
+       
+           
+
+          
+        
 
       {/* ── Registrations Trend (combined) ──────────────────────────────── */}
       <ChartCard
@@ -462,8 +467,9 @@ export default function GeneralDashboard({
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} />
-            <XAxis dataKey="period" tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
-            <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+            {/* FIX 2: dark axis labels */}
+            <XAxis dataKey="period" tick={AXIS_TICK_STYLE} tickLine={false} axisLine={false} />
+            <YAxis tick={AXIS_TICK_STYLE} tickLine={false} axisLine={false} />
             <Tooltip content={<ChartTip />} />
             <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
             <Area type="monotone" dataKey="users"   name="Users"   stroke={C.sky}    fill="url(#gU)" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
@@ -483,34 +489,75 @@ export default function GeneralDashboard({
         border={C.skyBorder}
       />
 
-      {/* User KPI Cards — 4 cards: Total, Approved, Rejected, Changes Requested */}
+      {/* FIX 4: User KPI Cards — Details buttons navigate to correct advanced sections */}
+      {/* Approved → au-status, Rejected → au-status, Changes Requested → au-status */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
         {[
-          { icon: Users,       color: C.sky,     bg: C.skyLight,  border: C.skyBorder, label: "Total Users",       value: u.total,             section: "demographics" },
-          { icon: UserCheck,   color: C.emerald, bg: C.emeraldLt, border: C.emeraldBd, label: "Approved",          value: u.approved,          section: "demographics" },
-          { icon: XCircle,     color: C.rose,    bg: C.roseLt,    border: C.roseBd,    label: "Rejected",          value: u.rejected,          section: "demographics" },
-          { icon: AlertCircle, color: C.orange,  bg: C.orangeLt,  border: C.orangeBd,  label: "Changes Requested", value: u.changes_requested, section: "demographics" },
+          {
+            icon: Users,       color: C.sky,     bg: C.skyLight,  border: C.skyBorder,
+            label: "Total Users",       value: u.total,
+            // Total → demographics overview (population hero)
+            advSection: "demographics",
+          },
+          {
+            icon: UserCheck,   color: C.emerald, bg: C.emeraldLt, border: C.emeraldBd,
+            label: "Approved",          value: u.approved,
+            // Approved → status overview section
+            advSection: "status",
+          },
+          {
+            icon: XCircle,     color: C.rose,    bg: C.roseLt,    border: C.roseBd,
+            label: "Rejected",          value: u.rejected,
+            // Rejected → status overview section
+            advSection: "status",
+          },
+          {
+            icon: AlertCircle, color: C.orange,  bg: C.orangeLt,  border: C.orangeBd,
+            label: "Changes Requested", value: u.changes_requested,
+            // Changes requested → status overview section
+            advSection: "status",
+          },
         ].map(k => (
           <StatusKpiCard
-            key={k.label} {...k} pctVal={calcPct(k.value, u.total)}
-            onDetails={() => onGoToAdvanced(k.section)}
+            key={k.label}
+            icon={k.icon}
+            color={k.color}
+            bg={k.bg}
+            border={k.border}
+            label={k.label}
+            value={k.value}
+            pctVal={calcPct(k.value, u.total)}
+            onDetails={() => onGoToAdvanced(k.advSection)}
             onExport={() => onGoToCustomReport(["personal-details"], "user")}
           />
         ))}
       </div>
 
-      {/* Users by State — full width */}
+      {/* Users by State — grouped bars: one bin each for Male, Female, Other */}
       <ChartCard
-        title="Users by State" subtitle="Male / Female / Other — all states"
+        title="Users by State" subtitle="Male / Female / Other — grouped per state"
         onDetails={() => onGoToAdvanced("geographic")}
         onReport={() => onGoToCustomReport(["location-information"],"user")}
       >
-        <ResponsiveContainer width="100%" height={Math.max(220, genderStateData.length * 30)}>
-          <BarChart data={genderStateData} layout="vertical">
+        {/*
+          Each state gets 3 grouped (side-by-side) bars.
+          height: 3 bars × 10px each + 8px gap between groups × states, min 260.
+          barSize=10 keeps each of the 3 bins distinct and readable.
+          barCategoryGap="30%" gives breathing room between state groups.
+          barGap={3} adds a small gap between the 3 bars within each group.
+        */}
+        <ResponsiveContainer width="100%" height={Math.max(260, genderStateData.length * 46)}>
+          <BarChart
+            data={genderStateData}
+            layout="vertical"
+            barSize={10}
+            barCategoryGap="30%"
+            barGap={3}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} horizontal={false} />
             <XAxis
               type="number"
-              tick={{ fontSize: 10, fill: C.slate400 }}
+              tick={AXIS_TICK_STYLE}
               tickLine={false}
               axisLine={false}
               domain={[0, "auto"]}
@@ -519,16 +566,17 @@ export default function GeneralDashboard({
             <YAxis
               dataKey="state"
               type="category"
-              tick={{ fontSize: 10, fill: C.slate500 }}
+              tick={AXIS_TICK_STYLE}
               tickLine={false}
               axisLine={false}
-              width={110}
+              width={120}
             />
             <Tooltip content={<ChartTip />} />
             <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
-            <Bar dataKey="male"   name="Male"   fill={C.genderMale}   stackId="a" minPointSize={2} />
-            <Bar dataKey="female" name="Female" fill={C.genderFemale} stackId="a" minPointSize={2} />
-            <Bar dataKey="other"  name="Other"  fill={C.genderOther}  stackId="a" radius={[0, 4, 4, 0]} minPointSize={2} />
+            {/* No stackId — each renders as its own separate grouped bar */}
+            <Bar dataKey="male"   name="Male"   fill={C.genderMale}   radius={[0, 4, 4, 0]} minPointSize={2} />
+            <Bar dataKey="female" name="Female" fill={C.genderFemale} radius={[0, 4, 4, 0]} minPointSize={2} />
+            <Bar dataKey="other"  name="Other"  fill={C.genderOther}  radius={[0, 4, 4, 0]} minPointSize={2} />
           </BarChart>
         </ResponsiveContainer>
       </ChartCard>
@@ -543,8 +591,14 @@ export default function GeneralDashboard({
           <ResponsiveContainer width="100%" height={190}>
             <BarChart data={sortedGender}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} />
-              <XAxis dataKey="gender" tick={{ fontSize: 11, fill: C.slate500 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: C.slate400 }} tickLine={false} axisLine={false} />
+              {/* FIX 2: dark axis labels */}
+                <XAxis
+                dataKey="gender"
+                tick={AXIS_TICK_STYLE}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: string) => v.charAt(0).toUpperCase() + v.slice(1).toLowerCase()}
+              />              <YAxis tick={AXIS_TICK_STYLE} tickLine={false} axisLine={false} />
               <Tooltip content={<ChartTip />} />
               <Bar dataKey="count" name="Count" radius={[5, 5, 0, 0]}>
                 {sortedGender.map((entry, i) => (
@@ -557,7 +611,7 @@ export default function GeneralDashboard({
 
         <ChartCard
           title="User Status" subtitle="Approved / Under review / Changes requested / Rejected"
-          onDetails={() => onGoToAdvanced("demographics")}
+          onDetails={() => onGoToAdvanced("status")}
           onReport={() => onGoToCustomReport(["personal-Details"],"user")}
         >
           <ResponsiveContainer width="100%" height={230}>
@@ -625,7 +679,7 @@ export default function GeneralDashboard({
         border={C.orangeBd}
       />
 
-      {/* Sangha KPI Cards — 3 cards: Total (approved+rejected), Approved, Rejected */}
+      {/* FIX 4: Sangha KPI Cards — Details buttons navigate to correct advanced sections */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
         {[
           {
@@ -633,21 +687,24 @@ export default function GeneralDashboard({
             label: "Total Sanghas",
             value: s.approved + s.rejected,
             total: s.approved + s.rejected,
-            section: "sanghas",
+            // Total sanghas → status brekdown
+            advSection: "as-status",
           },
           {
             icon: CheckCircle2, color: C.emerald, bg: C.emeraldLt, border: C.emeraldBd,
             label: "Approved",
             value: s.approved,
             total: s.approved + s.rejected,
-            section: "sanghas",
+            // Approved sanghas → sangha STATUS breakdown section
+            advSection: "as-status",
           },
           {
             icon: XCircle,      color: C.rose,    bg: C.roseLt,    border: C.roseBd,
             label: "Rejected",
             value: s.rejected,
             total: s.approved + s.rejected,
-            section: "sanghas",
+            // Rejected sanghas → sangha STATUS breakdown section
+            advSection: "as-status",
           },
         ].map(k => (
           <StatusKpiCard
@@ -659,7 +716,7 @@ export default function GeneralDashboard({
             label={k.label}
             value={k.value}
             pctVal={calcPct(k.value, k.total)}
-            onDetails={() => onGoToAdvanced(k.section)}
+            onDetails={() => onGoToAdvanced(k.advSection)}
             onExport={() => onGoToCustomReport(["sangha-details"], "sangha")}
           />
         ))}
@@ -668,21 +725,22 @@ export default function GeneralDashboard({
       {/* Sanghas by State — full width */}
       <ChartCard
         title="Sanghas by State" subtitle="All states"
-        onDetails={() => onGoToAdvanced("geographic")}
+        onDetails={() => onGoToAdvanced("as-geographic")}
         onReport={() => onGoToCustomReport(["locationInformation"], "sanghas")}
       >
-        <ResponsiveContainer width="100%" height={Math.max(220, data.sanghas_by_state.length * 30)}>
-          <BarChart data={data.sanghas_by_state} layout="vertical">
+        {/* FIX 3: barSize increased, dark axis labels */}
+        <ResponsiveContainer width="100%" height={Math.max(220, data.sanghas_by_state.length * 34)}>
+          <BarChart data={data.sanghas_by_state} layout="vertical" barSize={18}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} horizontal={false} />
             <XAxis
               type="number"
-              tick={{ fontSize: 10, fill: C.slate400 }}
+              tick={AXIS_TICK_STYLE}
               tickLine={false}
               axisLine={false}
               domain={[0, "auto"]}
               allowDataOverflow={false}
             />
-            <YAxis dataKey="state" type="category" tick={{ fontSize: 10, fill: C.slate500 }} tickLine={false} axisLine={false} width={110} />
+            <YAxis dataKey="state" type="category" tick={AXIS_TICK_STYLE} tickLine={false} axisLine={false} width={120} />
             <Tooltip content={<ChartTip />} />
             <Bar dataKey="count" name="Sanghas" fill={C.orange} radius={[0, 5, 5, 0]} minPointSize={2} />
           </BarChart>
@@ -693,7 +751,7 @@ export default function GeneralDashboard({
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <ChartCard
           title="Sangha Status Breakdown"
-          onDetails={() => onGoToAdvanced("sanghas")}
+          onDetails={() => onGoToAdvanced("as-status")}
           onReport={() => onGoToCustomReport(["personalDetails"], "sanghas")}
         >
           <ResponsiveContainer width="100%" height={220}>
@@ -713,8 +771,8 @@ export default function GeneralDashboard({
         </ChartCard>
 
         <ChartCard
-          title="Top Sanghas" subtitle="By member count"
-          onDetails={() => onGoToAdvanced("sanghas")}
+          title="Top Sanghas" subtitle="By approved user count"
+          onDetails={() => onGoToAdvanced("as-top")}
           onReport={() => onGoToCustomReport(["personalDetails"], "sanghas")}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>

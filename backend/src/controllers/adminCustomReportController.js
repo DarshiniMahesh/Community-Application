@@ -64,7 +64,6 @@ async function exportFull(req, res) {
         "pd.surname_as_per_gotra                                                       AS \"Surname as per Gotra\"",
         "CASE WHEN pd.marital_status IS NOT NULL AND pd.marital_status <> '' THEN 'Yes' ELSE 'No' END AS \"Is Married\"",
         "CASE WHEN LOWER(COALESCE(pd.has_disability,'no')) IN ('yes','true','1') THEN 'Yes' ELSE 'No' END AS \"Has Disability\"",
-        // ── FIX: Primary Sangha shows the sangha_name from sanghas table ────────
         "COALESCE(sg_primary.sangha_name, '—')                                        AS \"Primary Sangha\"",
         "TO_CHAR(p.submitted_at, 'DD-Mon-YYYY')                                       AS \"Submitted At\"",
         "TO_CHAR(p.reviewed_at,  'DD-Mon-YYYY')                                       AS \"Reviewed At\""
@@ -115,13 +114,23 @@ async function exportFull(req, res) {
     }
 
     // ── Section: education-profession ─────────────────────────────────────────
+    // FIX: Removed the `OR me.member_name = TRIM(CONCAT(pd.first_name...))` branch
+    // that referenced the outer `pd` alias inside the LATERAL subquery.
+    // PostgreSQL cannot resolve outer table aliases inside a LATERAL when those
+    // aliases are themselves defined via a join (not the base FROM table).
+    // The IN ('self', 'head of family', 'head') filter is sufficient and correct —
+    // the empty string '' catch-all has also been removed to avoid picking up
+    // unrelated rows where member_relation is NULL or blank.
+    // NOTE: member_education.highest_education is never written by saveStep5 —
+    // degree data is stored in the child member_educations table as degree_type rows.
+    // We derive "Education Level" from member_educations, picking the highest-ranked
+    // degree_type via a priority CASE sort (Doctorate = highest priority).
     if (sections.includes("education-profession")) {
       joins.push(
         `LEFT JOIN LATERAL (
            SELECT
              me.member_name,
              me.member_relation,
-             me.highest_education,
              me.profession_type::text  AS profession_type,
              me.industry,
              me.is_currently_studying,
@@ -129,16 +138,29 @@ async function exportFull(req, res) {
              me.id                     AS me_id
            FROM member_education me
            WHERE me.profile_id = p.id
-             AND (
-               LOWER(COALESCE(me.member_relation, '')) IN ('self', 'head of family', 'head', '')
-               OR me.member_name = TRIM(CONCAT(pd.first_name,' ',COALESCE(pd.middle_name,''),' ',pd.last_name))
-             )
-           ORDER BY
-             (LOWER(COALESCE(me.member_relation, '')) IN ('self', 'head of family', 'head', '')) DESC,
-             me.sort_order ASC,
-             me.created_at ASC
+             AND LOWER(COALESCE(me.member_relation, '')) IN ('self', 'head of family', 'head')
+           ORDER BY me.sort_order ASC, me.created_at ASC
            LIMIT 1
          ) edu ON TRUE`,
+        `LEFT JOIN LATERAL (
+           SELECT me2.degree_type AS highest_education
+           FROM member_educations me2
+           WHERE me2.member_education_id = edu.me_id
+             AND me2.degree_type IS NOT NULL
+             AND me2.degree_type <> ''
+           ORDER BY
+             CASE LOWER(me2.degree_type)
+               WHEN 'doctorate'                       THEN 1
+               WHEN 'specialised professional degree' THEN 2
+               WHEN 'postgraduate / master''s'        THEN 3
+               WHEN 'undergraduate / bachelor''s'     THEN 4
+               WHEN 'diploma & associate degree'      THEN 5
+               WHEN 'pre-university'                  THEN 6
+               WHEN 'high school'                     THEN 7
+               ELSE 8
+             END ASC
+           LIMIT 1
+         ) edu_level ON TRUE`,
         `LEFT JOIN LATERAL (
            SELECT STRING_AGG(
              COALESCE(NULLIF(ml.language_other,''), ml.language), ', '
@@ -151,7 +173,7 @@ async function exportFull(req, res) {
       select.push(
         "COALESCE(edu.member_name, TRIM(CONCAT(pd.first_name,' ',COALESCE(pd.middle_name,''),' ',pd.last_name))) AS \"Member Name\"",
         "COALESCE(edu.member_relation, 'Self')                                         AS \"Relation\"",
-        "COALESCE(edu.highest_education, '—')                                          AS \"Education Level\"",
+        "COALESCE(edu_level.highest_education, '—')                                    AS \"Education Level\"",
         "COALESCE(edu.profession_type, '—')                                            AS \"Profession Type\"",
         "CASE WHEN edu.is_currently_studying THEN 'Yes' ELSE 'No' END                 AS \"Currently Studying\"",
         "CASE WHEN edu.is_currently_working  THEN 'Yes' ELSE 'No' END                 AS \"Currently Working\"",
@@ -382,6 +404,12 @@ async function getFamilyMembers(req, res) {
 
     const placeholders = profileIds.map((_, i) => `$${i + 1}`).join(", ");
 
+    // FIX: All three LATERALs (me, mi, md) now use case-insensitive strict
+    // name+relation matching instead of the old OR-chain that could match the
+    // wrong family member when multiple members share the same relation
+    // (e.g. two Spouse entries, or relation-only fallback picking an unrelated row).
+    // LOWER() on both sides handles the mixed-case values seen in the data
+    // (e.g. "Self", "Spouse", "Daughter" stored with capital first letter).
     const sql = `
       SELECT
         TRIM(CONCAT(
@@ -409,7 +437,7 @@ async function getFamilyMembers(req, res) {
         CASE WHEN me.is_currently_working  THEN 'Yes' ELSE 'No' END    AS "Currently Working",
         COALESCE(me.profession_type::text, '—')                         AS "Type of Profession",
         COALESCE(me.industry, '—')                                      AS "Industry",
-        COALESCE(me.highest_education, '—')                             AS "Education Level",
+        COALESCE(me_level.highest_education, '—')                       AS "Education Level",
 
         COALESCE(lang_agg.langs, '—')                                  AS "Languages Known",
 
@@ -428,17 +456,31 @@ async function getFamilyMembers(req, res) {
         SELECT me.*
         FROM member_education me
         WHERE me.profile_id = p.id
-          AND (
-            (me.member_name = fm.name AND me.member_relation = fm.relation)
-            OR me.member_relation = fm.relation
-            OR me.member_name    = fm.name
-          )
-        ORDER BY
-          (me.member_name = fm.name AND me.member_relation = fm.relation) DESC,
-          (me.member_name = fm.name) DESC,
-          me.sort_order ASC
+          AND LOWER(COALESCE(me.member_name, ''))     = LOWER(COALESCE(fm.name, ''))
+          AND LOWER(COALESCE(me.member_relation, '')) = LOWER(COALESCE(fm.relation, ''))
+        ORDER BY me.sort_order ASC, me.created_at ASC
         LIMIT 1
       ) me ON TRUE
+
+      LEFT JOIN LATERAL (
+        SELECT me2.degree_type AS highest_education
+        FROM member_educations me2
+        WHERE me2.member_education_id = me.id
+          AND me2.degree_type IS NOT NULL
+          AND me2.degree_type <> ''
+        ORDER BY
+          CASE LOWER(me2.degree_type)
+            WHEN 'doctorate'                       THEN 1
+            WHEN 'specialised professional degree' THEN 2
+            WHEN 'postgraduate / master''s'        THEN 3
+            WHEN 'undergraduate / bachelor''s'     THEN 4
+            WHEN 'diploma & associate degree'      THEN 5
+            WHEN 'pre-university'                  THEN 6
+            WHEN 'high school'                     THEN 7
+            ELSE 8
+          END ASC
+        LIMIT 1
+      ) me_level ON TRUE
 
       LEFT JOIN LATERAL (
         SELECT STRING_AGG(
@@ -450,34 +492,22 @@ async function getFamilyMembers(req, res) {
       ) lang_agg ON TRUE
 
       LEFT JOIN LATERAL (
-        SELECT *
+        SELECT mi2.*
         FROM member_insurance mi2
         WHERE mi2.profile_id = p.id
-          AND (
-            (mi2.member_name = fm.name AND mi2.member_relation = fm.relation)
-            OR mi2.member_relation = fm.relation
-            OR mi2.member_name    = fm.name
-          )
-        ORDER BY
-          (mi2.member_name = fm.name AND mi2.member_relation = fm.relation) DESC,
-          (mi2.member_name = fm.name) DESC,
-          mi2.sort_order ASC
+          AND LOWER(COALESCE(mi2.member_name, ''))     = LOWER(COALESCE(fm.name, ''))
+          AND LOWER(COALESCE(mi2.member_relation, '')) = LOWER(COALESCE(fm.relation, ''))
+        ORDER BY mi2.sort_order ASC
         LIMIT 1
       ) mi ON TRUE
 
       LEFT JOIN LATERAL (
-        SELECT *
+        SELECT md2.*
         FROM member_documents md2
         WHERE md2.profile_id = p.id
-          AND (
-            (md2.member_name = fm.name AND md2.member_relation = fm.relation)
-            OR md2.member_relation = fm.relation
-            OR md2.member_name    = fm.name
-          )
-        ORDER BY
-          (md2.member_name = fm.name AND md2.member_relation = fm.relation) DESC,
-          (md2.member_name = fm.name) DESC,
-          md2.sort_order ASC
+          AND LOWER(COALESCE(md2.member_name, ''))     = LOWER(COALESCE(fm.name, ''))
+          AND LOWER(COALESCE(md2.member_relation, '')) = LOWER(COALESCE(fm.relation, ''))
+        ORDER BY md2.sort_order ASC
         LIMIT 1
       ) md ON TRUE
 

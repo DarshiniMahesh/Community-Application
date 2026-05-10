@@ -39,7 +39,9 @@ async function getGeneralReport(req, res) {
 
       pool.query(
         `SELECT
-           COUNT(*)                                                          AS total,
+           COUNT(*) FILTER (
+  WHERE p.status IN ('approved', 'rejected', 'changes_requested')
+) AS total,
            COUNT(*) FILTER (WHERE p.status = 'approved')                    AS approved,
            COUNT(*) FILTER (WHERE p.status = 'submitted')                   AS submitted,
            COUNT(*) FILTER (WHERE p.status = 'under_review')                AS under_review,
@@ -149,11 +151,12 @@ async function getGeneralReport(req, res) {
         `SELECT status::text AS status, COUNT(*) AS count FROM sanghas GROUP BY status ORDER BY count DESC`
       ),
 
-      pool.query(
-        `SELECT s.sangha_name, s.state, COUNT(sm.id) AS member_count
-         FROM sanghas s LEFT JOIN sangha_members sm ON sm.sangha_id = s.id
-         GROUP BY s.id, s.sangha_name, s.state ORDER BY member_count DESC LIMIT 10`
-      ),
+     pool.query(
+  `SELECT s.sangha_name, s.state, COUNT(p.id) AS member_count
+   FROM sanghas s
+   LEFT JOIN profiles p ON p.sangha_id = s.id AND p.status = 'approved'
+   GROUP BY s.id, s.sangha_name, s.state
+   ORDER BY member_count DESC`),
 
       // ── Users by district: profile heads + family members ──────────────────
       pool.query(
@@ -1132,7 +1135,6 @@ safe(`
 };
 
 // ─── GET /admin/reports/sanghas ───────────────────────────────────────────────
-
 const getAdminSanghaReports = async (req, res) => {
   try {
     const safe = async (sql, params = []) => {
@@ -1144,7 +1146,6 @@ const getAdminSanghaReports = async (req, res) => {
       totalRes, statusRows, stateRows, districtRows,
       memberCountRows, trendRows, growthRows, topSanghaRows,
       completionRows, profileStatusRows, contactRows,
-      // NEW: member_type (full-time / part-time) breakdown per sangha
       memberTypeRows,
     ] = await Promise.all([
       pool.query(`SELECT COUNT(*) AS cnt FROM sanghas`),
@@ -1162,13 +1163,14 @@ const getAdminSanghaReports = async (req, res) => {
           COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.role,'')) = 'auditor') AS auditor,
           COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.role,'')) IN ('vice president','vice-president','hon. president','hon president')) AS vice_president,
           COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.role,'')) IN ('joint secretary','joint-secretary','hon. secretary','hon secretary')) AS joint_secretary,
-          COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.role,'')) = 'member') AS member,
-          COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.role,'')) IN ('advisor','legal advisor','legal-advisor')) AS advisor,
+          COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.role,'')) IN ('member','common member')) AS member,
+          COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.role,'')) = 'advisor') AS advisor,
+          COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.role,'')) IN ('legal advisor','legal-advisor','legal_advisor')) AS legal_advisor,
           COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.role,'')) NOT IN (
             'president','secretary','treasurer','accountant','auditor',
             'vice president','vice-president','hon. president','hon president',
             'joint secretary','joint-secretary','hon. secretary','hon secretary',
-            'member','advisor','legal advisor','legal-advisor'
+            'member','common member','advisor','legal advisor','legal-advisor','legal_advisor'
           ) AND sm.role IS NOT NULL AND TRIM(sm.role) != '') AS other_role,
           COUNT(sm.id) FILTER (WHERE sm.role IS NULL OR TRIM(sm.role) = '') AS no_role
         FROM sanghas s
@@ -1179,28 +1181,36 @@ const getAdminSanghaReports = async (req, res) => {
       `),
       safe(`SELECT TO_CHAR(DATE_TRUNC('month', created_at),'Mon YYYY') AS month, COUNT(*) AS count FROM sanghas GROUP BY DATE_TRUNC('month', created_at) ORDER BY DATE_TRUNC('month', created_at) ASC`),
       safe(`SELECT TO_CHAR(DATE_TRUNC('month', created_at),'Mon YYYY') AS month, COUNT(*) AS new_sanghas, SUM(COUNT(*)) OVER (ORDER BY DATE_TRUNC('month', created_at)) AS cumulative FROM sanghas GROUP BY DATE_TRUNC('month', created_at) ORDER BY DATE_TRUNC('month', created_at) ASC`),
-      safe(`SELECT s.sangha_name, COUNT(p.id) AS total_users, COUNT(p.id) FILTER (WHERE p.status='approved') AS approved, COALESCE(s.state,'—') AS state, COALESCE(s.district,'—') AS district, s.status::text AS status FROM sanghas s LEFT JOIN profiles p ON p.sangha_id=s.id GROUP BY s.id, s.sangha_name, s.state, s.district, s.status ORDER BY total_users DESC LIMIT 20`),
+      safe(`
+        SELECT
+          s.sangha_name,
+          COUNT(p.id)                                                   AS total_users,
+          COUNT(p.id) FILTER (WHERE p.status = 'approved')              AS approved,
+          COUNT(p.id) FILTER (WHERE p.status = 'rejected')              AS rejected,
+          COUNT(p.id) FILTER (WHERE p.status = 'changes_requested')     AS changes_requested,
+          COALESCE(s.state,'—')                                         AS state,
+          COALESCE(s.district,'—')                                      AS district,
+          s.status::text                                                 AS status
+        FROM sanghas s
+        LEFT JOIN profiles p ON p.sangha_id = s.id
+        GROUP BY s.id, s.sangha_name, s.state, s.district, s.status
+        ORDER BY total_users DESC
+      `),
       safe(`SELECT s.sangha_name, AVG(COALESCE(p.overall_completion_pct, 0)) AS avg_completion FROM sanghas s JOIN profiles p ON p.sangha_id=s.id WHERE p.status='approved' GROUP BY s.id, s.sangha_name HAVING COUNT(p.id) >= 3 ORDER BY avg_completion DESC LIMIT 10`),
       safe(`SELECT COUNT(*) FILTER (WHERE p.status='approved') AS approved, COUNT(*) FILTER (WHERE p.status='rejected') AS rejected, COUNT(*) FILTER (WHERE p.status IN ('submitted','under_review')) AS submitted, COUNT(*) FILTER (WHERE p.status='draft') AS draft, COUNT(*) FILTER (WHERE p.status='changes_requested') AS changes_requested FROM profiles p`),
       safe(`SELECT COUNT(*) FILTER (WHERE email IS NOT NULL AND email != '' AND phone IS NOT NULL AND phone != '') AS with_both, COUNT(*) FILTER (WHERE email IS NOT NULL AND email != '') AS with_email, COUNT(*) FILTER (WHERE phone IS NOT NULL AND phone != '') AS with_phone FROM sanghas`),
-
-      // ── NEW: member_type breakdown per sangha (full-time/part-time × gender) ──
-      // sangha_members.member_type stores 'full-time' | 'part-time' (or NULL)
-      // sangha_members.gender stores the gender
       safe(`
         SELECT
           s.sangha_name,
           s.state,
-          -- full-time
           COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.member_type,'')) LIKE '%full%' AND LOWER(COALESCE(sm.gender,'')) = 'male')   AS fulltime_male,
           COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.member_type,'')) LIKE '%full%' AND LOWER(COALESCE(sm.gender,'')) = 'female') AS fulltime_female,
           COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.member_type,'')) LIKE '%full%'
-            AND sm.gender IS NOT NULL AND LOWER(COALESCE(sm.gender,'')) NOT IN ('male','female'))                                    AS fulltime_other,
-          -- part-time
+            AND sm.gender IS NOT NULL AND LOWER(COALESCE(sm.gender,'')) NOT IN ('male','female'))                                   AS fulltime_other,
           COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.member_type,'')) LIKE '%part%' AND LOWER(COALESCE(sm.gender,'')) = 'male')   AS parttime_male,
           COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.member_type,'')) LIKE '%part%' AND LOWER(COALESCE(sm.gender,'')) = 'female') AS parttime_female,
           COUNT(sm.id) FILTER (WHERE LOWER(COALESCE(sm.member_type,'')) LIKE '%part%'
-            AND sm.gender IS NOT NULL AND LOWER(COALESCE(sm.gender,'')) NOT IN ('male','female'))                                    AS parttime_other,
+            AND sm.gender IS NOT NULL AND LOWER(COALESCE(sm.gender,'')) NOT IN ('male','female'))                                   AS parttime_other,
           COUNT(sm.id) AS total
         FROM sanghas s
         JOIN sangha_members sm ON sm.sangha_id = s.id
@@ -1210,15 +1220,15 @@ const getAdminSanghaReports = async (req, res) => {
       `),
     ]);
 
-    const n   = (v) => parseInt(v  || 0);
-    const ps  = profileStatusRows[0] || {};
-    const ct  = contactRows[0]       || {};
+    const n  = (v) => parseInt(v || 0);
+    const ps = profileStatusRows[0] || {};
+    const ct = contactRows[0]       || {};
 
     res.json({
       totalSanghas:         n(totalRes.rows[0]?.cnt),
-      statusBreakdown:      statusRows.map(r    => ({ status: r.status, count: n(r.count) })),
-      stateDistribution:    stateRows.map(r     => ({ state: r.state, count: n(r.count) })),
-      districtDistribution: districtRows.map(r  => ({ district: r.district, count: n(r.count) })),
+      statusBreakdown:      statusRows.map(r   => ({ status: r.status, count: n(r.count) })),
+      stateDistribution:    stateRows.map(r    => ({ state: r.state, count: n(r.count) })),
+      districtDistribution: districtRows.map(r => ({ district: r.district, count: n(r.count) })),
       sanghasByMemberCount: memberCountRows.map(r => ({
         sangha_name:     r.sangha_name,
         state:           r.state || '',
@@ -1232,10 +1242,10 @@ const getAdminSanghaReports = async (req, res) => {
         joint_secretary: n(r.joint_secretary),
         member:          n(r.member),
         advisor:         n(r.advisor),
+        legal_advisor:   n(r.legal_advisor),
         other_role:      n(r.other_role),
         no_role:         n(r.no_role),
       })),
-      // NEW: member type breakdown per sangha
       sanghasMemberTypeBreakdown: memberTypeRows.map(r => ({
         sangha_name:     r.sangha_name,
         state:           r.state || '',
@@ -1247,13 +1257,19 @@ const getAdminSanghaReports = async (req, res) => {
         parttime_other:  n(r.parttime_other),
         total:           n(r.total),
       })),
-      registrationTrend:  trendRows.map(r  => ({ month: r.month, count: n(r.count) })),
-      membershipGrowth:   growthRows.map(r  => ({ month: r.month, new_sanghas: n(r.new_sanghas), cumulative: n(r.cumulative) })),
-      topSanghas:         topSanghaRows.map(r=> ({
-        sangha_name: r.sangha_name, total_users: n(r.total_users),
-        approved: n(r.approved), state: r.state, district: r.district, status: r.status,
+      registrationTrend: trendRows.map(r  => ({ month: r.month, count: n(r.count) })),
+      membershipGrowth:  growthRows.map(r  => ({ month: r.month, new_sanghas: n(r.new_sanghas), cumulative: n(r.cumulative) })),
+      topSanghas: topSanghaRows.map(r => ({
+        sangha_name:       r.sangha_name,
+        total_users:       n(r.total_users),
+        approved:          n(r.approved),
+        rejected:          n(r.rejected),
+        changes_requested: n(r.changes_requested),
+        state:             r.state,
+        district:          r.district,
+        status:            r.status,
       })),
-      completionRates:    completionRows.map(r  => ({ sangha_name: r.sangha_name, avg_completion: parseFloat(r.avg_completion || 0) })),
+      completionRates: completionRows.map(r => ({ sangha_name: r.sangha_name, avg_completion: parseFloat(r.avg_completion || 0) })),
       profileStatusAcrossSanghas: {
         approved:          n(ps.approved),
         rejected:          n(ps.rejected),
@@ -1273,6 +1289,7 @@ const getAdminSanghaReports = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
+  
 
 // ─── GET /admin/reports/enhanced ─────────────────────────────────────────────
 
