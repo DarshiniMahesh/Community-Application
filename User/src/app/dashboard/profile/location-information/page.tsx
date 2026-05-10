@@ -1,3 +1,4 @@
+//Community-Application\User\src\app\dashboard\profile\location-information\page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -33,6 +34,7 @@ interface Address {
   city: string;
   taluk: string;
   district: string;
+  state:string;
   pincode: string;
   country: string;
 }
@@ -48,6 +50,7 @@ const emptyAddress = (): Address => ({
   city: "",
   taluk: "",
   district: "",
+  state: "",
   pincode: "",
   country: "India",
 });
@@ -85,6 +88,7 @@ export default function Page() {
           city:     a.city      || "",
           taluk:    a.taluk     || "",
           district: a.district  || "",
+          state:    a.state     || "",
           pincode:  a.pincode   || "",
           country:  a.country   || "India",
         };
@@ -106,7 +110,7 @@ export default function Page() {
       if (loadedCurrent && loadedHometown) {
         const keys: (keyof Address)[] = [
           "flatNo", "building", "street", "landmark",
-          "area", "city", "taluk", "district", "pincode", "country",
+          "area", "city", "taluk", "district", "state","pincode", "country",
         ];
         const areSame = keys.every(k => (loadedCurrent as Address)[k] === (loadedHometown as Address)[k]);
         setSameAsCurrent(areSame);
@@ -132,6 +136,7 @@ export default function Page() {
       city:         a.city     || null,
       taluk:        a.taluk    || null,
       district:     a.district || null,
+      state:        a.state    || null,
       pincode:      a.pincode  || null,
       country:      a.country  || "India",
     });
@@ -302,7 +307,27 @@ export default function Page() {
             onChange={e => setField(setAddress, address, "district", e.target.value)}
           />
         </div>
+         <div className="space-y-2">
+    <Label>State</Label>
+    <Input
+      placeholder="e.g. Karnataka"
+      value={address.state}
+      disabled={readOnly}
+      onChange={e => setField(setAddress, address, "state", e.target.value)}
+    />
+  </div>
       </div>
+      <div className="grid md:grid-cols-2 gap-4">
+  <div className="space-y-2">
+    <Label>State</Label>
+    <Input
+      placeholder="e.g. Karnataka"
+      value={address.state}
+      disabled={readOnly}
+      onChange={e => setField(setAddress, address, "state", e.target.value)}
+    />
+  </div>
+</div>
 
       {/* Row 5: Pincode + Country */}
       <div className="grid md:grid-cols-2 gap-4">
