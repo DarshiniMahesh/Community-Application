@@ -5,7 +5,8 @@ const { authenticate, requireRole } = require('../middlewares/auth');
 const ac = require('../controllers/adminController');
 console.log('getUserPendingDetail loaded:', typeof ac.getUserPendingDetail);
 // ── Public ───────────────────────────────────────────────────
-router.post('/login', ac.loginAdmin);
+router.post('/login/send-otp',   ac.loginSendOtp);
+router.post('/login/verify-otp', ac.loginVerifyOtp);
 
 // ── All routes below require admin auth ──────────────────────
 router.use(authenticate);

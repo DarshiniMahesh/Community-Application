@@ -1,4 +1,4 @@
-export const API_BASE = "http://localhost:8000/api";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
 export const INCOME_SLAB_MAP: Record<string, string> = {
   "Less than ₹1 Lakh":  "below_1l",

@@ -2,44 +2,105 @@
 const pool = require('../config/db');
 const bcrypt = require('bcrypt');
 const { signToken } = require('../utils/jwt');
+const { generateOtp }  = require('../utils/otp');
+const { sendOtpEmail } = require('../config/mailer');
 
-// ─── POST /admin/login ────────────────────────────────────────
-const loginAdmin = async (req, res) => {
+// ─── POST /admin/login/send-otp ───────────────────────────────────
+const loginSendOtp = async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password)
       return res.status(400).json({ message: 'Email and password are required' });
 
-    if (email === 'admin@gmail.com' && password === 'admin@123') {
-      const token = signToken({ id: 'hardcoded-admin', role: 'admin' });
-      return res.json({ token, role: 'admin', email });
-    }
+    // ── Check against .env credentials first ──
+const envEmail    = process.env.ADMIN_EMAIL;
+const envPassword = process.env.ADMIN_PASSWORD;
+
+if (!envEmail || !envPassword)
+  return res.status(500).json({ message: 'Admin credentials not configured' });
+
+if (email !== envEmail)
+  return res.status(401).json({ message: 'Invalid credentials' });
+
+if (password !== envPassword)
+  return res.status(401).json({ message: 'Invalid credentials' });
+
+// ── Upsert admin user in DB (so OTP storage works) ──
+let userRes = await pool.query(
+  `SELECT id, email FROM users WHERE email = $1 AND role = 'admin'`,
+  [email]
+);
+
+if (userRes.rows.length === 0) {
+  const password_hash = await bcrypt.hash(password, 10);
+  userRes = await pool.query(
+    `INSERT INTO users (email, role, password_hash, is_active, is_email_verified)
+     VALUES ($1, 'admin', $2, true, true) RETURNING id, email`,
+    [email, password_hash]
+  );
+} else {
+  // Keep DB password hash in sync with .env
+  const password_hash = await bcrypt.hash(password, 10);
+  await pool.query(
+    `UPDATE users SET password_hash=$1, is_active=true WHERE id=$2`,
+    [password_hash, userRes.rows[0].id]
+  );
+}
+
+const user = userRes.rows[0];
+
+    const otp = generateOtp();
+    const expiresAt = new Date(
+      Date.now() + (parseInt(process.env.OTP_EXPIRES_MINUTES) || 10) * 60 * 1000
+    );
+
+    await pool.query(
+      'UPDATE users SET otp_code=$1, otp_expires_at=$2 WHERE id=$3',
+      [otp, expiresAt, user.id]
+    );
+
+    await sendOtpEmail(email, otp);
+
+    res.json({ message: 'Credentials verified. OTP sent to your email.' });
+  } catch (err) {
+    console.error('loginSendOtp error:', err.message);
+    res.status(500).json({ message: 'Failed to send OTP. Please try again.' });
+  }
+};
+
+// ─── POST /admin/login/verify-otp ────────────────────────────────
+const loginVerifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp)
+      return res.status(400).json({ message: 'Email and OTP are required' });
 
     const userRes = await pool.query(
-      `SELECT id, email, phone, role, password_hash, is_active, is_deleted
+      `SELECT id, email, role, otp_code, otp_expires_at
        FROM users WHERE email = $1 AND role = 'admin'`,
       [email]
     );
 
     if (userRes.rows.length === 0)
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return res.status(404).json({ message: 'Account not found' });
 
     const user = userRes.rows[0];
-    if (!user.is_active || user.is_deleted)
-      return res.status(401).json({ message: 'Account is disabled' });
-    if (!user.password_hash)
-      return res.status(401).json({ message: 'Invalid credentials' });
 
-    const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid)
-      return res.status(401).json({ message: 'Invalid credentials' });
+    if (user.otp_code !== otp)
+      return res.status(400).json({ message: 'Invalid OTP' });
 
-    await pool.query("UPDATE users SET last_login_at=((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') WHERE id=$1", [user.id]);
+    if (new Date() > new Date(user.otp_expires_at))
+      return res.status(400).json({ message: 'OTP has expired' });
+
+    await pool.query(
+      'UPDATE users SET otp_code=NULL, otp_expires_at=NULL, last_login_at=NOW() WHERE id=$1',
+      [user.id]
+    );
 
     const token = signToken({ id: user.id, role: user.role });
     res.json({ token, role: user.role, email: user.email });
   } catch (err) {
-    console.error(err);
+    console.error('loginVerifyOtp error:', err.message);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -50,19 +111,18 @@ const getDashboard = async (req, res) => {
     const [
       totalUsers, totalSangha,
       approvedUsers, rejectedUsers, pendingUsers, changesRequested,
-      pendingSangha, approvedSangha, rejectedSangha,draftUsers
+      pendingSangha, approvedSangha, rejectedSangha, draftUsers
     ] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM users WHERE role='user' AND is_deleted=FALSE"),
       pool.query("SELECT COUNT(*) FROM sanghas"),
       pool.query("SELECT COUNT(*) FROM profiles WHERE status='approved'"),
       pool.query("SELECT COUNT(*) FROM profiles WHERE status='rejected'"),
-      // FIXED: Joined with users to exclude deleted users, matching the getPendingUsers list logic
       pool.query("SELECT COUNT(*) FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.status IN ('submitted','under_review','draft') AND u.is_deleted = FALSE"),
       pool.query("SELECT COUNT(*) FROM profiles WHERE status='changes_requested'"),
       pool.query("SELECT COUNT(*) FROM sanghas WHERE status='pending_approval'"),
       pool.query("SELECT COUNT(*) FROM sanghas WHERE status='approved'"),
       pool.query("SELECT COUNT(*) FROM sanghas WHERE status='rejected'"),
-       pool.query("SELECT COUNT(*) FROM profiles WHERE status='draft'")
+      pool.query("SELECT COUNT(*) FROM profiles WHERE status='draft'")
     ]);
 
     res.json({
@@ -76,7 +136,6 @@ const getDashboard = async (req, res) => {
       approvedSangha:   parseInt(approvedSangha.rows[0].count),
       rejectedSangha:   parseInt(rejectedSangha.rows[0].count),
       draftUsers:       parseInt(draftUsers.rows[0].count)
-      
     });
   } catch (err) {
     console.error(err);
@@ -291,7 +350,7 @@ const getAllUsers = async (req, res) => {
     const result = await pool.query(
       `SELECT u.id, u.email, u.phone, u.created_at, u.is_blocked,
               p.id AS profile_id, p.status, p.submitted_at,
-              p.overall_completion_pct, p.sangha_id,p.review_comment,
+              p.overall_completion_pct, p.sangha_id, p.review_comment,
               pd.first_name, pd.last_name, pd.gender,
               s.sangha_name
        FROM users u
@@ -345,8 +404,6 @@ const getActivityLogs = async (req, res) => {
 // ─── GET /admin/sangha/history ────────────────────────────────
 const getSanghaHistory = async (req, res) => {
   try {
-    // FIXED: Aligned column names (name, reg_email, reg_phone) with getAllSanghas and getPendingSanghas
-    // to prevent frontend 'NaN' or undefined errors when rendering the Rejected Sangha tab.
     const result = await pool.query(
       `SELECT
          s.id,
@@ -374,7 +431,6 @@ const getSanghaHistory = async (req, res) => {
 };
 
 // ─── GET /admin/blocklist/users ───────────────────────────────
-// Search-based — returns empty when no ?search= param (preserved for backward compat)
 const getBlocklistUsers = async (req, res) => {
   try {
     const { search } = req.query;
@@ -412,7 +468,6 @@ const getBlocklistUsers = async (req, res) => {
 };
 
 // ─── GET /admin/blocklist/sanghas ─────────────────────────────
-// Search-based — returns empty when no ?search= param (preserved for backward compat)
 const getBlocklistSanghas = async (req, res) => {
   try {
     const { search } = req.query;
@@ -568,10 +623,6 @@ const deleteSangha = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
-// ADDED FUNCTIONS FOR HARSITHA / FRONTEND COMPATIBILITY
-// ─────────────────────────────────────────────────────────────
-
 // ─── GET /admin/sangha/counts ────────────────────────────────
 const getSanghaCounts = async (req, res) => {
   try {
@@ -636,16 +687,13 @@ const getSanghaDetail = async (req, res) => {
   }
 };
 
-   
-
 // ─── GET /admin/users/:id/profile ────────────────────────────
 const getUserProfile = async (req, res) => {
   console.log('✅ getUserPendingDetail HIT - id:', req.params.id);
   console.log('✅ user from token:', req.user);
   try {
-    const { id } = req.params; // This is user_id
+    const { id } = req.params;
 
-    // 1. Fetch User & Profile basic info
     const userRes = await pool.query(
       `SELECT u.id, u.email, u.phone, u.is_blocked, u.created_at,
               p.id AS profile_id, p.status, p.photo_url, p.photo_uploaded_at,
@@ -667,7 +715,6 @@ const getUserProfile = async (req, res) => {
     const profileId = user.profile_id;
 
     if (!profileId) {
-      // User exists but has no profile created yet
       return res.json({
         user, profile: null, step1: null, step2: null,
         step3: null, step4: [], step5: [], step5_certifications: [],
@@ -675,8 +722,6 @@ const getUserProfile = async (req, res) => {
       });
     }
 
-    // 2. Fetch all related details in parallel
-    // NOTE: Using 'member_' prefixes as per schema
     const [
       s1Res, s2Res, s3FamRes, s3MemRes, s4Res, s5Res,
       s5CertRes, s5LangRes, s6EcoRes, s6InsRes, s6DocRes, s6HistRes,
@@ -687,8 +732,6 @@ const getUserProfile = async (req, res) => {
       pool.query('SELECT * FROM family_members WHERE profile_id = $1 ORDER BY sort_order ASC', [profileId]),
       pool.query('SELECT * FROM addresses WHERE profile_id = $1', [profileId]),
       pool.query('SELECT * FROM member_education WHERE profile_id = $1 ORDER BY sort_order ASC', [profileId]),
-      
-      // Certifications are linked to member_education, not profile directly
       pool.query(
         `SELECT c.id, c.certification, c.sort_order, c.member_education_id AS edu_id
          FROM member_certifications c
@@ -696,8 +739,6 @@ const getUserProfile = async (req, res) => {
          WHERE e.profile_id = $1`,
         [profileId]
       ),
-
-      // Languages are linked to member_education, not profile directly
       pool.query(
         `SELECT l.id, l.language, l.language_other, l.member_education_id AS edu_id
          FROM member_languages l
@@ -705,14 +746,12 @@ const getUserProfile = async (req, res) => {
          WHERE e.profile_id = $1`,
         [profileId]
       ),
-
       pool.query('SELECT * FROM economic_details WHERE profile_id = $1', [profileId]),
       pool.query('SELECT * FROM member_insurance WHERE profile_id = $1', [profileId]),
       pool.query('SELECT * FROM member_documents WHERE profile_id = $1', [profileId]),
       pool.query('SELECT * FROM family_history WHERE profile_id = $1', [profileId]),
     ]);
 
-    // 3. Construct Response Object matching Frontend Interface
     const responseData = {
       user: {
         id:         user.id,
@@ -772,20 +811,10 @@ const getUserProfile = async (req, res) => {
 
 // ─── PUT /admin/users/:id/profile ────────────────────────────
 const updateUserProfile = async (req, res) => {
-  // Placeholder for future implementation if needed
   res.status(501).json({ message: 'Not implemented' });
 };
 
-// ─────────────────────────────────────────────────────────────
-// FULL BLOCKLIST LOADERS (no search filter required)
-// Used by blocklist/page.tsx to populate tables on mount
-// ─────────────────────────────────────────────────────────────
-
 // ─── GET /admin/blocklist/users/all ──────────────────────────
-// Returns ALL approved users with their block status.
-// Columns: id, email, phone, is_blocked, created_at,
-//          first_name, last_name, sangha_name, profile_status
-// Sorted: blocked first, then alphabetically by first_name.
 const getAllBlocklistUsers = async (req, res) => {
   try {
     const result = await pool.query(
@@ -815,10 +844,6 @@ const getAllBlocklistUsers = async (req, res) => {
 };
 
 // ─── GET /admin/blocklist/sanghas/all ────────────────────────
-// Returns ALL approved sanghas with their block status.
-// Columns: id, sangha_auth_id, sangha_name, email, phone,
-//          location (district), status, is_blocked, created_at
-// Sorted: blocked first, then alphabetically by sangha_name.
 const getAllBlocklistSanghas = async (req, res) => {
   try {
     const result = await pool.query(
@@ -841,11 +866,11 @@ const getAllBlocklistSanghas = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
 // ─── GET /admin/users/:id/pending-detail ─────────────────────
-// Returns full profile detail for a pending user (for the approvals See button)->harshi
 const getUserPendingDetail = async (req, res) => {
   try {
-    const { id } = req.params; // user_id
+    const { id } = req.params;
 
     const userRes = await pool.query(
       `SELECT u.id, u.email, u.phone, u.is_blocked, u.created_at,
@@ -920,8 +945,10 @@ const getUserPendingDetail = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
 module.exports = {
-  loginAdmin,
+  loginSendOtp,
+  loginVerifyOtp,
   getDashboard,
   getPendingSanghas,
   getAllSanghas,
@@ -942,13 +969,11 @@ module.exports = {
   blockSangha,
   unblockSangha,
   deleteSangha,
-  // Frontend compatibility functions
   getSanghaCounts,
   getSanghaDetail,
   getUserPendingDetail,
   getUserProfile,
   updateUserProfile,
-  // Full blocklist loaders
   getAllBlocklistUsers,
   getAllBlocklistSanghas,
 };
