@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { IC } from "@/components/Icons";
 
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 export default function OtpPage() {
   const router = useRouter();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
@@ -46,12 +48,21 @@ export default function OtpPage() {
     if (otp.length < 6) return;
     setLoading(true);
     try {
-      await new Promise(r => setTimeout(r, 600));
-      if (otp !== "123456") throw new Error("Incorrect OTP");
-      router.push("/dashboard");
+      const res = await fetch(`${BASE_URL}/api/admin/login/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: sessionStorage.getItem('admin_email'),
+          otp,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Verification failed');
+      sessionStorage.setItem('admin_token', data.token);
+      router.push('/dashboard');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Verification failed";
-      setErr(msg + ". Demo OTP: 123456");
+      setErr(msg);
       setTimeout(() => setErr(""), 3000);
       setDigits(["", "", "", "", "", ""]);
       refs.current[0]?.focus();
@@ -68,17 +79,32 @@ export default function OtpPage() {
   const handleResend = async () => {
     if (resendCooldown > 0) return;
 
-    // TODO: call your real resend API here
-    await new Promise(r => setTimeout(r, 400));
+    try {
+      const resendRes = await fetch(`${BASE_URL}/api/admin/login/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email:    sessionStorage.getItem('admin_email'),
+          password: sessionStorage.getItem('admin_password'),
+        }),
+      });
+      if (!resendRes.ok) {
+        const err = await resendRes.json();
+        throw new Error(err.message || 'Failed to resend OTP');
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to resend OTP';
+      setErr(msg);
+      setTimeout(() => setErr(''), 3000);
+      return;
+    }
 
     setDigits(["", "", "", "", "", ""]);
     refs.current[0]?.focus();
 
-    // Show top-right toast
     setToast(true);
     setTimeout(() => setToast(false), 3000);
 
-    // 30-second cooldown
     setResendCooldown(30);
     cooldownRef.current = setInterval(() => {
       setResendCooldown(prev => {
@@ -123,15 +149,6 @@ export default function OtpPage() {
         <div className="auth-title">Verify OTP</div>
         <div className="auth-subtitle">
           Enter the 6-digit code sent to <strong>{contact}</strong>
-        </div>
-
-        <div style={{
-          background: "var(--green-pale)", color: "var(--green)",
-          border: "1px solid rgba(22,163,74,0.2)",
-          borderRadius: "var(--radius-sm)", padding: "10px 14px",
-          fontSize: 13, marginBottom: 14,
-        }}>
-          For demo, OTP is: <strong style={{ fontFamily: "var(--mono)", letterSpacing: 3 }}>123456</strong>
         </div>
 
         {err && <div className="alert alert-error">{err}</div>}

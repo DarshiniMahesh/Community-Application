@@ -28,7 +28,7 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/admin/login`, {
+      const res = await fetch(`${BASE_URL}/api/admin/login/send-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: contact, password }),
@@ -42,8 +42,8 @@ export default function LoginPage() {
         return;
       }
 
-      sessionStorage.setItem('admin_token', data.token);
       sessionStorage.setItem('admin_email', data.email);
+      sessionStorage.setItem('admin_password', password);
       router.push('/signup/otp');
     } catch {
       setErr('Network error. Please try again.');

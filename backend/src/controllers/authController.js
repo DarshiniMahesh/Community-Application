@@ -85,46 +85,55 @@ const userLogin = async (req, res) => {
 const sendOtp = async (req, res) => {
   try {
     const { contact, role } = req.body;
+
+    // ── Validate input ──
     if (!contact || !role)
       return res.status(400).json({ message: 'Contact and role are required' });
 
+    // ── Phone not supported for OTP ──
+    if (!contact.includes('@'))
+      return res.status(400).json({ message: 'Please use your email address for OTP' });
+
+    // ── Check user exists ──
     const result = await pool.query(
-      `SELECT id FROM users WHERE (email=$1 OR phone=$1) AND role=$2 AND is_deleted=FALSE`,
+      `SELECT id FROM users WHERE email=$1 AND role=$2 AND is_deleted=FALSE`,
       [contact, role]
     );
     if (result.rows.length === 0)
-      return res.status(404).json({ message: 'No account found' });
+      return res.status(404).json({ message: 'No account found with this email' });
 
+    const userId = result.rows[0].id;
+
+    // ── Sangha: only approved accounts can login ──
     if (role === 'sangha') {
       const sp = await pool.query(
         'SELECT status FROM sangha_profiles WHERE user_id=$1',
-        [result.rows[0].id]
+        [userId]
       );
       if (!sp.rows.length || sp.rows[0].status !== 'approved') {
         return res.status(403).json({ message: 'Sangha account pending admin approval' });
       }
     }
 
+    // ── Generate OTP and expiry ──
     const otp = generateOtp();
-    const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRES_MINUTES || 10) * 60 * 1000);
-
-    await pool.query(
-      'UPDATE users SET otp_code=$1, otp_expires_at=$2 WHERE id=$3',
-      [otp, expiresAt, result.rows[0].id]
+    const expiresAt = new Date(
+      Date.now() + (parseInt(process.env.OTP_EXPIRES_MINUTES) || 10) * 60 * 1000
     );
 
-    if (contact.includes('@')) {
-      try {
-        await sendOtpEmail(contact, otp);
-      } catch (emailErr) {
-        console.error('Email send failed:', emailErr.message);
-      }
-    }
+    // ── Store OTP in DB ──
+    await pool.query(
+      'UPDATE users SET otp_code=$1, otp_expires_at=$2 WHERE id=$3',
+      [otp, expiresAt, userId]
+    );
+
+    // ── Send email — throws if Gmail fails ──
+    await sendOtpEmail(contact, otp);
 
     res.json({ message: 'OTP sent successfully' });
   } catch (err) {
-    console.error('sendOtp error:', err);
-    res.status(500).json({ message: 'Server error' });
+    console.error('sendOtp error:', err.message);
+    res.status(500).json({ message: 'Failed to send OTP. Please try again.' });
   }
 };
 

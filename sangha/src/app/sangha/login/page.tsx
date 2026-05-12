@@ -297,9 +297,7 @@ export default function SanghaLoginPage() {
                     maxLength={6}
                   />
                   {loginOtpError && <p className="text-xs text-destructive">{loginOtpError}</p>}
-                  <p className="text-xs text-muted-foreground text-center">
-                    For demo, OTP is: <span className="font-mono font-bold">123456</span>
-                  </p>
+                  
                 </div>
 
                 <Button type="submit" className="w-full" size="lg" disabled={loginOtpLoading}>
@@ -382,9 +380,7 @@ export default function SanghaLoginPage() {
                     maxLength={6}
                   />
                   {fpOtpError && <p className="text-xs text-destructive">{fpOtpError}</p>}
-                  <p className="text-xs text-muted-foreground text-center">
-                    For demo, OTP is: <span className="font-mono font-bold">123456</span>
-                  </p>
+                  
                 </div>
                 <Button type="submit" className="w-full" size="lg" disabled={fpLoading}>
                   {fpLoading ? "Verifying..." : "Verify OTP"}

@@ -6,17 +6,28 @@ const path = require('path');
 const fs = require('fs');
 
 // ─── OTP helpers ──────────────────────────────────────────────
-const DEMO_OTP = '123456';
+// ─── OTP helpers ──────────────────────────────────────────────
+const { generateOtp }   = require('../utils/otp');
+const { sendOtpEmail }  = require('../config/mailer');
 
 async function writeOtp(identifier) {
   const isEmail = identifier.includes('@');
-  const expires = new Date(Date.now() + 10 * 60 * 1000);
-  await pool.query(
-    `UPDATE users SET otp_code=$1, otp_expires_at=$2
-     WHERE ${isEmail ? 'email' : 'phone'} = $3`,
-    [DEMO_OTP, expires, identifier]
+
+  if (!isEmail) {
+    throw new Error('Please use your email address for OTP');
+  }
+
+  const otp     = generateOtp();
+  const expires = new Date(
+    Date.now() + (parseInt(process.env.OTP_EXPIRES_MINUTES) || 10) * 60 * 1000
   );
-  console.log(`[DEV] OTP for ${identifier}: ${DEMO_OTP}`);
+
+  await pool.query(
+    `UPDATE users SET otp_code=$1, otp_expires_at=$2 WHERE email=$3`,
+    [otp, expires, identifier]
+  );
+
+  await sendOtpEmail(identifier, otp); // throws if Gmail fails
 }
 
 async function checkOtp(identifier, otp) {

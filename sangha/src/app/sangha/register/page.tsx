@@ -313,9 +313,7 @@ export default function SanghaRegisterPage() {
                     maxLength={6}
                   />
                   {otpError && <p className="text-xs text-destructive">{otpError}</p>}
-                  <p className="text-xs text-muted-foreground text-center">
-                    For demo, OTP is: <span className="font-mono font-bold">123456</span>
-                  </p>
+                  
                 </div>
 
                 <Button type="submit" className="w-full" size="lg" disabled={otpLoading}>
