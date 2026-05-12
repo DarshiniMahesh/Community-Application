@@ -1,3 +1,4 @@
+//Community-Application\User\src\app\dashboard\profile\review-submit\page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -159,7 +160,7 @@ function findMemberRow(
 }
 
 function formatAddress(a: Record<string, string>): string {
-  return [a.flat_no, a.building, a.street, a.landmark, a.area, a.city, a.taluk, a.district, a.pincode, a.country]
+  return [a.flat_no, a.building, a.street, a.landmark, a.area, a.city, a.taluk, a.district, a.state, a.pincode, a.country]
     .filter(Boolean).join(", ");
 }
 

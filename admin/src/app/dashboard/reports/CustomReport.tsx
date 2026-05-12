@@ -1,4 +1,4 @@
-// Community-Application\admin\src\app\dashboard\reports\CustomReport.tsx
+//Community-Application\admin\src\app\dashboard\reports\CustomReport.tsx
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -11,7 +11,7 @@ import {
 import { api } from "@/lib/api";
 import { DateRange, toISO } from "./DateRangePicker";
 
-// ─── Palette (matches Generaldashboard.tsx) ───────────────────────────────────
+// ─── Palette ──────────────────────────────────────────────────────────────────
 const C = {
   sky:        "#0ea5e9",
   skyDark:    "#0284c7",
@@ -68,7 +68,7 @@ export const USER_SECTIONS: {
     columns: [
       "Full Name", "Email", "Phone", "Status", "Gender", "Date of Birth", "Age",
       "Father's Name", "Mother's Name", "Surname in Use", "Surname as per Gotra",
-      "Is Married", "Has Disability", "Submitted At", "Reviewed At",
+      "Is Married", "Has Disability", "Primary Sangha", "Submitted At", "Reviewed At",
     ],
   },
   {
@@ -121,9 +121,9 @@ export const USER_SECTIONS: {
     columns: ["Member Name", "Relation", "Aadhaar", "PAN Card", "Voter ID", "Land Docs", "DL"],
   },
   {
-    id: "sangha-membership", label: "Sangha Membership", icon: "🏛️",
+    id: "sangha-membership", label: "Sangha Memberships", icon: "🏛️",
     color: C.emerald,
-    columns: ["Sangha Name", "Role in Sangha", "Tenure", "Membership Status"],
+    columns: [],
   },
 ];
 
@@ -148,29 +148,83 @@ export const SANGHA_SECTIONS: {
     ],
   },
   {
-    id: "sangha-members", label: "Sangha Members (Internal)", icon: "👥",
+    id: "sangha-members", label: "Sangha Members (Roster)", icon: "👥",
     color: C.emerald,
     columns: [
-      "Member Name", "Gender", "Date of Birth", "Phone", "Email",
-      "Role", "Member Type",
+      "Member Name", "Gender", "Date of Birth", "Age",
+      "Member Phone", "Member Email", "Role", "Member Type",
     ],
+  },
+  {
+    id: "sangha-user-table", label: "User Table", icon: "👤",
+    color: C.sky,
+    columns: [],
   },
 ];
 
 const USER_BASE_COLS   = ["Full Name", "Email", "Phone", "Status"];
 const SANGHA_BASE_COLS = ["Sangha Name", "Email", "Phone", "Status"];
-const FAMILY_SECTION_ID = "family-information";
 
+const FAMILY_SECTION_ID            = "family-information";
+const SANGHA_MEMBERSHIP_SECTION_ID = "sangha-membership";
+const SANGHA_USER_TABLE_SECTION_ID = "sangha-user-table";
+
+// ─── Family table columns ─────────────────────────────────────────────────────
 const FAMILY_COLS = [
   "Owner", "Family Member Name", "Relation", "Date of Birth", "Gender", "Status", "Disability",
+  "Health Coverage", "Life Coverage", "Term Coverage", "Konkani Card Coverage",
+  "Currently Studying", "Currently Working", "Type of Profession", "Industry",
+  "Education Level", "Languages Known",
+  "Aadhaar", "PAN Card", "Voter ID", "Land Docs", "DL",
 ];
 const FAMILY_CORE = ["Owner", "Family Member Name", "Relation"];
+
+// ─── Sangha Membership table columns ─────────────────────────────────────────
+const SANGHA_MEMBERSHIP_COLS = [
+  "User Full Name", "Gender", "Age", "Member In", "Type of Member",
+];
+const SANGHA_MEMBERSHIP_CORE = ["User Full Name", "Member In"];
+
+// ─── Sangha User Table columns ────────────────────────────────────────────────
+const SANGHA_USER_TABLE_COLS = [
+  "Full Name", "Email", "Phone", "Status",
+  "Gender", "Date of Birth", "Age",
+  "City", "District", "State",
+  "Submitted At", "Reviewed At",
+];
+const SANGHA_USER_TABLE_CORE = ["Full Name", "Status"];
+
+// ─── Income columns set (for formatting) ─────────────────────────────────────
+const INCOME_COLS = new Set(["Self Income", "Family Income"]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface TableRow { [key: string]: any; }
 interface ColumnFilter { column: string; value: string; }
 interface FamilyEntry { profileId: string; label: string; rows: TableRow[]; }
-interface Props { dateRange: DateRange; }
+interface SanghaMembershipEntry { profileId: string; label: string; rows: TableRow[]; }
+interface SanghaUserTableEntry { sanghaId: string; sanghaName: string; rows: TableRow[]; }
+
+interface Props {
+  dateRange: DateRange;
+  initSections?: string[];
+  initCategory?: string;
+  onClearInit?: () => void;
+}
+
+// ─── Income slab formatter ────────────────────────────────────────────────────
+function formatIncomeSlab(val: string): string {
+  if (!val || val === "—") return val;
+  return val
+    .replace(/above_(\d+)cr/i,      "Above $1 Crore")
+    .replace(/above_(\d+)l/i,       "Above $1 Lakh")
+    .replace(/below_(\d+)l/i,       "Below $1 Lakh")
+    .replace(/(\d+)_(\d+)cr/i,      "$1–$2 Crore")
+    .replace(/(\d+)cr/i,            "$1 Crore")
+    .replace(/(\d+)_(\d+)l/i,       "$1–$2 Lakh")
+    .replace(/(\d+)l/i,             "$1 Lakh")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 async function downloadExcel(rows: TableRow[], filename: string) {
@@ -220,7 +274,6 @@ function fmtDateRange(dateRange: DateRange): string | null {
   return null;
 }
 
-// ─── Status cell color ────────────────────────────────────────────────────────
 function statusColor(val: string): string {
   const s = val.toLowerCase();
   if (s === "approved")               return C.emerald;
@@ -232,13 +285,48 @@ function statusColor(val: string): string {
   return C.slate700;
 }
 
+function resolveCellDisplay(col: string, val: unknown): {
+  text: string; color: string; fontWeight: number | string;
+} {
+  let text       = val !== undefined && val !== null ? String(val) : "—";
+  let color      = C.slate700;
+  let fontWeight: number | string = 400;
+
+  if (INCOME_COLS.has(col) && text !== "—") {
+    text = formatIncomeSlab(text);
+  }
+
+  if (col === "Status" && val) {
+    color      = statusColor(String(val));
+    fontWeight = 600;
+  }
+
+  if (col === "Gender") {
+    const g = String(val ?? "").toLowerCase();
+    if (g === "male")        color = C.sky;
+    else if (g === "female") color = C.pink;
+  }
+
+  if (typeof val === "boolean") {
+    text       = val ? "✓ Yes" : "No";
+    color      = val ? C.emerald : C.slate400;
+    fontWeight = val ? 600 : 400;
+  }
+
+  if (!val && val !== false && val !== 0) color = C.slate300;
+  if (text === "—") color = C.slate300;
+
+  return { text, color, fontWeight };
+}
+
 // ─── Portal filter dropdown ───────────────────────────────────────────────────
 interface FilterDropdownPortalProps {
   col: string; anchorRect: DOMRect; uniqueVals: string[];
   activeValue?: string; onSelect: (v: string) => void; onClear: () => void; onClose: () => void;
+  accent?: string;
 }
 
-function FilterDropdownPortal({ col, anchorRect, uniqueVals, activeValue, onSelect, onClear, onClose }: FilterDropdownPortalProps) {
+function FilterDropdownPortal({ col, anchorRect, uniqueVals, activeValue, onSelect, onClear, onClose, accent = C.sky }: FilterDropdownPortalProps) {
   const dropRef     = useRef<HTMLDivElement>(null);
   const spaceBelow  = window.innerHeight - anchorRect.bottom;
   const openAbove   = spaceBelow < 224 && anchorRect.top > 224;
@@ -280,7 +368,7 @@ function FilterDropdownPortal({ col, anchorRect, uniqueVals, activeValue, onSele
       <FilterDropBtn label="— Clear filter" active={false} onClick={() => { onClear(); onClose(); }} accent={C.slate500} />
       {uniqueVals.slice(0, 50).map(val => (
         <FilterDropBtn key={val} label={val || "(empty)"} active={activeValue === val}
-          onClick={() => { onSelect(val); onClose(); }} accent={C.sky} />
+          onClick={() => { onSelect(val); onClose(); }} accent={accent} />
       ))}
       {uniqueVals.length === 0 && (
         <p style={{ fontSize: 11, color: C.slate300, padding: "4px 8px" }}>No values in data</p>
@@ -317,15 +405,17 @@ function Btn({
   onClick, disabled, children, variant = "default", small = false,
 }: {
   onClick?: () => void; disabled?: boolean; children: React.ReactNode;
-  variant?: "emerald" | "violet" | "sky" | "default" | "ghost"; small?: boolean;
+  variant?: "emerald" | "violet" | "sky" | "default" | "ghost" | "ghostEmerald" | "orange"; small?: boolean;
 }) {
   const [hov, setHov] = useState(false);
   const map = {
-    emerald: { bg: hov ? C.emeraldDk : C.emerald, color: C.white, border: "none" },
-    violet:  { bg: hov ? C.violetDk : C.violet,   color: C.white, border: "none" },
-    sky:     { bg: hov ? C.skyDark : C.sky,        color: C.white, border: "none" },
-    default: { bg: hov ? C.slate100 : C.white,     color: C.slate600, border: `1px solid ${C.slate200}` },
-    ghost:   { bg: hov ? C.violetLt : "transparent", color: C.violetDk, border: `1px solid ${hov ? C.violetBd : C.slate200}` },
+    emerald:      { bg: hov ? C.emeraldDk : C.emerald,         color: C.white,     border: "none" },
+    violet:       { bg: hov ? C.violetDk  : C.violet,          color: C.white,     border: "none" },
+    sky:          { bg: hov ? C.skyDark   : C.sky,             color: C.white,     border: "none" },
+    orange:       { bg: hov ? "#ea580c"   : "#f97316",         color: C.white,     border: "none" },
+    default:      { bg: hov ? C.slate100  : C.white,           color: C.slate600,  border: `1px solid ${C.slate200}` },
+    ghost:        { bg: hov ? C.violetLt  : "transparent",     color: C.violetDk,  border: `1px solid ${hov ? C.violetBd : C.slate200}` },
+    ghostEmerald: { bg: hov ? C.emeraldLt : "transparent",     color: C.emeraldDk, border: `1px solid ${hov ? C.emeraldBd : C.slate200}` },
   };
   const s = map[variant];
   return (
@@ -342,7 +432,7 @@ function Btn({
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.4 : 1,
         transition: "all 0.15s",
-        boxShadow: (variant === "emerald" || variant === "violet" || variant === "sky") && !disabled
+        boxShadow: (["emerald","violet","sky","orange"].includes(variant)) && !disabled
           ? "0 2px 8px rgba(0,0,0,0.14)" : "none",
         whiteSpace: "nowrap",
       }}
@@ -376,16 +466,21 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
 }
 
 // ─── Checkbox ─────────────────────────────────────────────────────────────────
-function Checkbox({ checked }: { checked: boolean }) {
+function Checkbox({ checked, indeterminate = false }: { checked: boolean; indeterminate?: boolean }) {
   return (
     <div style={{
       width: 18, height: 18, borderRadius: 5, flexShrink: 0,
-      border: `2px solid ${checked ? C.sky : C.slate300}`,
-      background: checked ? C.sky : C.white,
+      border: `2px solid ${checked || indeterminate ? C.sky : C.slate300}`,
+      background: checked ? C.sky : indeterminate ? `${C.sky}33` : C.white,
       display: "flex", alignItems: "center", justifyContent: "center",
       transition: "all 0.15s",
     }}>
-      {checked && <Check style={{ width: 11, height: 11, color: C.white }} strokeWidth={3} />}
+      {checked
+        ? <Check style={{ width: 11, height: 11, color: C.white }} strokeWidth={3} />
+        : indeterminate
+          ? <div style={{ width: 8, height: 2, background: C.sky, borderRadius: 1 }} />
+          : null
+      }
     </div>
   );
 }
@@ -404,19 +499,619 @@ function Pill({ color, bg, border, children }: { color: string; bg: string; bord
   );
 }
 
-// ─── Section icon badge ───────────────────────────────────────────────────────
-function SectionBadge({ icon, label, color }: { icon: string; label: string; color: string }) {
+// ─── Shared table cell for column header ─────────────────────────────────────
+function ThCell({
+  col, isBase, activeFilter, onFilter, onDelete, filterAccent = C.sky,
+}: {
+  col: string; isBase: boolean; activeFilter?: string;
+  onFilter: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onDelete: () => void; filterAccent?: string;
+}) {
+  const [hov, setHov] = useState(false);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <span style={{ fontSize: 14 }}>{icon}</span>
-      <span style={{ fontSize: 11, fontWeight: 700, color }}>{label}</span>
+    <div
+      style={{ display: "flex", alignItems: "center", gap: 5 }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+    >
+      <span>{col}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 2, opacity: hov ? 1 : 0, transition: "opacity 0.15s" }}>
+        <button onClick={onFilter} style={{ padding: 2, border: "none", background: "none", cursor: "pointer", borderRadius: 4, color: activeFilter ? filterAccent : C.slate400, display: "flex" }}>
+          <Filter style={{ width: 11, height: 11 }} />
+        </button>
+        {!isBase && (
+          <button onClick={onDelete} style={{ padding: 2, border: "none", background: "none", cursor: "pointer", borderRadius: 4, color: C.slate400, display: "flex" }}>
+            <Trash2 style={{ width: 11, height: 11 }} />
+          </button>
+        )}
+      </div>
+      {activeFilter && (
+        <span style={{ fontSize: 10, fontWeight: 700, color: filterAccent, background: filterAccent + "18", padding: "1px 6px", borderRadius: 999, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {activeFilter}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ─── ColToggleBtn ─────────────────────────────────────────────────────────────
+function ColToggleBtn({ visible, onClick }: { visible: boolean; onClick: () => void }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        marginLeft: 6, flexShrink: 0, background: "none", border: "none", cursor: "pointer",
+        color: visible ? (hov ? "#dc2626" : "#f87171") : (hov ? C.emeraldDk : "#34d399"),
+        display: "flex", padding: 2,
+      }}
+    >
+      {visible ? <Eye style={{ width: 12, height: 12 }} /> : <Plus style={{ width: 12, height: 12 }} />}
+    </button>
+  );
+}
+
+// ─── EmptyState ───────────────────────────────────────────────────────────────
+function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: "60px 20px", color: C.slate400 }}>
+      {icon}
+      <p style={{ fontSize: 13, fontWeight: 500, color: C.slate400, textAlign: "center" }}>{text}</p>
+    </div>
+  );
+}
+
+// ─── Shared table style tokens ─────────────────────────────────────────────────
+const thStyle: React.CSSProperties = {
+  fontSize: 11, fontWeight: 700, color: C.slate500,
+  padding: "10px 12px", textAlign: "left", whiteSpace: "nowrap",
+};
+const tdStyle: React.CSSProperties = {
+  fontSize: 11, padding: "9px 12px", whiteSpace: "nowrap",
+};
+
+// ─── Reusable Sub-table ───────────────────────────────────────────────────────
+interface SubTableProps {
+  title: string;
+  icon: React.ReactNode;
+  accentColor: string;
+  accentLight: string;
+  accentBorder: string;
+  accentDark: string;
+  entries: { profileId: string; label: string; rows: TableRow[] }[];
+  loading: boolean;
+  error: string | null;
+  allRows: TableRow[];
+  filteredRows: TableRow[];
+  visibleCols: string[];
+  allCols: string[];
+  coreCols: string[];
+  colFilters: ColumnFilter[];
+  searchValue: string;
+  canLoadAll: boolean;
+  loadAllLabel: string;
+  onLoadAll: () => void;
+  onSearchChange: (v: string) => void;
+  onRemoveEntry: (label: string) => void;
+  onClearAll: () => void;
+  onOpenFilter: (col: string, e: React.MouseEvent<HTMLButtonElement>) => void;
+  onDeleteCol: (col: string) => void;
+  onToggleCol: (col: string) => void;
+  onRemoveColFilter: (col: string) => void;
+  onClearColFilters: () => void;
+  onDownload: () => void;
+  downloading: boolean;
+  tableRef: React.RefObject<HTMLDivElement>;
+  maxRows?: number;
+  rowHoverColor: string;
+}
+
+function SubTable({
+  title, icon, accentColor, accentLight, accentBorder, accentDark,
+  entries, loading, error, allRows, filteredRows, visibleCols, allCols, coreCols,
+  colFilters, searchValue,
+  canLoadAll, loadAllLabel, onLoadAll,
+  onSearchChange, onRemoveEntry, onClearAll,
+  onOpenFilter, onDeleteCol, onToggleCol,
+  onRemoveColFilter, onClearColFilters,
+  onDownload, downloading, tableRef, maxRows = 10000, rowHoverColor,
+}: SubTableProps) {
+  const activeFilters = colFilters.filter(f => f.value);
+  const [showColPanel, setShowColPanel] = useState(false);
+
+  return (
+    <div ref={tableRef} style={{
+      background: C.white, borderRadius: 16,
+      border: `1px solid ${C.slate200}`,
+      boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)",
+      overflow: "hidden",
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: "16px 20px", borderBottom: `1px solid ${C.slate100}`,
+        background: `linear-gradient(135deg, ${accentLight} 0%, ${C.white} 100%)`,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: accentLight, border: `1px solid ${accentBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {icon}
+          </div>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 800, color: C.slate900 }}>{title}</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+              {entries.map(e => (
+                <span key={e.label} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: accentDark, background: accentLight, border: `1px solid ${accentBorder}`, padding: "2px 8px", borderRadius: 999 }}>
+                  {e.label}
+                  <button onClick={() => onRemoveEntry(e.label)} style={{ background: "none", border: "none", cursor: "pointer", color: accentColor, padding: 0, display: "flex" }}>
+                    <X style={{ width: 10, height: 10 }} />
+                  </button>
+                </span>
+              ))}
+              {loading && <span style={{ fontSize: 10, color: accentColor, fontStyle: "italic" }}>Loading…</span>}
+            </div>
+          </div>
+        </div>
+        <button onClick={onClearAll} style={{ padding: 6, borderRadius: 8, border: "none", background: "none", cursor: "pointer", color: C.slate400, display: "flex" }}>
+          <X style={{ width: 15, height: 15 }} />
+        </button>
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ padding: "12px 20px", borderBottom: `1px solid ${C.slate100}`, background: C.slate50, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+        {canLoadAll && (
+          <Btn onClick={onLoadAll} disabled={loading} variant="ghost" small>
+            {loading
+              ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} />
+              : <Users style={{ width: 12, height: 12 }} />}
+            {loadAllLabel}
+          </Btn>
+        )}
+
+        <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 280 }}>
+          <Search style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, color: C.slate400 }} />
+          <input
+            type="text"
+            placeholder={`Search ${title.toLowerCase()}…`}
+            value={searchValue}
+            onChange={e => onSearchChange(e.target.value)}
+            style={{
+              width: "100%", paddingLeft: 30, paddingRight: searchValue ? 28 : 10,
+              paddingTop: 6, paddingBottom: 6, fontSize: 12,
+              border: `1px solid ${C.slate200}`, borderRadius: 10,
+              outline: "none", background: C.white, color: C.slate700,
+              boxSizing: "border-box",
+            }}
+          />
+          {searchValue && (
+            <button onClick={() => onSearchChange("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.slate400, display: "flex", padding: 0 }}>
+              <X style={{ width: 12, height: 12 }} />
+            </button>
+          )}
+        </div>
+
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={() => setShowColPanel(p => !p)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "6px 12px", fontSize: 11, fontWeight: 600,
+              borderRadius: 10, border: `1px solid ${C.slate200}`,
+              background: showColPanel ? accentLight : C.white,
+              color: showColPanel ? accentColor : C.slate600,
+              cursor: "pointer", transition: "all 0.15s",
+            }}
+          >
+            <SlidersHorizontal style={{ width: 11, height: 11 }} />
+            Columns ({visibleCols.length}/{allCols.length})
+          </button>
+          {showColPanel && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 200,
+              background: C.white, border: `1px solid ${C.slate200}`, borderRadius: 12,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 10, minWidth: 200, maxHeight: 260, overflowY: "auto",
+            }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: C.slate400, textTransform: "uppercase", letterSpacing: "0.08em", padding: "0 6px 8px" }}>Toggle Columns</p>
+              {allCols.map(col => {
+                const isCore    = coreCols.includes(col);
+                const isVisible = visibleCols.includes(col);
+                return (
+                  <div key={col} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 7, cursor: isCore ? "default" : "pointer" }}
+                    onClick={() => !isCore && onToggleCol(col)}>
+                    <div style={{
+                      width: 14, height: 14, borderRadius: 4, flexShrink: 0,
+                      border: `2px solid ${isVisible ? accentColor : C.slate300}`,
+                      background: isVisible ? accentColor : C.white,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {isVisible && <Check style={{ width: 9, height: 9, color: C.white }} strokeWidth={3} />}
+                    </div>
+                    <span style={{ fontSize: 11, color: isCore ? C.slate400 : C.slate700, fontStyle: isCore ? "italic" : "normal" }}>{col}</span>
+                    {isCore && <span style={{ marginLeft: "auto", fontSize: 9, color: C.slate300 }}>always</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {activeFilters.map(f => (
+          <Pill key={f.column} color={accentDark} bg={accentLight} border={accentBorder}>
+            <SlidersHorizontal style={{ width: 10, height: 10 }} />
+            <span style={{ maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.column}</span>:
+            <strong>{f.value}</strong>
+            <button onClick={() => onRemoveColFilter(f.column)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, marginLeft: 2, fontWeight: 700 }}>×</button>
+          </Pill>
+        ))}
+        {activeFilters.length > 0 && (
+          <button onClick={onClearColFilters} style={{ fontSize: 11, color: C.slate500, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+            Clear filters
+          </button>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        <span style={{ fontSize: 11, fontWeight: 600, color: C.slate500, background: C.slate100, padding: "5px 10px", borderRadius: 8 }}>
+          {filteredRows.length.toLocaleString()} rows
+          {filteredRows.length !== allRows.length && ` of ${allRows.length.toLocaleString()}`}
+        </span>
+
+        <Btn onClick={onDownload} disabled={downloading || filteredRows.length === 0} variant="emerald">
+          {downloading ? <Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} /> : <Download style={{ width: 13, height: 13 }} />}
+          Download Excel
+        </Btn>
+      </div>
+
+      {/* Table body */}
+      <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "60vh" }}>
+        {loading && allRows.length === 0 && (
+          <EmptyState icon={<Loader2 style={{ width: 26, height: 26, color: accentColor, animation: "spin 1s linear infinite" }} />} text={`Loading ${title.toLowerCase()}…`} />
+        )}
+        {!loading && error && (
+          <EmptyState icon={<AlertCircle style={{ width: 28, height: 28, opacity: 0.3 }} />} text={error} />
+        )}
+        {!loading && !error && allRows.length > 0 && filteredRows.length === 0 && (
+          <EmptyState icon={<Search style={{ width: 28, height: 28, opacity: 0.2 }} />} text="No rows match your filters" />
+        )}
+        {!loading && !error && filteredRows.length > 0 && (
+          <>
+            <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
+              <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
+                <tr style={{ background: `${accentLight}cc`, borderBottom: `1px solid ${accentBorder}` }}>
+                  <th style={{ ...thStyle, width: 36, color: C.slate400 }}>#</th>
+                  {visibleCols.map(col => {
+                    const af     = colFilters.find(f => f.column === col);
+                    const isCore = coreCols.includes(col);
+                    return (
+                      <th key={col} style={thStyle}>
+                        <ThCell col={col} isBase={isCore} activeFilter={af?.value}
+                          onFilter={e => onOpenFilter(col, e)}
+                          onDelete={() => onDeleteCol(col)}
+                          filterAccent={accentColor} />
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.map((row, idx) => (
+                  <tr key={idx} style={{ borderBottom: `1px solid ${C.slate100}`, transition: "background 0.1s" }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = rowHoverColor}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = C.white}>
+                    <td style={{ ...tdStyle, color: C.slate400, fontFamily: "monospace" }}>{idx + 1}</td>
+                    {visibleCols.map(col => {
+                      const { text, color, fontWeight } = resolveCellDisplay(col, row[col]);
+                      return (
+                        <td key={col} style={{ ...tdStyle, color, fontWeight, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {text}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filteredRows.length > maxRows && (
+              <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.slate100}`, background: C.amberLt, fontSize: 11, color: C.amber, textAlign: "center", fontWeight: 600 }}>
+                Showing first {maxRows.toLocaleString()} rows · Download Excel for all {filteredRows.length.toLocaleString()} rows
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Sangha User Table ────────────────────────────────────────────────────────
+interface SanghaUserTableProps {
+  entries: SanghaUserTableEntry[];
+  loading: boolean;
+  error: string | null;
+  allRows: TableRow[];
+  filteredRows: TableRow[];
+  visibleCols: string[];
+  allCols: string[];
+  coreCols: string[];
+  colFilters: ColumnFilter[];
+  searchValue: string;
+  canLoadAll: boolean;
+  loadAllLabel: string;
+  onLoadAll: () => void;
+  onSearchChange: (v: string) => void;
+  onRemoveEntry: (sanghaId: string) => void;
+  onClearAll: () => void;
+  onOpenFilter: (col: string, e: React.MouseEvent<HTMLButtonElement>) => void;
+  onDeleteCol: (col: string) => void;
+  onToggleCol: (col: string) => void;
+  onRemoveColFilter: (col: string) => void;
+  onClearColFilters: () => void;
+  onDownload: () => void;
+  downloading: boolean;
+  tableRef: React.RefObject<HTMLDivElement>;
+  maxRows?: number;
+}
+
+function SanghaUserTable({
+  entries, loading, error, allRows, filteredRows, visibleCols, allCols, coreCols,
+  colFilters, searchValue,
+  canLoadAll, loadAllLabel, onLoadAll,
+  onSearchChange, onRemoveEntry, onClearAll,
+  onOpenFilter, onDeleteCol, onToggleCol,
+  onRemoveColFilter, onClearColFilters,
+  onDownload, downloading, tableRef, maxRows = 1000,
+}: SanghaUserTableProps) {
+  const activeFilters = colFilters.filter(f => f.value);
+  const [showColPanel, setShowColPanel] = useState(false);
+  const accentColor  = C.sky;
+  const accentLight  = C.skyLight;
+  const accentBorder = C.skyBorder;
+  const accentDark   = C.skyDark;
+
+  const groupedRows = useMemo(() => {
+    const groups: { sanghaId: string; sanghaName: string; rows: TableRow[] }[] = [];
+    const seenMap = new Map<string, number>();
+    filteredRows.forEach(row => {
+      const sid   = String(row._sangha_id ?? row["Sangha Name"] ?? "");
+      const sname = String(row._sangha_name ?? row["Sangha Name"] ?? "—");
+      if (!seenMap.has(sid)) {
+        seenMap.set(sid, groups.length);
+        groups.push({ sanghaId: sid, sanghaName: sname, rows: [] });
+      }
+      groups[seenMap.get(sid)!].rows.push(row);
+    });
+    return groups;
+  }, [filteredRows]);
+
+  return (
+    <div ref={tableRef} style={{
+      background: C.white, borderRadius: 16,
+      border: `1px solid ${C.slate200}`,
+      boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)",
+      overflow: "hidden",
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: "16px 20px", borderBottom: `1px solid ${C.slate100}`,
+        background: `linear-gradient(135deg, ${accentLight} 0%, ${C.white} 100%)`,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: accentLight, border: `1px solid ${accentBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Users style={{ width: 18, height: 18, color: accentColor }} />
+          </div>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 800, color: C.slate900 }}>User Table (by Sangha)</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+              {entries.map(e => (
+                <span key={e.sanghaId} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: accentDark, background: accentLight, border: `1px solid ${accentBorder}`, padding: "2px 8px", borderRadius: 999 }}>
+                  {e.sanghaName}
+                  <button onClick={() => onRemoveEntry(e.sanghaId)} style={{ background: "none", border: "none", cursor: "pointer", color: accentColor, padding: 0, display: "flex" }}>
+                    <X style={{ width: 10, height: 10 }} />
+                  </button>
+                </span>
+              ))}
+              {loading && <span style={{ fontSize: 10, color: accentColor, fontStyle: "italic" }}>Loading…</span>}
+            </div>
+          </div>
+        </div>
+        <button onClick={onClearAll} style={{ padding: 6, borderRadius: 8, border: "none", background: "none", cursor: "pointer", color: C.slate400, display: "flex" }}>
+          <X style={{ width: 15, height: 15 }} />
+        </button>
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ padding: "12px 20px", borderBottom: `1px solid ${C.slate100}`, background: C.slate50, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+        {canLoadAll && (
+          <Btn onClick={onLoadAll} disabled={loading} variant="ghost" small>
+            {loading
+              ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} />
+              : <Building2 style={{ width: 12, height: 12 }} />}
+            {loadAllLabel}
+          </Btn>
+        )}
+
+        <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 280 }}>
+          <Search style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, color: C.slate400 }} />
+          <input
+            type="text"
+            placeholder="Search users…"
+            value={searchValue}
+            onChange={e => onSearchChange(e.target.value)}
+            style={{
+              width: "100%", paddingLeft: 30, paddingRight: searchValue ? 28 : 10,
+              paddingTop: 6, paddingBottom: 6, fontSize: 12,
+              border: `1px solid ${C.slate200}`, borderRadius: 10,
+              outline: "none", background: C.white, color: C.slate700,
+              boxSizing: "border-box",
+            }}
+          />
+          {searchValue && (
+            <button onClick={() => onSearchChange("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.slate400, display: "flex", padding: 0 }}>
+              <X style={{ width: 12, height: 12 }} />
+            </button>
+          )}
+        </div>
+
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={() => setShowColPanel(p => !p)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "6px 12px", fontSize: 11, fontWeight: 600,
+              borderRadius: 10, border: `1px solid ${C.slate200}`,
+              background: showColPanel ? accentLight : C.white,
+              color: showColPanel ? accentColor : C.slate600,
+              cursor: "pointer", transition: "all 0.15s",
+            }}
+          >
+            <SlidersHorizontal style={{ width: 11, height: 11 }} />
+            Columns ({visibleCols.length}/{allCols.length})
+          </button>
+          {showColPanel && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 200,
+              background: C.white, border: `1px solid ${C.slate200}`, borderRadius: 12,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.12)", padding: 10, minWidth: 200, maxHeight: 260, overflowY: "auto",
+            }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: C.slate400, textTransform: "uppercase", letterSpacing: "0.08em", padding: "0 6px 8px" }}>Toggle Columns</p>
+              {allCols.map(col => {
+                const isCore    = coreCols.includes(col);
+                const isVisible = visibleCols.includes(col);
+                return (
+                  <div key={col} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 7, cursor: isCore ? "default" : "pointer" }}
+                    onClick={() => !isCore && onToggleCol(col)}>
+                    <div style={{
+                      width: 14, height: 14, borderRadius: 4, flexShrink: 0,
+                      border: `2px solid ${isVisible ? accentColor : C.slate300}`,
+                      background: isVisible ? accentColor : C.white,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {isVisible && <Check style={{ width: 9, height: 9, color: C.white }} strokeWidth={3} />}
+                    </div>
+                    <span style={{ fontSize: 11, color: isCore ? C.slate400 : C.slate700, fontStyle: isCore ? "italic" : "normal" }}>{col}</span>
+                    {isCore && <span style={{ marginLeft: "auto", fontSize: 9, color: C.slate300 }}>always</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {activeFilters.map(f => (
+          <Pill key={f.column} color={accentDark} bg={accentLight} border={accentBorder}>
+            <SlidersHorizontal style={{ width: 10, height: 10 }} />
+            <span style={{ maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.column}</span>:
+            <strong>{f.value}</strong>
+            <button onClick={() => onRemoveColFilter(f.column)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, marginLeft: 2, fontWeight: 700 }}>×</button>
+          </Pill>
+        ))}
+        {activeFilters.length > 0 && (
+          <button onClick={onClearColFilters} style={{ fontSize: 11, color: C.slate500, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+            Clear filters
+          </button>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        <span style={{ fontSize: 11, fontWeight: 600, color: C.slate500, background: C.slate100, padding: "5px 10px", borderRadius: 8 }}>
+          {filteredRows.length.toLocaleString()} users
+        </span>
+
+        <Btn onClick={onDownload} disabled={downloading || filteredRows.length === 0} variant="emerald">
+          {downloading ? <Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} /> : <Download style={{ width: 13, height: 13 }} />}
+          Download Excel
+        </Btn>
+      </div>
+
+      {/* Table body */}
+      <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "60vh" }}>
+        {loading && allRows.length === 0 && (
+          <EmptyState icon={<Loader2 style={{ width: 26, height: 26, color: accentColor, animation: "spin 1s linear infinite" }} />} text="Loading user table…" />
+        )}
+        {!loading && error && (
+          <EmptyState icon={<AlertCircle style={{ width: 28, height: 28, opacity: 0.3 }} />} text={error} />
+        )}
+        {!loading && !error && allRows.length > 0 && filteredRows.length === 0 && (
+          <EmptyState icon={<Search style={{ width: 28, height: 28, opacity: 0.2 }} />} text="No rows match your filters" />
+        )}
+        {!loading && !error && filteredRows.length > 0 && (
+          <>
+            <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
+              <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
+                <tr style={{ background: `${accentLight}cc`, borderBottom: `1px solid ${accentBorder}` }}>
+                  <th style={{ ...thStyle, width: 36, color: C.slate400 }}>#</th>
+                  {visibleCols.map(col => {
+                    const af     = colFilters.find(f => f.column === col);
+                    const isCore = coreCols.includes(col);
+                    return (
+                      <th key={col} style={thStyle}>
+                        <ThCell col={col} isBase={isCore} activeFilter={af?.value}
+                          onFilter={e => onOpenFilter(col, e)}
+                          onDelete={() => onDeleteCol(col)}
+                          filterAccent={accentColor} />
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {groupedRows.map(group => (
+                  <>
+                    <tr key={`header-${group.sanghaId}`} style={{ background: `${accentLight}`, borderTop: `2px solid ${accentBorder}`, borderBottom: `1px solid ${accentBorder}` }}>
+                      <td
+                        colSpan={visibleCols.length + 1}
+                        style={{ padding: "8px 16px", fontSize: 12, fontWeight: 800, color: accentDark, letterSpacing: "0.01em" }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <Building2 style={{ width: 14, height: 14, color: accentColor }} />
+                          {group.sanghaName}
+                          <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: accentColor, background: C.white, border: `1px solid ${accentBorder}`, padding: "1px 8px", borderRadius: 999 }}>
+                            {group.rows.length} user{group.rows.length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {group.rows.map((row, idx) => (
+                      <tr
+                        key={`${group.sanghaId}-${idx}`}
+                        style={{ borderBottom: `1px solid ${C.slate100}`, transition: "background 0.1s" }}
+                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.skyLight}
+                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = C.white}
+                      >
+                        <td style={{ ...tdStyle, color: C.slate400, fontFamily: "monospace" }}>{idx + 1}</td>
+                        {visibleCols.map(col => {
+                          const { text, color, fontWeight } = resolveCellDisplay(col, row[col]);
+                          return (
+                            <td key={col} style={{ ...tdStyle, color, fontWeight, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {text}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </>
+                ))}
+              </tbody>
+            </table>
+            {filteredRows.length > maxRows && (
+              <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.slate100}`, background: C.amberLt, fontSize: 11, color: C.amber, textAlign: "center", fontWeight: 600 }}>
+                Showing first {maxRows.toLocaleString()} rows · Download Excel for all {filteredRows.length.toLocaleString()} rows
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function CustomReport({ dateRange }: Props) {
-  const [mode, setMode] = useState<SectionMode>("user");
+export default function CustomReport({ dateRange, initSections = [], initCategory, onClearInit }: Props) {
+  const [mode, setMode] = useState<SectionMode>(
+    () => (initCategory === "sangha" ? "sangha" : "user")
+  );
 
   const sections    = mode === "user" ? USER_SECTIONS   : SANGHA_SECTIONS;
   const baseCols    = mode === "user" ? USER_BASE_COLS  : SANGHA_BASE_COLS;
@@ -430,6 +1125,7 @@ export default function CustomReport({ dateRange }: Props) {
   const [loading,          setLoading]          = useState(false);
   const [error,            setError]            = useState<string | null>(null);
   const [downloading,      setDownloading]      = useState(false);
+  const [exportingAll,     setExportingAll]     = useState(false);
   const [searchQuery,      setSearchQuery]      = useState("");
   const [sidebarSearch,    setSidebarSearch]    = useState("");
   const [includeAll,       setIncludeAll]       = useState(false);
@@ -437,48 +1133,171 @@ export default function CustomReport({ dateRange }: Props) {
   const [openFilter,       setOpenFilter]       = useState<{ col: string; rect: DOMRect } | null>(null);
 
   // ── Family state ────────────────────────────────────────────────────────
-  const [familyEntries,  setFamilyEntries]  = useState<FamilyEntry[]>([]);
-  const [familyLoading,  setFamilyLoading]  = useState(false);
-  const [familyError,    setFamilyError]    = useState<string | null>(null);
-  const [familySearch,   setFamilySearch]   = useState("");
-  const [openFamFilter,  setOpenFamFilter]  = useState<{ col: string; rect: DOMRect } | null>(null);
-  const [famColFilters,  setFamColFilters]  = useState<ColumnFilter[]>([]);
-  const [famDownloading, setFamDownloading] = useState(false);
-  const [famVisibleCols, setFamVisibleCols] = useState<string[]>(FAMILY_COLS);
+  const [familyEntries,    setFamilyEntries]    = useState<FamilyEntry[]>([]);
+  const [familyLoading,    setFamilyLoading]    = useState(false);
+  const [familyError,      setFamilyError]      = useState<string | null>(null);
+  const [familySearch,     setFamilySearch]     = useState("");
+  const [openFamFilter,    setOpenFamFilter]    = useState<{ col: string; rect: DOMRect } | null>(null);
+  const [famColFilters,    setFamColFilters]    = useState<ColumnFilter[]>([]);
+  const [famDownloading,   setFamDownloading]   = useState(false);
+  const [famVisibleCols,   setFamVisibleCols]   = useState<string[]>(FAMILY_COLS);
   const familySectionRef = useRef<HTMLDivElement>(null);
 
-  // ── Reset on mode change ────────────────────────────────────────────────
+  // ── Sangha Membership state ─────────────────────────────────────────────
+  const [membershipEntries,    setMembershipEntries]    = useState<SanghaMembershipEntry[]>([]);
+  const [membershipLoading,    setMembershipLoading]    = useState(false);
+  const [membershipError,      setMembershipError]      = useState<string | null>(null);
+  const [membershipSearch,     setMembershipSearch]     = useState("");
+  const [openMembershipFilter, setOpenMembershipFilter] = useState<{ col: string; rect: DOMRect } | null>(null);
+  const [membershipColFilters, setMembershipColFilters] = useState<ColumnFilter[]>([]);
+  const [membershipDownloading,setMembershipDownloading]= useState(false);
+  const [membershipVisibleCols,setMembershipVisibleCols]= useState<string[]>(SANGHA_MEMBERSHIP_COLS);
+  const membershipSectionRef = useRef<HTMLDivElement>(null);
+
+  // ── Sangha User Table state ─────────────────────────────────────────────
+  const [sanghaUserEntries,    setSanghaUserEntries]    = useState<SanghaUserTableEntry[]>([]);
+  const [sanghaUserLoading,    setSanghaUserLoading]    = useState(false);
+  const [sanghaUserError,      setSanghaUserError]      = useState<string | null>(null);
+  const [sanghaUserSearch,     setSanghaUserSearch]     = useState("");
+  const [openSanghaUserFilter, setOpenSanghaUserFilter] = useState<{ col: string; rect: DOMRect } | null>(null);
+  const [sanghaUserColFilters, setSanghaUserColFilters] = useState<ColumnFilter[]>([]);
+  const [sanghaUserDownloading,setSanghaUserDownloading]= useState(false);
+  const [sanghaUserVisibleCols,setSanghaUserVisibleCols]= useState<string[]>(SANGHA_USER_TABLE_COLS);
+  const sanghaUserTableRef = useRef<HTMLDivElement>(null);
+
+  // ── Apply initSections on mount ─────────────────────────────────────────
+  const initApplied = useRef(false);
+
   useEffect(() => {
+    if (!initSections || initSections.length === 0) return;
+
+    const targetMode: SectionMode = initCategory === "sangha" ? "sangha" : "user";
+    const availableSections = targetMode === "user" ? USER_SECTIONS : SANGHA_SECTIONS;
+    const targetBaseCols    = targetMode === "user" ? USER_BASE_COLS : SANGHA_BASE_COLS;
+    const targetMasterOrder = buildMasterOrder(targetBaseCols, availableSections);
+
+    const validIds = initSections.filter(id =>
+      availableSections.some(s => s.id === id)
+    );
+
+    const desired = new Set<string>(targetBaseCols);
+    validIds.forEach(sid => {
+      if (
+        sid === FAMILY_SECTION_ID ||
+        sid === SANGHA_MEMBERSHIP_SECTION_ID ||
+        sid === SANGHA_USER_TABLE_SECTION_ID
+      ) return;
+      availableSections.find(s => s.id === sid)?.columns.forEach(c => desired.add(c));
+    });
+    const derivedColumns = sortedCols(Array.from(desired), targetMasterOrder);
+
+    setColumnFilters([]);
+    setRows([]);
+    setSearchQuery("");
+    setSectionOpen({});
+    setFamilyEntries([]);    setFamilySearch("");    setFamColFilters([]);
+    setMembershipEntries([]); setMembershipSearch(""); setMembershipColFilters([]);
+    setSanghaUserEntries([]); setSanghaUserSearch(""); setSanghaUserColFilters([]);
+    setError(null);
+
+    setMode(targetMode);
+
+    if (validIds.length > 0) {
+      setSelectedSections(validIds);
+      const openState: Record<string, boolean> = {};
+      validIds.forEach(id => { openState[id] = true; });
+      setSectionOpen(openState);
+    }
+
+    setVisibleColumns(derivedColumns);
+    initApplied.current = true;
+    onClearInit?.();
+  }, [initSections, initCategory]); // eslint-disable-line
+
+  useEffect(() => {
+    if (initApplied.current) {
+      initApplied.current = false;
+      return;
+    }
     setSelectedSections([]);
     setVisibleColumns(mode === "user" ? USER_BASE_COLS : SANGHA_BASE_COLS);
     setColumnFilters([]); setRows([]); setSearchQuery(""); setSectionOpen({});
-    setFamilyEntries([]); setFamilySearch(""); setFamColFilters([]); setError(null);
+    setFamilyEntries([]);     setFamilySearch("");     setFamColFilters([]);
+    setMembershipEntries([]); setMembershipSearch(""); setMembershipColFilters([]);
+    setSanghaUserEntries([]); setSanghaUserSearch(""); setSanghaUserColFilters([]);
+    setError(null);
   }, [mode]); // eslint-disable-line
 
   // ── Sync columns when sections change ───────────────────────────────────
   useEffect(() => {
     const desired = new Set<string>(baseCols);
     selectedSections.forEach(sid => {
-      if (sid === FAMILY_SECTION_ID) return;
+      if (sid === FAMILY_SECTION_ID || sid === SANGHA_MEMBERSHIP_SECTION_ID || sid === SANGHA_USER_TABLE_SECTION_ID) return;
       sections.find(s => s.id === sid)?.columns.forEach(c => desired.add(c));
     });
     setVisibleColumns(prev => {
-      const kept = prev.filter(c => desired.has(c));
+      const kept  = prev.filter(c => desired.has(c));
       const added = Array.from(desired).filter(c => !new Set(kept).has(c));
       return sortedCols([...kept, ...added], masterOrder);
     });
     setColumnFilters(prev => prev.filter(f => desired.has(f.column)));
   }, [selectedSections]); // eslint-disable-line
 
-  // ── Fetch ───────────────────────────────────────────────────────────────
+  // ── Auto-fetch family ───────────────────────────────────────────────────
+  const prevFamilySelected = useRef(false);
+  useEffect(() => {
+    const isSelected = selectedSections.includes(FAMILY_SECTION_ID);
+    if (isSelected && !prevFamilySelected.current && rows.length > 0) {
+      const ids = filteredRowsRef.current.map(r => r._profile_id).filter(Boolean) as string[];
+      if (ids.length > 0) triggerFamilyFetch(ids, `All Visible (${ids.length})`);
+    }
+    if (!isSelected && prevFamilySelected.current) {
+      setFamilyEntries([]); setFamilySearch(""); setFamColFilters([]);
+    }
+    prevFamilySelected.current = isSelected;
+  }, [selectedSections]); // eslint-disable-line
+
+  // ── Auto-fetch membership ───────────────────────────────────────────────
+  const prevMembershipSelected = useRef(false);
+  useEffect(() => {
+    const isSelected = selectedSections.includes(SANGHA_MEMBERSHIP_SECTION_ID);
+    if (isSelected && !prevMembershipSelected.current && rows.length > 0) {
+      const ids = filteredRowsRef.current.map(r => r._profile_id).filter(Boolean) as string[];
+      if (ids.length > 0) triggerMembershipFetch(ids, `All Visible (${ids.length})`);
+    }
+    if (!isSelected && prevMembershipSelected.current) {
+      setMembershipEntries([]); setMembershipSearch(""); setMembershipColFilters([]);
+    }
+    prevMembershipSelected.current = isSelected;
+  }, [selectedSections]); // eslint-disable-line
+
+  // ── Auto-fetch sangha user table ────────────────────────────────────────
+  const prevSanghaUserSelected = useRef(false);
+  useEffect(() => {
+    const isSelected = mode === "sangha" && selectedSections.includes(SANGHA_USER_TABLE_SECTION_ID);
+    if (isSelected && !prevSanghaUserSelected.current && rows.length > 0) {
+      const sanghaIds = [...new Set(
+        filteredRowsRef.current.map(r => r._sangha_id).filter(Boolean) as string[]
+      )];
+      if (sanghaIds.length > 0) triggerSanghaUserFetch(sanghaIds);
+    }
+    if (!isSelected && prevSanghaUserSelected.current) {
+      setSanghaUserEntries([]); setSanghaUserSearch(""); setSanghaUserColFilters([]);
+    }
+    prevSanghaUserSelected.current = isSelected;
+  }, [selectedSections, mode]); // eslint-disable-line
+
+  // ── Fetch main data ─────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     if (selectedSections.length === 0) { setRows([]); return; }
     setLoading(true); setError(null);
     try {
-      const exportSections = selectedSections.filter(s => s !== FAMILY_SECTION_ID);
-      const endpoint = mode === "user" ? "/api/admin/reports/custom/users" : "/api/admin/reports/custom/sanghas";
+      const exportSections = selectedSections.filter(
+        s => s !== FAMILY_SECTION_ID && s !== SANGHA_MEMBERSHIP_SECTION_ID && s !== SANGHA_USER_TABLE_SECTION_ID
+      );
+      const endpoint = mode === "user" ? "/admin/reports/custom/users" : "/admin/reports/custom/sanghas";
       const result = await api.post(endpoint, {
-        sections: exportSections.length > 0 ? exportSections : ["personal-details"],
+        sections: exportSections.length > 0 ? exportSections : (mode === "user" ? ["personal-details"] : ["sangha-details"]),
         includeAll, includeAllStatuses: includeAll,
         dateFrom: toISO(dateRange.from), dateTo: toISO(dateRange.to),
       });
@@ -489,6 +1308,25 @@ export default function CustomReport({ dateRange }: Props) {
   }, [selectedSections, includeAll, dateRange, mode]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const prevRowsLength = useRef(0);
+  useEffect(() => {
+    if (rows.length > 0 && prevRowsLength.current === 0) {
+      if (selectedSections.includes(FAMILY_SECTION_ID) && familyEntries.length === 0) {
+        const ids = rows.map(r => r._profile_id).filter(Boolean) as string[];
+        if (ids.length > 0) triggerFamilyFetch(ids, `All Visible (${ids.length})`);
+      }
+      if (selectedSections.includes(SANGHA_MEMBERSHIP_SECTION_ID) && membershipEntries.length === 0) {
+        const ids = rows.map(r => r._profile_id).filter(Boolean) as string[];
+        if (ids.length > 0) triggerMembershipFetch(ids, `All Visible (${ids.length})`);
+      }
+      if (mode === "sangha" && selectedSections.includes(SANGHA_USER_TABLE_SECTION_ID) && sanghaUserEntries.length === 0) {
+        const sanghaIds = [...new Set(rows.map(r => r._sangha_id).filter(Boolean) as string[])];
+        if (sanghaIds.length > 0) triggerSanghaUserFetch(sanghaIds);
+      }
+    }
+    prevRowsLength.current = rows.length;
+  }, [rows]); // eslint-disable-line
 
   // ── Filtered rows ───────────────────────────────────────────────────────
   const filteredRows = useMemo(() => {
@@ -507,12 +1345,35 @@ export default function CustomReport({ dateRange }: Props) {
   const filteredRowsRef = useRef(filteredRows);
   useEffect(() => { filteredRowsRef.current = filteredRows; }, [filteredRows]);
 
+  // ── Sangha-aware row numbers ────────────────────────────────────────────
+  const rowDisplayNumbers = useMemo(() => {
+    if (mode !== "sangha") return filteredRows.map((_, i) => i + 1);
+    const sanghaIndexMap = new Map<string, number>();
+    let counter = 0;
+    return filteredRows.map(row => {
+      const key = String(row["Sangha Name"] ?? row["_sangha_id"] ?? "");
+      if (!sanghaIndexMap.has(key)) sanghaIndexMap.set(key, ++counter);
+      return sanghaIndexMap.get(key)!;
+    });
+  }, [filteredRows, mode]);
+
+  const isFirstInGroup = useMemo(() => {
+    if (mode !== "sangha") return filteredRows.map(() => true);
+    const seen = new Set<string>();
+    return filteredRows.map(row => {
+      const key = String(row["Sangha Name"] ?? row["_sangha_id"] ?? "");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [filteredRows, mode]);
+
   // ── Family fetch ────────────────────────────────────────────────────────
   const triggerFamilyFetch = useCallback(async (profileIds: string[], label: string) => {
     if (!profileIds.length) return;
     setFamilyLoading(true); setFamilyError(null);
     try {
-      const result = await api.post("/api/admin/reports/custom/family-members", { profileIds });
+      const result = await api.post("/admin/reports/custom/family-members", { profileIds });
       const newRows = Array.isArray(result) ? result : [];
       setFamilyEntries(prev => {
         const idx = prev.findIndex(e => e.label === label);
@@ -524,7 +1385,47 @@ export default function CustomReport({ dateRange }: Props) {
     finally { setFamilyLoading(false); }
   }, []);
 
-  const allFamilyRows = useMemo(() => familyEntries.flatMap(e => e.rows), [familyEntries]);
+  // ── Sangha Membership fetch ─────────────────────────────────────────────
+  const triggerMembershipFetch = useCallback(async (profileIds: string[], label: string) => {
+    if (!profileIds.length) return;
+    setMembershipLoading(true); setMembershipError(null);
+    try {
+      const result = await api.post("/admin/reports/custom/sangha-memberships", { profileIds });
+      const newRows = Array.isArray(result) ? result : [];
+      setMembershipEntries(prev => {
+        const idx = prev.findIndex(e => e.label === label);
+        if (idx >= 0) { const u = [...prev]; u[idx] = { profileId: profileIds[0], label, rows: newRows }; return u; }
+        return [...prev, { profileId: profileIds[0], label, rows: newRows }];
+      });
+      setTimeout(() => membershipSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+    } catch { setMembershipError("Failed to load sangha membership data."); }
+    finally { setMembershipLoading(false); }
+  }, []);
+
+  // ── Sangha User Table fetch ─────────────────────────────────────────────
+  const triggerSanghaUserFetch = useCallback(async (sanghaIds: string[]) => {
+    if (!sanghaIds.length) return;
+    setSanghaUserLoading(true); setSanghaUserError(null);
+    try {
+      const result = await api.post("/admin/reports/custom/sangha-users", { sanghaIds });
+      const newRows = Array.isArray(result) ? result : [];
+      const groupMap = new Map<string, { sanghaId: string; sanghaName: string; rows: TableRow[] }>();
+      newRows.forEach(row => {
+        const sid   = String(row._sangha_id ?? "");
+        const sname = String(row._sangha_name ?? row["Sangha Name"] ?? "—");
+        if (!groupMap.has(sid)) groupMap.set(sid, { sanghaId: sid, sanghaName: sname, rows: [] });
+        groupMap.get(sid)!.rows.push(row);
+      });
+      setSanghaUserEntries(Array.from(groupMap.values()));
+      setTimeout(() => sanghaUserTableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+    } catch { setSanghaUserError("Failed to load sangha user data."); }
+    finally { setSanghaUserLoading(false); }
+  }, []);
+
+  // ── Combined sub-table rows ─────────────────────────────────────────────
+  const allFamilyRows     = useMemo(() => familyEntries.flatMap(e => e.rows),     [familyEntries]);
+  const allMembershipRows = useMemo(() => membershipEntries.flatMap(e => e.rows), [membershipEntries]);
+  const allSanghaUserRows = useMemo(() => sanghaUserEntries.flatMap(e => e.rows), [sanghaUserEntries]);
 
   const filteredFamilyRows = useMemo(() => {
     let r = allFamilyRows;
@@ -539,6 +1440,32 @@ export default function CustomReport({ dateRange }: Props) {
     return r;
   }, [allFamilyRows, famColFilters, familySearch, famVisibleCols]);
 
+  const filteredMembershipRows = useMemo(() => {
+    let r = allMembershipRows;
+    membershipColFilters.forEach(({ column, value }) => {
+      if (!value) return;
+      r = r.filter(row => String(row[column] ?? "").toLowerCase() === value.toLowerCase());
+    });
+    if (membershipSearch.trim()) {
+      const q = membershipSearch.toLowerCase();
+      r = r.filter(row => membershipVisibleCols.some(c => String(row[c] ?? "").toLowerCase().includes(q)));
+    }
+    return r;
+  }, [allMembershipRows, membershipColFilters, membershipSearch, membershipVisibleCols]);
+
+  const filteredSanghaUserRows = useMemo(() => {
+    let r = allSanghaUserRows;
+    sanghaUserColFilters.forEach(({ column, value }) => {
+      if (!value) return;
+      r = r.filter(row => String(row[column] ?? "").toLowerCase() === value.toLowerCase());
+    });
+    if (sanghaUserSearch.trim()) {
+      const q = sanghaUserSearch.toLowerCase();
+      r = r.filter(row => sanghaUserVisibleCols.some(c => String(row[c] ?? "").toLowerCase().includes(q)));
+    }
+    return r;
+  }, [allSanghaUserRows, sanghaUserColFilters, sanghaUserSearch, sanghaUserVisibleCols]);
+
   // ── Sidebar search ──────────────────────────────────────────────────────
   const sidebarFiltered = useMemo(() => {
     if (!sidebarSearch.trim()) return sections;
@@ -549,65 +1476,209 @@ export default function CustomReport({ dateRange }: Props) {
   }, [sidebarSearch, sections]);
 
   // ── Column actions ──────────────────────────────────────────────────────
-  const toggleSection  = (id: string) => setSelectedSections(p => p.includes(id) ? p.filter(s => s !== id) : [...p, id]);
-  const deleteColumn   = (col: string) => { if (baseCols.includes(col)) return; setVisibleColumns(p => p.filter(c => c !== col)); };
-  const addColumn      = (col: string) => setVisibleColumns(p => sortedCols([...p, col], masterOrder));
-  const addFilter      = (col: string, val: string) => setColumnFilters(p => { const e = p.find(f => f.column === col); return e ? p.map(f => f.column === col ? { ...f, value: val } : f) : [...p, { column: col, value: val }]; });
-  const removeFilter   = (col: string) => setColumnFilters(p => p.filter(f => f.column !== col));
-  const addFamFilter   = (col: string, val: string) => setFamColFilters(p => { const e = p.find(f => f.column === col); return e ? p.map(f => f.column === col ? { ...f, value: val } : f) : [...p, { column: col, value: val }]; });
-  const removeFamFilter = (col: string) => setFamColFilters(p => p.filter(f => f.column !== col));
-  const deleteFamCol   = (col: string) => { if (FAMILY_CORE.includes(col)) return; setFamVisibleCols(p => p.filter(c => c !== col)); setFamColFilters(p => p.filter(f => f.column !== col)); };
+  const toggleSection    = (id: string) => setSelectedSections(p => p.includes(id) ? p.filter(s => s !== id) : [...p, id]);
+  const deleteColumn     = (col: string) => { if (baseCols.includes(col)) return; setVisibleColumns(p => p.filter(c => c !== col)); };
+  const addColumn        = (col: string) => setVisibleColumns(p => sortedCols([...p, col], masterOrder));
+  const addFilter        = (col: string, val: string) => setColumnFilters(p => { const e = p.find(f => f.column === col); return e ? p.map(f => f.column === col ? { ...f, value: val } : f) : [...p, { column: col, value: val }]; });
+  const removeFilter     = (col: string) => setColumnFilters(p => p.filter(f => f.column !== col));
 
+  const addFamFilter     = (col: string, val: string) => setFamColFilters(p => { const e = p.find(f => f.column === col); return e ? p.map(f => f.column === col ? { ...f, value: val } : f) : [...p, { column: col, value: val }]; });
+  const removeFamFilter  = (col: string) => setFamColFilters(p => p.filter(f => f.column !== col));
+  const deleteFamCol     = (col: string) => { if (FAMILY_CORE.includes(col)) return; setFamVisibleCols(p => p.filter(c => c !== col)); setFamColFilters(p => p.filter(f => f.column !== col)); };
+  const toggleFamCol     = (col: string) => { if (FAMILY_CORE.includes(col)) return; setFamVisibleCols(p => p.includes(col) ? p.filter(c => c !== col) : [...p, col]); };
+
+  const addMembershipFilter    = (col: string, val: string) => setMembershipColFilters(p => { const e = p.find(f => f.column === col); return e ? p.map(f => f.column === col ? { ...f, value: val } : f) : [...p, { column: col, value: val }]; });
+  const removeMembershipFilter = (col: string) => setMembershipColFilters(p => p.filter(f => f.column !== col));
+  const deleteMembershipCol    = (col: string) => { if (SANGHA_MEMBERSHIP_CORE.includes(col)) return; setMembershipVisibleCols(p => p.filter(c => c !== col)); setMembershipColFilters(p => p.filter(f => f.column !== col)); };
+  const toggleMembershipCol    = (col: string) => { if (SANGHA_MEMBERSHIP_CORE.includes(col)) return; setMembershipVisibleCols(p => p.includes(col) ? p.filter(c => c !== col) : [...p, col]); };
+
+  const addSanghaUserFilter    = (col: string, val: string) => setSanghaUserColFilters(p => { const e = p.find(f => f.column === col); return e ? p.map(f => f.column === col ? { ...f, value: val } : f) : [...p, { column: col, value: val }]; });
+  const removeSanghaUserFilter = (col: string) => setSanghaUserColFilters(p => p.filter(f => f.column !== col));
+  const deleteSanghaUserCol    = (col: string) => { if (SANGHA_USER_TABLE_CORE.includes(col)) return; setSanghaUserVisibleCols(p => p.filter(c => c !== col)); setSanghaUserColFilters(p => p.filter(f => f.column !== col)); };
+  const toggleSanghaUserCol    = (col: string) => { if (SANGHA_USER_TABLE_CORE.includes(col)) return; setSanghaUserVisibleCols(p => p.includes(col) ? p.filter(c => c !== col) : [...p, col]); };
+
+  // ── Select All ──────────────────────────────────────────────────────────
+  const allSectionIds  = sections.map(s => s.id);
+  const allSelected    = allSectionIds.every(id => selectedSections.includes(id));
+  const someSelected   = allSectionIds.some(id => selectedSections.includes(id)) && !allSelected;
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelectedSections([]);
+    } else {
+      setSelectedSections(allSectionIds);
+      const openState: Record<string, boolean> = {};
+      allSectionIds.forEach(id => { openState[id] = true; });
+      setSectionOpen(openState);
+    }
+  };
+
+  // ── Filter open handlers ────────────────────────────────────────────────
   const handleOpenFilter = (col: string, e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation(); setOpenFamFilter(null);
+    e.stopPropagation(); setOpenFamFilter(null); setOpenMembershipFilter(null); setOpenSanghaUserFilter(null);
     if (openFilter?.col === col) { setOpenFilter(null); return; }
     setOpenFilter({ col, rect: (e.currentTarget as HTMLButtonElement).getBoundingClientRect() });
   };
   const handleOpenFamFilter = (col: string, e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation(); setOpenFilter(null);
+    e.stopPropagation(); setOpenFilter(null); setOpenMembershipFilter(null); setOpenSanghaUserFilter(null);
     if (openFamFilter?.col === col) { setOpenFamFilter(null); return; }
     setOpenFamFilter({ col, rect: (e.currentTarget as HTMLButtonElement).getBoundingClientRect() });
   };
+  const handleOpenMembershipFilter = (col: string, e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation(); setOpenFilter(null); setOpenFamFilter(null); setOpenSanghaUserFilter(null);
+    if (openMembershipFilter?.col === col) { setOpenMembershipFilter(null); return; }
+    setOpenMembershipFilter({ col, rect: (e.currentTarget as HTMLButtonElement).getBoundingClientRect() });
+  };
+  const handleOpenSanghaUserFilter = (col: string, e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation(); setOpenFilter(null); setOpenFamFilter(null); setOpenMembershipFilter(null);
+    if (openSanghaUserFilter?.col === col) { setOpenSanghaUserFilter(null); return; }
+    setOpenSanghaUserFilter({ col, rect: (e.currentTarget as HTMLButtonElement).getBoundingClientRect() });
+  };
 
+  // ── Individual Downloads ────────────────────────────────────────────────
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const data = filteredRows.map(r => { const o: TableRow = {}; visibleColumns.forEach(c => { o[c] = r[c] ?? ""; }); return o; });
+      const data = filteredRows.map(r => {
+        const o: TableRow = {};
+        visibleColumns.forEach(c => {
+          const raw = r[c] ?? "";
+          o[c] = INCOME_COLS.has(c) && raw ? formatIncomeSlab(String(raw)) : raw;
+        });
+        return o;
+      });
       await downloadExcel(data, `Admin-${mode}-report`);
     } finally { setDownloading(false); }
   };
+
   const handleFamDownload = async () => {
     setFamDownloading(true);
     try {
-      const data = filteredFamilyRows.map(r => { const o: TableRow = {}; famVisibleCols.forEach(c => { o[c] = r[c] ?? ""; }); return o; });
+      const data = filteredFamilyRows.map(r => {
+        const o: TableRow = {};
+        famVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+        return o;
+      });
       await downloadExcel(data, "Admin-family-members");
     } finally { setFamDownloading(false); }
   };
 
-  const activeFilters    = columnFilters.filter(f => f.value);
-  const activeFamFilters = famColFilters.filter(f => f.value);
-  const isFamilySelected = mode === "user" && selectedSections.includes(FAMILY_SECTION_ID);
-  const showFamilyTable  = isFamilySelected && (familyEntries.length > 0 || familyLoading || !!familyError);
-  const dateLabel        = fmtDateRange(dateRange);
-
-  // ── Shared card style ───────────────────────────────────────────────────
-  const card: React.CSSProperties = {
-    background: C.white, borderRadius: 16,
-    border: `1px solid ${C.slate200}`,
-    boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)",
+  const handleMembershipDownload = async () => {
+    setMembershipDownloading(true);
+    try {
+      const data = filteredMembershipRows.map(r => {
+        const o: TableRow = {};
+        membershipVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+        return o;
+      });
+      await downloadExcel(data, "Admin-sangha-memberships");
+    } finally { setMembershipDownloading(false); }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
+  const handleSanghaUserDownload = async () => {
+    setSanghaUserDownloading(true);
+    try {
+      const data = filteredSanghaUserRows.map(r => {
+        const o: TableRow = { "Sangha Name": r._sangha_name ?? r["Sangha Name"] ?? "" };
+        sanghaUserVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+        return o;
+      });
+      await downloadExcel(data, "Admin-sangha-users");
+    } finally { setSanghaUserDownloading(false); }
+  };
+
+  // ── Export All (multi-sheet) ────────────────────────────────────────────
+  const handleExportAll = async () => {
+    setExportingAll(true);
+    try {
+      const XLSX = await import("xlsx");
+      const wb   = XLSX.utils.book_new();
+
+      // Sheet 1: Main table
+      if (filteredRows.length > 0) {
+        const mainData = filteredRows.map(r => {
+          const o: TableRow = {};
+          visibleColumns.forEach(c => {
+            const raw = r[c] ?? "";
+            o[c] = INCOME_COLS.has(c) && raw ? formatIncomeSlab(String(raw)) : raw;
+          });
+          return o;
+        });
+        const ws = XLSX.utils.json_to_sheet(mainData);
+        XLSX.utils.book_append_sheet(wb, ws, mode === "user" ? "Users" : "Sanghas");
+      }
+
+      // Sheet 2: Family Members (user mode only)
+      if (mode === "user" && filteredFamilyRows.length > 0) {
+        const famData = filteredFamilyRows.map(r => {
+          const o: TableRow = {};
+          famVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+          return o;
+        });
+        const ws = XLSX.utils.json_to_sheet(famData);
+        XLSX.utils.book_append_sheet(wb, ws, "Family Members");
+      }
+
+      // Sheet 3: Sangha Memberships (user mode only)
+      if (mode === "user" && filteredMembershipRows.length > 0) {
+        const memData = filteredMembershipRows.map(r => {
+          const o: TableRow = {};
+          membershipVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+          return o;
+        });
+        const ws = XLSX.utils.json_to_sheet(memData);
+        XLSX.utils.book_append_sheet(wb, ws, "Sangha Memberships");
+      }
+
+      // Sheet 4: Sangha Users (sangha mode only)
+      if (mode === "sangha" && filteredSanghaUserRows.length > 0) {
+        const sudData = filteredSanghaUserRows.map(r => {
+          const o: TableRow = { "Sangha Name": r._sangha_name ?? r["Sangha Name"] ?? "" };
+          sanghaUserVisibleCols.forEach(c => { o[c] = r[c] ?? ""; });
+          return o;
+        });
+        const ws = XLSX.utils.json_to_sheet(sudData);
+        XLSX.utils.book_append_sheet(wb, ws, "Sangha Users");
+      }
+
+      if (wb.SheetNames.length === 0) return;
+
+      const filename = `Admin-${mode}-full-export-${new Date().toISOString().split("T")[0]}.xlsx`;
+      XLSX.writeFile(wb, filename);
+    } finally {
+      setExportingAll(false);
+    }
+  };
+
+  // ── Derived flags ───────────────────────────────────────────────────────
+  const activeFilters           = columnFilters.filter(f => f.value);
+  const isFamilySelected        = mode === "user"   && selectedSections.includes(FAMILY_SECTION_ID);
+  const isMembershipSelected    = mode === "user"   && selectedSections.includes(SANGHA_MEMBERSHIP_SECTION_ID);
+  const isSanghaUserSelected    = mode === "sangha" && selectedSections.includes(SANGHA_USER_TABLE_SECTION_ID);
+  const showFamilyTable         = isFamilySelected     && (familyEntries.length > 0     || familyLoading     || !!familyError);
+  const showMembershipTable     = isMembershipSelected && (membershipEntries.length > 0 || membershipLoading || !!membershipError);
+  const showSanghaUserTable     = isSanghaUserSelected && (sanghaUserEntries.length > 0 || sanghaUserLoading || !!sanghaUserError);
+  const dateLabel               = fmtDateRange(dateRange);
+
+  const hasAnyData = filteredRows.length > 0
+    || filteredFamilyRows.length > 0
+    || filteredMembershipRows.length > 0
+    || filteredSanghaUserRows.length > 0;
+
+  const sanghaBaseCols = new Set([
+    "Sangha Name", "Email", "Phone", "Status",
+    "Description", "Sangha Phone", "Sangha Email", "Is Blocked", "Created At",
+    "Address Line 1", "Address Line 2", "Address Line 3",
+    "City", "Village/Town", "Taluk", "District", "State", "Pincode",
+  ]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
       {/* ── Mode switcher ─────────────────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <p style={{ fontSize: 12, fontWeight: 700, color: C.slate600 }}>Report on:</p>
-        <div style={{
-          display: "flex", gap: 3, padding: 4,
-          background: C.slate100, borderRadius: 12,
-        }}>
+        <div style={{ display: "flex", gap: 3, padding: 4, background: C.slate100, borderRadius: 12 }}>
           {([
             { id: "user",   label: "Users",   Icon: Users,     accent: C.sky,    accentLt: C.skyLight },
             { id: "sangha", label: "Sanghas", Icon: Building2, accent: C.violet, accentLt: C.violetLt },
@@ -636,6 +1707,18 @@ export default function CustomReport({ dateRange }: Props) {
             );
           })}
         </div>
+
+        {selectedSections.length > 0 && initApplied.current && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "6px 12px", borderRadius: 10,
+            background: C.skyLight, border: `1px solid ${C.skyBorder}`,
+            fontSize: 11, fontWeight: 600, color: C.skyDark,
+          }}>
+            <Check style={{ width: 12, height: 12 }} />
+            {selectedSections.length} section{selectedSections.length > 1 ? "s" : ""} pre-selected from dashboard
+          </div>
+        )}
       </div>
 
       {/* ── Main area ─────────────────────────────────────────────────────── */}
@@ -650,7 +1733,6 @@ export default function CustomReport({ dateRange }: Props) {
           overflowY: "auto", maxHeight: "85vh",
           display: "flex", flexDirection: "column",
         }}>
-          {/* Header */}
           <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${C.slate100}` }}>
             <p style={{ fontSize: 13, fontWeight: 800, color: C.slate900, letterSpacing: "-0.01em" }}>Report Builder</p>
             <p style={{ fontSize: 11, color: C.slate400, marginTop: 2, fontWeight: 500 }}>
@@ -696,15 +1778,75 @@ export default function CustomReport({ dateRange }: Props) {
 
           {/* Section list */}
           <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+
+            {/* ── Select All ── */}
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "9px 12px", borderRadius: 10,
+              background: allSelected ? C.skyLight : someSelected ? `${C.sky}0d` : C.slate50,
+              border: `1px solid ${allSelected ? C.skyBorder : someSelected ? `${C.sky}40` : C.slate200}`,
+              marginBottom: 2, transition: "all 0.15s",
+            }}>
+              <button
+                onClick={handleSelectAll}
+                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, flex: 1 }}
+              >
+                <Checkbox checked={allSelected} indeterminate={someSelected} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: allSelected ? C.skyDark : someSelected ? C.sky : C.slate600 }}>
+                  {allSelected ? "Deselect All" : "Select All"}
+                </span>
+              </button>
+              <span style={{
+                fontSize: 10, fontWeight: 700,
+                color: allSelected ? C.skyDark : C.slate400,
+                background: allSelected ? C.white : C.slate100,
+                border: `1px solid ${allSelected ? C.skyBorder : C.slate200}`,
+                padding: "2px 8px", borderRadius: 999,
+              }}>
+                {selectedSections.length}/{sections.length}
+              </span>
+            </div>
+
             {sidebarFiltered.length === 0 && (
               <p style={{ fontSize: 11, color: C.slate400, textAlign: "center", padding: "24px 0" }}>No sections match</p>
             )}
+
             {sidebarFiltered.map(sec => {
-              const isSelected = selectedSections.includes(sec.id);
-              const isOpen     = sectionOpen[sec.id] ?? false;
-              const effectOpen = sidebarSearch ? true : isOpen;
-              const colsToShow = sidebarSearch ? ((sec as any).matchedColumns ?? sec.columns) : sec.columns;
-              const isFamSec   = sec.id === FAMILY_SECTION_ID;
+              const isSelected  = selectedSections.includes(sec.id);
+              const isOpen      = sectionOpen[sec.id] ?? false;
+              const effectOpen  = sidebarSearch ? true : isOpen;
+              const colsToShow  = sidebarSearch ? ((sec as any).matchedColumns ?? sec.columns) : sec.columns;
+
+              const isFamSec         = sec.id === FAMILY_SECTION_ID;
+              const isMembSec        = sec.id === SANGHA_MEMBERSHIP_SECTION_ID;
+              const isSanghaUserSec  = sec.id === SANGHA_USER_TABLE_SECTION_ID;
+              const isSanghaMemRoster= sec.id === "sangha-members";
+              const isSubTable       = isFamSec || isMembSec || isSanghaUserSec;
+
+              const subColor   = isSanghaUserSec ? C.sky      : C.emerald;
+              const subColorLt = isSanghaUserSec ? C.skyLight : C.emeraldLt;
+              const subColorBd = isSanghaUserSec ? C.skyBorder : C.emeraldBd;
+              const subColorDk = isSanghaUserSec ? C.skyDark  : C.emeraldDk;
+
+              const badgeLabel = isSanghaUserSec
+                ? "User Table"
+                : isMembSec
+                  ? "Cross-Membership Table"
+                  : isFamSec
+                    ? "Family Table"
+                    : null;
+
+              const hintText = isSanghaUserSec
+                ? "Loads a grouped table of all registered users (profiles) whose primary sangha is each selected sangha. Each sangha gets a header row followed by its users."
+                : isMembSec
+                  ? "Shows every sangha this user is also a member of (beyond their primary sangha). A user submits to ONE primary sangha for approval but can be a member of many sanghas."
+                  : isFamSec
+                    ? "Loads family members for all visible users in a separate table below."
+                    : null;
+
+              const rosterHint = isSanghaMemRoster
+                ? "Shows the registered members (staff/roster) of each sangha — people added directly by the sangha admin via the sangha portal."
+                : null;
 
               return (
                 <div key={sec.id} style={{
@@ -713,16 +1855,15 @@ export default function CustomReport({ dateRange }: Props) {
                   background: isSelected ? C.skyLight : C.white,
                   overflow: "hidden", transition: "all 0.15s",
                 }}>
-                  {/* Section header row */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 12px" }}>
                     <button onClick={() => toggleSection(sec.id)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}>
                       <Checkbox checked={isSelected} />
                       <span style={{ fontSize: 14 }}>{sec.icon}</span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: isSelected ? C.skyDark : C.slate700 }}>{sec.label}</span>
                     </button>
-                    {isFamSec ? (
-                      <span style={{ fontSize: 10, fontWeight: 700, color: C.emerald, background: C.emeraldLt, border: `1px solid ${C.emeraldBd}`, padding: "2px 8px", borderRadius: 999 }}>
-                        Family Table
+                    {isSubTable && badgeLabel ? (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: subColorDk, background: subColorLt, border: `1px solid ${subColorBd}`, padding: "2px 8px", borderRadius: 999 }}>
+                        {badgeLabel}
                       </span>
                     ) : !sidebarSearch && (
                       <button
@@ -734,20 +1875,28 @@ export default function CustomReport({ dateRange }: Props) {
                     )}
                   </div>
 
-                  {/* Family hint */}
-                  {isFamSec && isSelected && (
+                  {isSubTable && isSelected && hintText && (
                     <div style={{ padding: "0 12px 10px" }}>
-                      <div style={{ display: "flex", gap: 8, padding: "8px 10px", borderRadius: 8, background: C.emeraldLt, border: `1px solid ${C.emeraldBd}` }}>
-                        <Users style={{ width: 13, height: 13, color: C.emerald, flexShrink: 0, marginTop: 1 }} />
-                        <p style={{ fontSize: 10, color: C.emeraldDk, lineHeight: 1.5 }}>
-                          Loads family members in a separate table below.
-                        </p>
+                      <div style={{ display: "flex", gap: 8, padding: "8px 10px", borderRadius: 8, background: subColorLt, border: `1px solid ${subColorBd}` }}>
+                        {isSanghaUserSec
+                          ? <Building2 style={{ width: 13, height: 13, color: subColor, flexShrink: 0, marginTop: 1 }} />
+                          : <Users style={{ width: 13, height: 13, color: subColor, flexShrink: 0, marginTop: 1 }} />
+                        }
+                        <p style={{ fontSize: 10, color: subColorDk, lineHeight: 1.5 }}>{hintText}</p>
                       </div>
                     </div>
                   )}
 
-                  {/* Column list */}
-                  {!isFamSec && effectOpen && (
+                  {isSanghaMemRoster && isSelected && rosterHint && (
+                    <div style={{ padding: "0 12px 10px" }}>
+                      <div style={{ display: "flex", gap: 8, padding: "8px 10px", borderRadius: 8, background: C.emeraldLt, border: `1px solid ${C.emeraldBd}` }}>
+                        <Users style={{ width: 13, height: 13, color: C.emerald, flexShrink: 0, marginTop: 1 }} />
+                        <p style={{ fontSize: 10, color: C.emeraldDk, lineHeight: 1.5 }}>{rosterHint}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {!isSubTable && effectOpen && (
                     <div style={{ padding: "0 10px 10px", display: "flex", flexDirection: "column", gap: 3 }}>
                       {colsToShow.map((col: string) => {
                         const isVisible = visibleColumns.includes(col);
@@ -775,6 +1924,25 @@ export default function CustomReport({ dateRange }: Props) {
               );
             })}
           </div>
+
+          {/* Mode context footer */}
+          <div style={{ padding: "12px 14px", borderTop: `1px solid ${C.slate100}`, background: C.slate50 }}>
+            {mode === "user" ? (
+              <div style={{ fontSize: 10, color: C.slate400, lineHeight: 1.6 }}>
+                <p style={{ fontWeight: 700, color: C.slate500, marginBottom: 4 }}>User Report mode</p>
+                <p>• Each row = one registered user</p>
+                <p>• <strong>Primary Sangha</strong> = the sangha they submitted to for approval</p>
+                <p>• <strong>Sangha Memberships</strong> = other sanghas they are also a member of</p>
+              </div>
+            ) : (
+              <div style={{ fontSize: 10, color: C.slate400, lineHeight: 1.6 }}>
+                <p style={{ fontWeight: 700, color: C.slate500, marginBottom: 4 }}>Sangha Report mode</p>
+                <p>• Each row = one sangha (or one member per sangha if Roster selected)</p>
+                <p>• <strong>Sangha Members (Roster)</strong> = staff/members added via sangha portal</p>
+                <p>• <strong>User Table</strong> = registered users whose primary sangha is this sangha</p>
+              </div>
+            )}
+          </div>
         </aside>
 
         {/* ── Main content ────────────────────────────────────────────────── */}
@@ -792,7 +1960,6 @@ export default function CustomReport({ dateRange }: Props) {
             background: C.slate50,
             display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10,
           }}>
-            {/* Search */}
             <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 280 }}>
               <Search style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 14, height: 14, color: C.slate400 }} />
               <input
@@ -815,7 +1982,6 @@ export default function CustomReport({ dateRange }: Props) {
               )}
             </div>
 
-            {/* Date badge */}
             {dateLabel && (
               <Pill color={C.indigo} bg={C.indigoLt} border={C.indigoBd}>
                 <Calendar style={{ width: 10, height: 10 }} />
@@ -823,7 +1989,6 @@ export default function CustomReport({ dateRange }: Props) {
               </Pill>
             )}
 
-            {/* Active filters */}
             {activeFilters.map(f => (
               <Pill key={f.column} color={C.skyDark} bg={C.skyLight} border={C.skyBorder}>
                 <SlidersHorizontal style={{ width: 10, height: 10 }} />
@@ -840,9 +2005,20 @@ export default function CustomReport({ dateRange }: Props) {
               {filteredRows.length !== rows.length && ` of ${rows.length.toLocaleString()}`}
             </span>
 
+            {/* Individual sheet download */}
             <Btn onClick={handleDownload} disabled={downloading || filteredRows.length === 0} variant="emerald">
-              {downloading ? <Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} /> : <Download style={{ width: 13, height: 13 }} />}
+              {downloading
+                ? <Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} />
+                : <Download style={{ width: 13, height: 13 }} />}
               Download Excel
+            </Btn>
+
+            {/* Export All — multi-sheet */}
+            <Btn onClick={handleExportAll} disabled={exportingAll || !hasAnyData} variant="orange">
+              {exportingAll
+                ? <Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} />
+                : <FileSpreadsheet style={{ width: 13, height: 13 }} />}
+              Export All
             </Btn>
           </div>
 
@@ -882,52 +2058,53 @@ export default function CustomReport({ dateRange }: Props) {
                           </th>
                         );
                       })}
-                      {isFamilySelected && (
-                        <th style={thStyle}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                            <Users style={{ width: 12, height: 12, color: C.violet }} />
-                            <span>Family</span>
-                          </div>
-                        </th>
-                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredRows.slice(0, 500).map((row, idx) => (
-                      <tr key={idx} style={{ borderBottom: `1px solid ${C.slate100}`, transition: "background 0.1s" }}
-                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.slate50}
-                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = C.white}>
-                        <td style={{ ...tdStyle, color: C.slate400, fontFamily: "monospace" }}>{idx + 1}</td>
-                        {visibleColumns.map(col => {
-                          const val = row[col];
-                          let text  = val !== undefined && val !== null ? String(val) : "—";
-                          let color = C.slate700;
-                          let fw: any = 400;
-                          if (col === "Status" && val) { color = statusColor(String(val)); fw = 600; }
-                          if (col === "Gender") {
-                            const g = String(val ?? "").toLowerCase();
-                            if (g === "male")   color = C.sky;
-                            else if (g === "female") color = C.pink;
-                          }
-                          if (typeof val === "boolean") { text = val ? "✓ Yes" : "No"; color = val ? C.emerald : C.slate400; fw = val ? 600 : 400; }
-                          if (!val && val !== false && val !== 0) color = C.slate300;
-                          return (
-                            <td key={col} style={{ ...tdStyle, color, fontWeight: fw, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {text}
-                            </td>
-                          );
-                        })}
-                        {isFamilySelected && (
-                          <td style={tdStyle}>
-                            <FamilyViewBtn
-                              hasId={!!row._profile_id}
-                              loading={familyLoading}
-                              onClick={() => { const pid = row._profile_id; const name = String(row[baseCols[0]] || `Row ${idx + 1}`); if (pid) triggerFamilyFetch([String(pid)], name); }}
-                            />
+                    {filteredRows.slice(0, 500).map((row, idx) => {
+                      const isFirst       = isFirstInGroup[idx];
+                      const sanghaNum     = rowDisplayNumbers[idx];
+                      const isLastInGroup = idx === filteredRows.length - 1 || rowDisplayNumbers[idx + 1] !== sanghaNum;
+
+                      return (
+                        <tr
+                          key={idx}
+                          style={{
+                            borderBottom: isLastInGroup ? `2px solid ${C.slate200}` : `1px solid ${C.slate100}`,
+                            transition: "background 0.1s",
+                            background: isFirst ? C.white : C.slate50,
+                          }}
+                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.skyLight}
+                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = isFirst ? C.white : C.slate50}
+                        >
+                          <td style={{
+                            ...tdStyle, color: C.slate400, fontFamily: "monospace",
+                            fontWeight: isFirst ? 700 : 400,
+                            opacity: isFirst ? 1 : 0,
+                            borderLeft: isFirst ? `3px solid ${C.violet}` : `3px solid transparent`,
+                          }}>
+                            {sanghaNum}
                           </td>
-                        )}
-                      </tr>
-                    ))}
+                          {visibleColumns.map(col => {
+                            const { text, color, fontWeight } = resolveCellDisplay(col, row[col]);
+                            const isDimmed = mode === "sangha" && !isFirst && sanghaBaseCols.has(col);
+                            return (
+                              <td key={col} style={{
+                                ...tdStyle,
+                                color: isDimmed ? C.slate300 : color,
+                                fontWeight,
+                                maxWidth: 200,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}>
+                                {isDimmed ? "" : text}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -941,142 +2118,125 @@ export default function CustomReport({ dateRange }: Props) {
         </div>
       </div>
 
-      {/* ── Family Members Table ────────────────────────────────────────────── */}
+      {/* ── Family Members Table ──────────────────────────────────────────── */}
       {showFamilyTable && (
-        <div ref={familySectionRef} style={{ ...card, overflow: "hidden" }}>
-          {/* Family header */}
-          <div style={{
-            padding: "16px 20px", borderBottom: `1px solid ${C.slate100}`,
-            background: `linear-gradient(135deg, ${C.violetLt} 0%, ${C.white} 100%)`,
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: C.violetLt, border: `1px solid ${C.violetBd}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Users style={{ width: 18, height: 18, color: C.violet }} />
-              </div>
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 800, color: C.slate900 }}>Family Members</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-                  {familyEntries.map(e => (
-                    <span key={e.label} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: C.violetDk, background: C.violetLt, border: `1px solid ${C.violetBd}`, padding: "2px 8px", borderRadius: 999 }}>
-                      {e.label}
-                      <button onClick={() => setFamilyEntries(p => p.filter(f => f.label !== e.label))} style={{ background: "none", border: "none", cursor: "pointer", color: C.violet, padding: 0, display: "flex" }}>
-                        <X style={{ width: 10, height: 10 }} />
-                      </button>
-                    </span>
-                  ))}
-                  {familyLoading && <span style={{ fontSize: 10, color: C.violet, fontStyle: "italic" }}>Loading…</span>}
-                </div>
-              </div>
-            </div>
-            <button onClick={() => { setFamilyEntries([]); setFamilySearch(""); setFamColFilters([]); }} style={{ padding: 6, borderRadius: 8, border: "none", background: "none", cursor: "pointer", color: C.slate400, display: "flex" }}>
-              <X style={{ width: 15, height: 15 }} />
-            </button>
-          </div>
-
-          {/* Family toolbar */}
-          <div style={{ padding: "12px 20px", borderBottom: `1px solid ${C.slate100}`, background: C.slate50, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-            <Btn
-              onClick={() => { const ids = filteredRowsRef.current.map(r => r._profile_id).filter(Boolean) as string[]; if (ids.length) triggerFamilyFetch(ids, `All Visible (${ids.length})`); }}
-              disabled={familyLoading || filteredRows.length === 0}
-              variant="ghost" small
-            >
-              {familyLoading ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} /> : <Users style={{ width: 12, height: 12 }} />}
-              Load All Visible ({filteredRows.length})
-            </Btn>
-
-            <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 280 }}>
-              <Search style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, color: C.slate400 }} />
-              <input
-                type="text"
-                placeholder="Search family members…"
-                value={familySearch}
-                onChange={e => setFamilySearch(e.target.value)}
-                style={{
-                  width: "100%", paddingLeft: 30, paddingRight: 10,
-                  paddingTop: 6, paddingBottom: 6, fontSize: 12,
-                  border: `1px solid ${C.slate200}`, borderRadius: 10,
-                  outline: "none", background: C.white, color: C.slate700,
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-
-            {activeFamFilters.map(f => (
-              <Pill key={f.column} color={C.violetDk} bg={C.violetLt} border={C.violetBd}>
-                <span style={{ maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.column}</span>:
-                <strong>{f.value}</strong>
-                <button onClick={() => removeFamFilter(f.column)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, marginLeft: 2, fontWeight: 700 }}>×</button>
-              </Pill>
-            ))}
-
-            <div style={{ flex: 1 }} />
-
-            <span style={{ fontSize: 11, fontWeight: 600, color: C.slate500, background: C.slate100, padding: "5px 10px", borderRadius: 8 }}>
-              {filteredFamilyRows.length.toLocaleString()} members
-            </span>
-
-            <Btn onClick={handleFamDownload} disabled={famDownloading || filteredFamilyRows.length === 0} variant="emerald">
-              {famDownloading ? <Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} /> : <Download style={{ width: 13, height: 13 }} />}
-              Download Excel
-            </Btn>
-          </div>
-
-          {/* Family table body */}
-          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "60vh" }}>
-            {familyLoading && allFamilyRows.length === 0 && (
-              <EmptyState icon={<Loader2 style={{ width: 26, height: 26, color: C.violet, animation: "spin 1s linear infinite" }} />} text="Loading family members…" />
-            )}
-            {!familyLoading && familyError && (
-              <EmptyState icon={<AlertCircle style={{ width: 28, height: 28, opacity: 0.3 }} />} text={familyError} />
-            )}
-            {!familyLoading && !familyError && filteredFamilyRows.length > 0 && (
-              <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
-                <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
-                  <tr style={{ background: `${C.violetLt}cc`, borderBottom: `1px solid ${C.violetBd}` }}>
-                    <th style={{ ...thStyle, width: 36, color: C.slate400 }}>#</th>
-                    {famVisibleCols.map(col => {
-                      const af     = famColFilters.find(f => f.column === col);
-                      const isCore = FAMILY_CORE.includes(col);
-                      return (
-                        <th key={col} style={thStyle}>
-                          <ThCell col={col} isBase={isCore} activeFilter={af?.value}
-                            onFilter={e => handleOpenFamFilter(col, e)}
-                            onDelete={() => deleteFamCol(col)}
-                            filterAccent={C.violet} />
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredFamilyRows.slice(0, 1000).map((row, idx) => (
-                    <tr key={idx} style={{ borderBottom: `1px solid ${C.slate100}`, transition: "background 0.1s" }}
-                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = `${C.violetLt}44`}
-                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = C.white}>
-                      <td style={{ ...tdStyle, color: C.slate400, fontFamily: "monospace" }}>{idx + 1}</td>
-                      {famVisibleCols.map(col => {
-                        const val = row[col];
-                        const text = val !== undefined && val !== null ? String(val) : "—";
-                        return (
-                          <td key={col} style={{ ...tdStyle, color: text === "—" ? C.slate300 : C.slate700, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {text}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            {!familyLoading && !familyError && allFamilyRows.length > 0 && filteredFamilyRows.length === 0 && (
-              <EmptyState icon={<Search style={{ width: 28, height: 28, opacity: 0.2 }} />} text="No members match your filters" />
-            )}
-          </div>
-        </div>
+        <SubTable
+          tableRef={familySectionRef}
+          title="Family Members"
+          icon={<Users style={{ width: 18, height: 18, color: C.violet }} />}
+          accentColor={C.violet}
+          accentLight={C.violetLt}
+          accentBorder={C.violetBd}
+          accentDark={C.violetDk}
+          entries={familyEntries}
+          loading={familyLoading}
+          error={familyError}
+          allRows={allFamilyRows}
+          filteredRows={filteredFamilyRows}
+          visibleCols={famVisibleCols}
+          allCols={FAMILY_COLS}
+          coreCols={FAMILY_CORE}
+          colFilters={famColFilters}
+          searchValue={familySearch}
+          canLoadAll={true}
+          loadAllLabel={`Reload All Visible (${filteredRows.length})`}
+          onLoadAll={() => {
+            const ids = filteredRowsRef.current.map(r => r._profile_id).filter(Boolean) as string[];
+            if (ids.length) triggerFamilyFetch(ids, `All Visible (${ids.length})`);
+          }}
+          onSearchChange={setFamilySearch}
+          onRemoveEntry={label => setFamilyEntries(p => p.filter(e => e.label !== label))}
+          onClearAll={() => { setFamilyEntries([]); setFamilySearch(""); setFamColFilters([]); }}
+          onOpenFilter={handleOpenFamFilter}
+          onDeleteCol={deleteFamCol}
+          onToggleCol={toggleFamCol}
+          onRemoveColFilter={removeFamFilter}
+          onClearColFilters={() => setFamColFilters([])}
+          onDownload={handleFamDownload}
+          downloading={famDownloading}
+          maxRows={1000}
+          rowHoverColor={`${C.violetLt}88`}
+        />
       )}
 
-      {/* Portal filter dropdowns */}
+      {/* ── Sangha Memberships Table ──────────────────────────────────────── */}
+      {showMembershipTable && (
+        <SubTable
+          tableRef={membershipSectionRef}
+          title="Sangha Memberships (Cross-membership)"
+          icon={<Building2 style={{ width: 18, height: 18, color: C.emerald }} />}
+          accentColor={C.emerald}
+          accentLight={C.emeraldLt}
+          accentBorder={C.emeraldBd}
+          accentDark={C.emeraldDk}
+          entries={membershipEntries}
+          loading={membershipLoading}
+          error={membershipError}
+          allRows={allMembershipRows}
+          filteredRows={filteredMembershipRows}
+          visibleCols={membershipVisibleCols}
+          allCols={SANGHA_MEMBERSHIP_COLS}
+          coreCols={SANGHA_MEMBERSHIP_CORE}
+          colFilters={membershipColFilters}
+          searchValue={membershipSearch}
+          canLoadAll={true}
+          loadAllLabel={`Reload All Visible (${filteredRows.length})`}
+          onLoadAll={() => {
+            const ids = filteredRowsRef.current.map(r => r._profile_id).filter(Boolean) as string[];
+            if (ids.length) triggerMembershipFetch(ids, `All Visible (${ids.length})`);
+          }}
+          onSearchChange={setMembershipSearch}
+          onRemoveEntry={label => setMembershipEntries(p => p.filter(e => e.label !== label))}
+          onClearAll={() => { setMembershipEntries([]); setMembershipSearch(""); setMembershipColFilters([]); }}
+          onOpenFilter={handleOpenMembershipFilter}
+          onDeleteCol={deleteMembershipCol}
+          onToggleCol={toggleMembershipCol}
+          onRemoveColFilter={removeMembershipFilter}
+          onClearColFilters={() => setMembershipColFilters([])}
+          onDownload={handleMembershipDownload}
+          downloading={membershipDownloading}
+          maxRows={1000}
+          rowHoverColor={`${C.emeraldLt}88`}
+        />
+      )}
+
+      {/* ── Sangha User Table ─────────────────────────────────────────────── */}
+      {showSanghaUserTable && (
+        <SanghaUserTable
+          tableRef={sanghaUserTableRef}
+          entries={sanghaUserEntries}
+          loading={sanghaUserLoading}
+          error={sanghaUserError}
+          allRows={allSanghaUserRows}
+          filteredRows={filteredSanghaUserRows}
+          visibleCols={sanghaUserVisibleCols}
+          allCols={SANGHA_USER_TABLE_COLS}
+          coreCols={SANGHA_USER_TABLE_CORE}
+          colFilters={sanghaUserColFilters}
+          searchValue={sanghaUserSearch}
+          canLoadAll={true}
+          loadAllLabel={`Reload All Sanghas (${rows.length})`}
+          onLoadAll={() => {
+            const sanghaIds = [...new Set(
+              filteredRowsRef.current.map(r => r._sangha_id).filter(Boolean) as string[]
+            )];
+            if (sanghaIds.length) triggerSanghaUserFetch(sanghaIds);
+          }}
+          onSearchChange={setSanghaUserSearch}
+          onRemoveEntry={sid => setSanghaUserEntries(p => p.filter(e => e.sanghaId !== sid))}
+          onClearAll={() => { setSanghaUserEntries([]); setSanghaUserSearch(""); setSanghaUserColFilters([]); }}
+          onOpenFilter={handleOpenSanghaUserFilter}
+          onDeleteCol={deleteSanghaUserCol}
+          onToggleCol={toggleSanghaUserCol}
+          onRemoveColFilter={removeSanghaUserFilter}
+          onClearColFilters={() => setSanghaUserColFilters([])}
+          onDownload={handleSanghaUserDownload}
+          downloading={sanghaUserDownloading}
+          maxRows={1000}
+        />
+      )}
+
+      {/* ── Portal filter dropdowns ───────────────────────────────────────── */}
       {openFilter && (
         <FilterDropdownPortal
           col={openFilter.col} anchorRect={openFilter.rect}
@@ -1085,6 +2245,7 @@ export default function CustomReport({ dateRange }: Props) {
           onSelect={v => addFilter(openFilter.col, v)}
           onClear={() => removeFilter(openFilter.col)}
           onClose={() => setOpenFilter(null)}
+          accent={C.sky}
         />
       )}
       {openFamFilter && (
@@ -1095,107 +2256,33 @@ export default function CustomReport({ dateRange }: Props) {
           onSelect={v => addFamFilter(openFamFilter.col, v)}
           onClear={() => removeFamFilter(openFamFilter.col)}
           onClose={() => setOpenFamFilter(null)}
+          accent={C.violet}
+        />
+      )}
+      {openMembershipFilter && (
+        <FilterDropdownPortal
+          col={openMembershipFilter.col} anchorRect={openMembershipFilter.rect}
+          uniqueVals={getUniqueValues(allMembershipRows, openMembershipFilter.col)}
+          activeValue={membershipColFilters.find(f => f.column === openMembershipFilter.col)?.value}
+          onSelect={v => addMembershipFilter(openMembershipFilter.col, v)}
+          onClear={() => removeMembershipFilter(openMembershipFilter.col)}
+          onClose={() => setOpenMembershipFilter(null)}
+          accent={C.emerald}
+        />
+      )}
+      {openSanghaUserFilter && (
+        <FilterDropdownPortal
+          col={openSanghaUserFilter.col} anchorRect={openSanghaUserFilter.rect}
+          uniqueVals={getUniqueValues(allSanghaUserRows, openSanghaUserFilter.col)}
+          activeValue={sanghaUserColFilters.find(f => f.column === openSanghaUserFilter.col)?.value}
+          onSelect={v => addSanghaUserFilter(openSanghaUserFilter.col, v)}
+          onClear={() => removeSanghaUserFilter(openSanghaUserFilter.col)}
+          onClose={() => setOpenSanghaUserFilter(null)}
+          accent={C.sky}
         />
       )}
 
-      {/* Keyframe for spinner */}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
-  );
-}
-
-// ─── Shared table style tokens ─────────────────────────────────────────────────
-const thStyle: React.CSSProperties = {
-  fontSize: 11, fontWeight: 700, color: "#64748b",
-  padding: "10px 12px", textAlign: "left", whiteSpace: "nowrap",
-};
-const tdStyle: React.CSSProperties = {
-  fontSize: 11, padding: "9px 12px", whiteSpace: "nowrap",
-};
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: "60px 20px", color: "#94a3b8" }}>
-      {icon}
-      <p style={{ fontSize: 13, fontWeight: 500, color: "#94a3b8", textAlign: "center" }}>{text}</p>
-    </div>
-  );
-}
-
-function ColToggleBtn({ visible, onClick }: { visible: boolean; onClick: () => void }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        marginLeft: 6, flexShrink: 0, background: "none", border: "none", cursor: "pointer",
-        color: visible ? (hov ? "#dc2626" : "#f87171") : (hov ? "#059669" : "#34d399"),
-        display: "flex", padding: 2,
-      }}
-    >
-      {visible ? <Eye style={{ width: 12, height: 12 }} /> : <Plus style={{ width: 12, height: 12 }} />}
-    </button>
-  );
-}
-
-function ThCell({
-  col, isBase, activeFilter, onFilter, onDelete, filterAccent = "#0ea5e9",
-}: {
-  col: string; isBase: boolean; activeFilter?: string;
-  onFilter: (e: React.MouseEvent<HTMLButtonElement>) => void;
-  onDelete: () => void; filterAccent?: string;
-}) {
-  const [hov, setHov] = useState(false);
-  return (
-    <div
-      style={{ display: "flex", alignItems: "center", gap: 5 }}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-    >
-      <span>{col}</span>
-      <div style={{ display: "flex", alignItems: "center", gap: 2, opacity: hov ? 1 : 0, transition: "opacity 0.15s" }}>
-        <button onClick={onFilter} style={{ padding: 2, border: "none", background: "none", cursor: "pointer", borderRadius: 4, color: activeFilter ? filterAccent : "#94a3b8", display: "flex" }}>
-          <Filter style={{ width: 11, height: 11 }} />
-        </button>
-        {!isBase && (
-          <button onClick={onDelete} style={{ padding: 2, border: "none", background: "none", cursor: "pointer", borderRadius: 4, color: "#94a3b8", display: "flex" }}>
-            <Trash2 style={{ width: 11, height: 11 }} />
-          </button>
-        )}
-      </div>
-      {activeFilter && (
-        <span style={{ fontSize: 10, fontWeight: 700, color: filterAccent, background: filterAccent + "18", padding: "1px 6px", borderRadius: 999, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {activeFilter}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function FamilyViewBtn({ hasId, loading, onClick }: { hasId: boolean; loading: boolean; onClick: () => void }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <button
-      onClick={onClick}
-      disabled={!hasId || loading}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 5,
-        padding: "4px 10px", borderRadius: 7, fontSize: 11, fontWeight: 600,
-        border: `1px solid ${hasId ? (hov ? "#c4b5fd" : "#ddd6fe") : "#e2e8f0"}`,
-        background: hasId ? (hov ? "#f5f3ff" : "#faf5ff") : "#f8fafc",
-        color: hasId ? (hov ? "#7c3aed" : "#8b5cf6") : "#cbd5e1",
-        cursor: hasId && !loading ? "pointer" : "not-allowed",
-        transition: "all 0.15s",
-      }}
-    >
-      <Users style={{ width: 11, height: 11 }} />
-      View
-    </button>
   );
 }

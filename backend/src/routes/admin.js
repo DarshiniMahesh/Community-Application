@@ -7,11 +7,11 @@ console.log('getUserPendingDetail loaded:', typeof ac.getUserPendingDetail);
 // ── Public ───────────────────────────────────────────────────
 router.post('/login/send-otp',   ac.loginSendOtp);
 router.post('/login/verify-otp', ac.loginVerifyOtp);
+router.use('/reports', require('./adminreport'));
 
 // ── All routes below require admin auth ──────────────────────
 router.use(authenticate);
 router.use(requireRole('admin'));
-
 
 // Dashboard
 router.get('/dashboard', ac.getDashboard);

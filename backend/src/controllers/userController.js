@@ -1,3 +1,4 @@
+//Community-Application\backend\src\controllers\userController.js
 const pool = require('../config/db');
 
 function parsePgArray(val) {

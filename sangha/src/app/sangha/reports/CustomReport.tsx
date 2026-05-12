@@ -1,4 +1,3 @@
-//Community-Application\sangha\src\app\sangha\reports\CustomReport.tsx
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -35,8 +34,6 @@ export const SECTIONS: {
       "Gender",
       "Date of Birth",
       "Age",
-      "Submitted At",
-      "Reviewed At",
     ],
   },
   {
@@ -72,7 +69,6 @@ export const SECTIONS: {
     bg: "bg-violet-50",
     columns: [
       "Member Name",
-      "Relation",
       "Education Level",
       "Profession",
       "Currently Studying",
@@ -123,6 +119,9 @@ export const SECTIONS: {
 
 const BASE_COLUMNS = ["Full Name", "Email", "Phone", "Status"];
 
+// Columns that must never appear in the main table
+const EXCLUDED_MAIN_COLUMNS = new Set(["Relation", "Submitted At", "Reviewed At"]);
+
 // Family information section id constant
 const FAMILY_SECTION_ID = "family-information";
 
@@ -132,7 +131,10 @@ function buildMasterOrder(): string[] {
   BASE_COLUMNS.forEach(c => { if (!seen.has(c)) { seen.add(c); order.push(c); } });
   SECTIONS.forEach(sec => {
     sec.columns.forEach(c => {
-      if (!seen.has(c) && !BASE_COLUMNS.includes(c)) { seen.add(c); order.push(c); }
+      if (!seen.has(c) && !BASE_COLUMNS.includes(c) && !EXCLUDED_MAIN_COLUMNS.has(c)) {
+        seen.add(c);
+        order.push(c);
+      }
     });
   });
   return order;
@@ -140,11 +142,11 @@ function buildMasterOrder(): string[] {
 const MASTER_COL_ORDER = buildMasterOrder();
 
 // ─── Family Members Table Columns ─────────────────────────────────────────────
-// All possible family columns — user can delete any non-core ones
 const ALL_FAMILY_COLUMNS = [
   "Owner (Registered User)",
   "Family Member Name",
   "Relation",
+  "Family Type",
   "Date of Birth",
   "Gender",
   "Status",
@@ -153,7 +155,6 @@ const ALL_FAMILY_COLUMNS = [
   "Life Coverage",
   "Term Coverage",
   "Konkani Card Coverage",
-  // Education columns
   "Degree Name",
   "Type of Degree",
   "University",
@@ -165,7 +166,6 @@ const ALL_FAMILY_COLUMNS = [
   "Type of Profession",
   "Industry / Field",
   "Languages Known",
-  // Documents
   "Aadhaar",
   "PAN Card",
   "Voter ID",
@@ -173,7 +173,7 @@ const ALL_FAMILY_COLUMNS = [
   "DL",
 ];
 
-// Columns that cannot be deleted
+// Columns that cannot be deleted from the family table
 const FAMILY_CORE_COLUMNS = ["Owner (Registered User)", "Family Member Name", "Relation"];
 
 interface TableRow { [key: string]: any; }
@@ -299,7 +299,7 @@ function fmtDate(d: Date | null): string {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-// ─── Calculate age from DOB string (DD-Mon-YYYY or ISO) ───────────────────────
+// ─── Calculate age from DOB string ────────────────────────────────────────────
 function calcAge(dob: string | null | undefined): string {
   if (!dob) return "—";
   const parsed = new Date(dob);
@@ -310,6 +310,52 @@ function calcAge(dob: string | null | undefined): string {
   if (m < 0 || (m === 0 && today.getDate() < parsed.getDate())) age--;
   if (age < 0 || age > 150) return "—";
   return String(age);
+}
+
+// ─── Format income values for display ─────────────────────────────────────────
+function formatIncome(val: any): string {
+  if (!val || val === "null" || val === "undefined") return "—";
+  const str = String(val).trim().toLowerCase();
+  
+  // Handle patterns like "2_3l" → "2-3 Lakh"
+  const match = str.match(/^(\d+)_(\d+)l$/);
+  if (match) {
+    return `${match[1]}-${match[2]} Lakh`;
+  }
+  
+  // Handle patterns like "5l" → "5 Lakh"
+  const singleMatch = str.match(/^(\d+)l$/);
+  if (singleMatch) {
+    return `${singleMatch[1]} Lakh`;
+  }
+  
+  // Handle patterns like "1_2cr" → "1-2 Crore"
+  const croreMatch = str.match(/^(\d+)_(\d+)cr$/);
+  if (croreMatch) {
+    return `${croreMatch[1]}-${croreMatch[2]} Crore`;
+  }
+  
+  // Handle patterns like "5cr" → "5 Crore"
+  const singleCroreMatch = str.match(/^(\d+)cr$/);
+  if (singleCroreMatch) {
+    return `${singleCroreMatch[1]} Crore`;
+  }
+  
+  // Return original if no pattern matches
+  return String(val);
+}
+
+// ─── Normalize a value for Excel export ───────────────────────────────────────
+function normalizeForExcel(val: any, colName?: string): string {
+  // Format income columns for Excel
+  if (colName && (colName === "Self Income (Individual)" || colName === "Family Income (Annual)")) {
+    return formatIncome(val);
+  }
+  
+  if (val === true  || val === "true"  || val === "True")  return "Yes";
+  if (val === false || val === "false" || val === "False") return "No";
+  if (val === null || val === undefined || val === "")     return "Not Selected";
+  return String(val);
 }
 
 // ─── Family cell renderer helper ──────────────────────────────────────────────
@@ -373,7 +419,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
   const [sectionOpen, setSectionOpen]           = useState<Record<string, boolean>>({});
   const [openFilter, setOpenFilter]             = useState<{ col: string; rect: DOMRect } | null>(null);
 
-  // ── Family members state — supports multiple entries ──────────────────────
+  // ── Family members state ──────────────────────────────────────────────────
   const [familyEntries, setFamilyEntries]             = useState<FamilyEntry[]>([]);
   const [familyLoading, setFamilyLoading]             = useState(false);
   const [familyError, setFamilyError]                 = useState<string | null>(null);
@@ -396,42 +442,26 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
   }, [initSections]); // eslint-disable-line
 
   // ── Sync visible columns when sections change ─────────────────────────────
-  // Family information section contributes NO columns to main table
+  // "Relation" and any EXCLUDED_MAIN_COLUMNS are never added to the main table
   useEffect(() => {
     const desired = new Set<string>(BASE_COLUMNS);
     selectedSections.forEach(secId => {
-      if (secId === FAMILY_SECTION_ID) return; // skip — no main table columns
+      if (secId === FAMILY_SECTION_ID) return;
       const sec = SECTIONS.find(s => s.id === secId);
-      if (sec) sec.columns.forEach(c => desired.add(c));
+      if (sec) {
+        sec.columns.forEach(c => {
+          if (!EXCLUDED_MAIN_COLUMNS.has(c)) desired.add(c);
+        });
+      }
     });
     setVisibleColumns(prev => {
-      const kept    = prev.filter(c => desired.has(c));
+      const kept    = prev.filter(c => desired.has(c) && !EXCLUDED_MAIN_COLUMNS.has(c));
       const keptSet = new Set(kept);
-      const added   = Array.from(desired).filter(c => !keptSet.has(c));
+      const added   = Array.from(desired).filter(c => !keptSet.has(c) && !EXCLUDED_MAIN_COLUMNS.has(c));
       return sortedCols([...kept, ...added]);
     });
     setColumnFilters(prev => prev.filter(f => desired.has(f.column)));
   }, [selectedSections]);
-
-  // ── When family-information is selected/deselected, auto-fetch or clear ───
-  const prevFamilySelected = useRef(false);
-  useEffect(() => {
-    const isSelected = selectedSections.includes(FAMILY_SECTION_ID);
-    if (isSelected && !prevFamilySelected.current && rows.length > 0) {
-      // Newly selected — fetch for all visible rows
-      const ids = filteredRowsRef.current.map(r => r._profile_id).filter(Boolean) as string[];
-      if (ids.length > 0) {
-        triggerFamilyFetch(ids, `All Visible Users (${ids.length})`);
-      }
-    }
-    if (!isSelected && prevFamilySelected.current) {
-      // Deselected — clear family table
-      setFamilyEntries([]);
-      setFamilySearch("");
-      setFamilyColFilters([]);
-    }
-    prevFamilySelected.current = isSelected;
-  }, [selectedSections]); // eslint-disable-line
 
   // ── Fetch main data ───────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -441,7 +471,6 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
     const dateParams = dateRange
       ? { dateFrom: toISO(dateRange.from), dateTo: toISO(dateRange.to) }
       : {};
-    // Use non-family sections for the export call
     const exportSections = selectedSections.filter(s => s !== FAMILY_SECTION_ID);
     try {
       const result = await api.post("/sangha/reports/export/full", {
@@ -484,7 +513,6 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
     return result;
   }, [rows, columnFilters, searchQuery, visibleColumns]);
 
-  // Keep a ref so the family-section useEffect can access latest filtered rows
   const filteredRowsRef = useRef(filteredRows);
   useEffect(() => { filteredRowsRef.current = filteredRows; }, [filteredRows]);
 
@@ -501,7 +529,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
     }));
   }, [sidebarSearch]);
 
-  // ── Combined family rows (all entries merged) ─────────────────────────────
+  // ── Combined family rows ──────────────────────────────────────────────────
   const allFamilyRows = useMemo(() => {
     return familyEntries.flatMap(e => e.rows);
   }, [familyEntries]);
@@ -524,7 +552,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
     return result;
   }, [allFamilyRows, familyColFilters, familySearch, familyVisibleCols]);
 
-  // ── Fetch family data (append, not replace) ───────────────────────────────
+  // ── Fetch family data ─────────────────────────────────────────────────────
   const triggerFamilyFetch = useCallback(async (profileIds: string[], label: string) => {
     if (!profileIds.length) return;
     setFamilyLoading(true);
@@ -533,7 +561,6 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
       const result = await api.post("/sangha/reports/family-members", { profileIds });
       const newRows = Array.isArray(result) ? result : [];
       setFamilyEntries(prev => {
-        // Replace existing entry for same label, or append
         const exists = prev.findIndex(e => e.label === label);
         if (exists >= 0) {
           const updated = [...prev];
@@ -551,6 +578,41 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
       setFamilyLoading(false);
     }
   }, []);
+
+  // ── Auto-fetch family when section is selected ────────────────────────────
+  const prevFamilySelected = useRef(false);
+  const pendingFamilyAutoFetch = useRef(false);
+  useEffect(() => {
+    const isSelected = selectedSections.includes(FAMILY_SECTION_ID);
+    if (!isSelected) {
+      if (prevFamilySelected.current) {
+        setFamilyEntries([]);
+        setFamilySearch("");
+        setFamilyColFilters([]);
+      }
+      prevFamilySelected.current = false;
+      pendingFamilyAutoFetch.current = false;
+      return;
+    }
+    if (rows.length === 0) {
+      pendingFamilyAutoFetch.current = true;
+      return;
+    }
+    if (loading) return;
+
+    const ids = filteredRowsRef.current.map(r => r._profile_id).filter(Boolean) as string[];
+    if (ids.length === 0) return;
+
+    const justEnabledFamily = !prevFamilySelected.current;
+    const dataArrivedAfterWait = pendingFamilyAutoFetch.current;
+    if (justEnabledFamily || dataArrivedAfterWait) {
+      pendingFamilyAutoFetch.current = false;
+      prevFamilySelected.current = true;
+      triggerFamilyFetch(ids, `All Visible Users (${ids.length})`);
+    } else {
+      prevFamilySelected.current = true;
+    }
+  }, [selectedSections, rows, loading, triggerFamilyFetch]);
 
   // ── Remove a family entry block ───────────────────────────────────────────
   const removeFamilyEntry = (label: string) => {
@@ -574,6 +636,8 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
   };
 
   const addColumn = (col: string) => {
+    // Never allow excluded columns into the main table
+    if (EXCLUDED_MAIN_COLUMNS.has(col)) return;
     setVisibleColumns(prev => sortedCols([...prev, col]));
   };
 
@@ -589,12 +653,20 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
     setColumnFilters(prev => prev.filter(f => f.column !== col));
   };
 
+  // ── Excel download — booleans → Yes/No, nulls → Not Selected, income formatted ───
   const handleDownload = async () => {
     setDownloading(true);
     try {
       const exportData = filteredRows.map(row => {
         const obj: TableRow = {};
-        visibleColumns.forEach(col => { obj[col] = row[col] ?? ""; });
+        visibleColumns.forEach(col => {
+          if (col === "Age") {
+            const age = calcAge(row["Date of Birth"]);
+            obj[col] = age === "—" ? "Not Selected" : age;
+          } else {
+            obj[col] = normalizeForExcel(row[col], col);
+          }
+        });
         return obj;
       });
       await downloadExcel(exportData, `Custom-Report-${selectedSections.join("-")}`);
@@ -609,7 +681,9 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
     try {
       const exportData = filteredFamilyRows.map(row => {
         const obj: TableRow = {};
-        familyVisibleCols.forEach(col => { obj[col] = row[col] ?? ""; });
+        familyVisibleCols.forEach(col => {
+          obj[col] = normalizeForExcel(row[col], col);
+        });
         return obj;
       });
       await downloadExcel(exportData, `Family-Members-Export`);
@@ -657,10 +731,8 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
   const activeFamilyFilters = familyColFilters.filter(f => f.value);
   const getFilterVals       = (col: string) => getUniqueValues(rows, col);
   const getFamilyFilterVals = (col: string) => getUniqueValues(allFamilyRows, col);
-const isFamilySectionSelected = selectedSections.includes(FAMILY_SECTION_ID);
-const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!familyError;
-  
- 
+  const isFamilySectionSelected = selectedSections.includes(FAMILY_SECTION_ID);
+  const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!familyError;
 
   // ── Date range label ──────────────────────────────────────────────────────
   const dateRangeLabel = useMemo(() => {
@@ -772,7 +844,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
                         {sec.label}
                       </span>
                     </button>
-                    {/* Family section: show info badge instead of expand */}
                     {isFamilySec ? (
                       <span className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
                         Family Table
@@ -793,7 +864,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
                     )}
                   </div>
 
-                  {/* Family section: special description instead of column list */}
                   {isFamilySec && isSelected && (
                     <div className="px-3 pb-2.5">
                       <div className="flex items-start gap-2 px-2 py-2 rounded-lg bg-emerald-50 border border-emerald-100">
@@ -810,6 +880,8 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
                       {colsToShow.map((col: string) => {
                         const isVisible = visibleColumns.includes(col);
                         const isBase    = BASE_COLUMNS.includes(col);
+                        // Never show add/remove toggle for excluded columns
+                        const isExcluded = EXCLUDED_MAIN_COLUMNS.has(col);
                         return (
                           <div
                             key={col}
@@ -822,6 +894,8 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
                             <span className="text-slate-600 truncate flex-1">{col}</span>
                             {isBase ? (
                               <span className="ml-2 text-xs text-slate-300 italic">always</span>
+                            ) : isExcluded ? (
+                              <span className="ml-2 text-xs text-slate-300 italic">family only</span>
                             ) : (
                               <button
                                 onClick={() => isVisible ? deleteColumn(col) : addColumn(col)}
@@ -876,7 +950,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
               )}
             </div>
 
-            {/* Date range badge */}
             {dateRangeLabel && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-medium">
                 <Calendar className="w-3 h-3" />
@@ -884,7 +957,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
               </span>
             )}
 
-            {/* Active column filters */}
             {activeFilters.map(f => (
               <span
                 key={f.column}
@@ -1001,7 +1073,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
                           </th>
                         );
                       })}
-                      
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1013,8 +1084,11 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
                           let displayVal: any = val;
                           let cellClass = "text-slate-700";
 
-                          // Age column — compute from Date of Birth
-                          if (col === "Age") {
+                          // Format income columns
+                          if (col === "Self Income (Individual)" || col === "Family Income (Annual)") {
+                            displayVal = formatIncome(val);
+                            cellClass = "text-slate-700 font-medium";
+                          } else if (col === "Age") {
                             displayVal = calcAge(row["Date of Birth"]);
                             cellClass  = "text-slate-700 font-mono";
                           } else if (col === "Status") {
@@ -1035,7 +1109,7 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
                             else if (v === "no")      cellClass = "text-rose-500";
                             else if (v === "unknown") cellClass = "text-slate-400";
                           } else if (typeof val === "boolean") {
-                            displayVal = val ? "✓ Yes" : "No";
+                            displayVal = val ? "Yes" : "No";
                             cellClass  = val ? "text-emerald-600 font-medium" : "text-slate-400";
                           }
 
@@ -1044,14 +1118,12 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
                               key={col}
                               className={`px-3 py-2.5 text-xs whitespace-nowrap max-w-[200px] truncate ${cellClass}`}
                             >
-                              {col === "Age"
+                              {col === "Age" || col === "Self Income (Individual)" || col === "Family Income (Annual)"
                                 ? displayVal
                                 : (displayVal !== undefined && displayVal !== null ? String(displayVal) : "—")}
                             </td>
                           );
                         })}
-
-                        
                       </tr>
                     ))}
                   </tbody>
@@ -1124,7 +1196,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
 
           {/* Family toolbar */}
           <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center gap-3">
-            {/* Load all visible button */}
             {isFamilySectionSelected && rows.length > 0 && (
               <button
                 onClick={() => {
@@ -1144,7 +1215,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
               </button>
             )}
 
-            {/* Search */}
             <div className="relative flex-1 min-w-[180px] max-w-xs">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
@@ -1165,7 +1235,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
               )}
             </div>
 
-            {/* Active family column filters */}
             {activeFamilyFilters.map(f => (
               <span
                 key={f.column}
@@ -1213,7 +1282,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
 
           {/* Family table body */}
           <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
-            {/* Loading */}
             {familyLoading && allFamilyRows.length === 0 && (
               <div className="flex items-center justify-center gap-3 text-slate-400 py-16">
                 <Loader2 className="w-6 h-6 animate-spin text-violet-500" />
@@ -1221,7 +1289,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
               </div>
             )}
 
-            {/* Error */}
             {!familyLoading && familyError && (
               <div className="flex flex-col items-center justify-center gap-3 text-slate-400 py-16">
                 <AlertCircle className="w-8 h-8 opacity-40" />
@@ -1235,7 +1302,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
               </div>
             )}
 
-            {/* Empty */}
             {!familyLoading && !familyError && filteredFamilyRows.length === 0 && allFamilyRows.length === 0 && (
               <div className="flex flex-col items-center justify-center gap-3 text-slate-400 py-16">
                 <Users className="w-8 h-8 opacity-30" />
@@ -1258,7 +1324,6 @@ const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!f
               </div>
             )}
 
-            {/* Table */}
             {!familyLoading && !familyError && filteredFamilyRows.length > 0 && (
               <>
                 <table className="min-w-full text-sm">
