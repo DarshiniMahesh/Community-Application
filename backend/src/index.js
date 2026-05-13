@@ -14,7 +14,7 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:3002',
-    'https://your-admin.vercel.app',
+    'https://community-application.vercel.app',
     'https://your-sangha.vercel.app',
     'https://your-user.vercel.app',
   ],
