@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface DashboardStats {
   totalUsers: number;

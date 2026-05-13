@@ -3,7 +3,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { IC } from './Icons';
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const NAV = [
   { section: 'Main', items: [

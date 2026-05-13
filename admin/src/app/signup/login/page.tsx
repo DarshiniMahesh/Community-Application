@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { IC } from '@/components/Icons';
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export default function LoginPage() {
   const router = useRouter();
