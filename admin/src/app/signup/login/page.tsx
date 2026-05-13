@@ -42,7 +42,7 @@ export default function LoginPage() {
         return;
       }
 
-      sessionStorage.setItem('admin_email', data.email);
+      sessionStorage.setItem('admin_email', contact);
       sessionStorage.setItem('admin_password', password);
       router.push('/signup/otp');
     } catch {
