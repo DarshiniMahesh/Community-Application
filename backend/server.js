@@ -22,13 +22,11 @@ const adminRoutes  = require('./src/routes/admin');
 const authRoutes   = require("./src/routes/auth");
 const userRoutes   = require("./src/routes/users");
 const sanghaRoutes = require("./src/routes/sangha");
-const reportRoutes = require("./src/routes/adminreport");
 
 app.use('/api/admin',  adminRoutes);
 app.use("/api/auth",   authRoutes);
 app.use("/api/users",  userRoutes);
 app.use("/api/sangha", sanghaRoutes);
-app.use('/admin/reports', reportRoutes);
 
 // ─── HEALTH CHECK ─────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
