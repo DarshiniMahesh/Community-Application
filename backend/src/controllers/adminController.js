@@ -293,17 +293,15 @@ const approveUser = async (req, res) => {
     if (status === 'approved')
       return res.status(409).json({ message: 'Profile already approved' });
 
-    const reviewerId = adminId === 'hardcoded-admin' ? null : adminId;
+    const reviewerId = adminId;
     await pool.query(
       `UPDATE profiles SET status='approved', reviewed_by=$1, reviewed_at=((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'), review_comment=$2 WHERE id=$3`,
       [reviewerId, comment || null, profileId]
     );
-    if (reviewerId) {
-      await pool.query(
-        `INSERT INTO profile_review_history (profile_id, action, performed_by, comment) VALUES ($1,'approved',$2,$3)`,
-        [profileId, reviewerId, comment || null]
-      );
-    }
+    await pool.query(
+  `INSERT INTO profile_review_history (profile_id, action, performed_by, comment) VALUES ($1,'approved',$2,$3)`,
+  [profileId, adminId, comment || null]
+);
     res.json({ message: 'User approved successfully' });
   } catch (err) {
     console.error(err);
@@ -326,17 +324,15 @@ const rejectUser = async (req, res) => {
       return res.status(404).json({ message: 'Profile not found' });
 
     const { id: profileId } = profileRes.rows[0];
-    const reviewerId = adminId === 'hardcoded-admin' ? null : adminId;
+    const reviewerId = adminId;
     await pool.query(
       `UPDATE profiles SET status='rejected', reviewed_by=$1, reviewed_at=((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'), review_comment=$2 WHERE id=$3`,
       [reviewerId, comment || null, profileId]
     );
-    if (reviewerId) {
-      await pool.query(
-        `INSERT INTO profile_review_history (profile_id, action, performed_by, comment) VALUES ($1,'rejected',$2,$3)`,
-        [profileId, reviewerId, comment || null]
-      );
-    }
+    await pool.query(
+  `INSERT INTO profile_review_history (profile_id, action, performed_by, comment) VALUES ($1,'rejected',$2,$3)`,
+  [profileId, adminId, comment || null]
+);
     res.json({ message: 'User rejected successfully' });
   } catch (err) {
     console.error(err);

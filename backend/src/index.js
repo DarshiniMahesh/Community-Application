@@ -9,12 +9,14 @@ require('dotenv').config();
 const app = express();
 
 // ── Security ──────────────────────────────────────────────────────────────────
-app.use(helmet());
 app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:3002',
+    'https://your-admin.vercel.app',
+    'https://your-sangha.vercel.app',
+    'https://your-user.vercel.app',
   ],
   credentials: true,
 }));
@@ -41,6 +43,10 @@ app.use(errorHandler);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => {
-  console.log(`Census API running on http://localhost:${PORT}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`Census API running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
