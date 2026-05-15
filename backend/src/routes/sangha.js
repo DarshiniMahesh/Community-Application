@@ -50,6 +50,13 @@ router.get('/member-requests',     requireRole('sangha', 'admin'), sc.getMemberR
 router.post('/approve-request',    requireRole('sangha', 'admin'), sc.approveMemberRequest);
 router.post('/reject-request',     requireRole('sangha', 'admin'), sc.rejectMemberRequest);
 
+// Scholarships
+router.get('/scholarships',                  requireRole('sangha', 'admin'), sc.listScholarships);
+router.post('/scholarships',                 requireRole('sangha', 'admin'), sc.createScholarship);
+router.put('/scholarships/:id',              requireRole('sangha', 'admin'), sc.updateScholarship);
+router.delete('/scholarships/:id',           requireRole('sangha', 'admin'), sc.deleteScholarship);
+router.get('/scholarships/:id/eligible-members', requireRole('sangha', 'admin'), sc.getEligibleMembers);
+
 // Actions
 router.post('/approve',            requireRole('sangha', 'admin'), sc.approveUser);
 router.post('/reject',             requireRole('sangha', 'admin'), sc.rejectUser);
