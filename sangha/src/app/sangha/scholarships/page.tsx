@@ -1,6 +1,7 @@
 //sangha\src\app\sangha\sholarships\page.tsx
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { API_BASE } from "@/lib/constants";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -75,8 +76,6 @@ interface EligibleMember {
 }
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 function getAuthHeaders(): Record<string, string> {
   const token =
