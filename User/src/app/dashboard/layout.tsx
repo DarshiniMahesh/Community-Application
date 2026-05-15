@@ -13,7 +13,7 @@ const baseNavigation = [
   { name: "Dashboard",  href: "/dashboard",        icon: LayoutDashboard },
   { name: "My Profile", href: "/dashboard/profile", icon: User },
   { name: "Status",     href: "/dashboard/status",  icon: CheckCircle },
-  { name:"apply to scholarships", href:"dashboard/userscholarship", icon: CheckCircle },
+  { name:"apply to scholarship", href:"dashboard/userscholarship", icon: CheckCircle },
 ];
 
 const sanghaNav = {
