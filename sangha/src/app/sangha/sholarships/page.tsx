@@ -1,8 +1,6 @@
 //sangha\src\app\sangha\sholarships\page.tsx
 "use client";
-
 import { useState, useEffect, useCallback } from "react";
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type AgeLimit = { min: number | ""; max: number | "" };
