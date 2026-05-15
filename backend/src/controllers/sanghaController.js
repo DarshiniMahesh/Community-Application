@@ -2100,6 +2100,596 @@ const getExportData = async (req, res) => {
   }
 };
 
+
+// Community-Application/backend/src/controllers/scholarshipController.js
+//
+// Handles all scholarship CRUD and eligibility logic for the sangha portal.
+// All scholarship data is scoped to the authenticated sangha's sangha_id.
+//
+// Routes (add to sangha router or a dedicated router):
+//   GET    /sangha/scholarships                      → listScholarships
+//   POST   /sangha/scholarships                      → createScholarship
+//   PUT    /sangha/scholarships/:id                  → updateScholarship
+//   DELETE /sangha/scholarships/:id                  → deleteScholarship
+//   GET    /sangha/scholarships/:id/eligible-members → getEligibleMembers
+
+
+
+// ─── Helper: upsert tiers within a transaction ────────────────────────────────
+async function upsertTiers(client, scholarshipId, tiers = []) {
+  await client.query(
+    'DELETE FROM scholarship_tiers WHERE scholarship_id=$1',
+    [scholarshipId]
+  );
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    if (!t.label || t.amount == null) continue;
+    await client.query(
+      `INSERT INTO scholarship_tiers
+         (scholarship_id, label, amount, condition_note, sort_order)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [scholarshipId, t.label, Number(t.amount), t.condition || null, i]
+    );
+  }
+}
+
+// ─── Helper: build criteria column map from request body ─────────────────────
+function buildCriteriaColumns(criteria = {}) {
+  // Each value maps 1-to-1 with a DB column. Nulls mean "no filter".
+  return {
+    age_min:                   criteria.ageLimit?.min   !== '' && criteria.ageLimit?.min != null
+                                 ? Number(criteria.ageLimit.min) : null,
+    age_max:                   criteria.ageLimit?.max   !== '' && criteria.ageLimit?.max != null
+                                 ? Number(criteria.ageLimit.max) : null,
+    gender:                    criteria.gender           ?? 'all',
+    disability_required:       criteria.disabilityRequired ?? null,
+    marital_status:            criteria.maritalStatus    ?? 'all',
+    max_family_size:           criteria.maxFamilySize    !== '' && criteria.maxFamilySize != null
+                                 ? Number(criteria.maxFamilySize) : null,
+    max_dependents:            criteria.maxDependents    !== '' && criteria.maxDependents != null
+                                 ? Number(criteria.maxDependents) : null,
+    single_parent_only:        criteria.singleParentOnly ?? null,
+    disabled_family_member:    criteria.disabledFamilyMember ?? null,
+    family_type:               criteria.familyType       ?? 'all',
+    states:                    Array.isArray(criteria.states) ? criteria.states : [],
+    districts:                 Array.isArray(criteria.districts) ? criteria.districts : [],
+    education_levels:          Array.isArray(criteria.educationLevels) ? criteria.educationLevels : [],
+    degrees:                   Array.isArray(criteria.degrees) ? criteria.degrees : [],
+    universities:              Array.isArray(criteria.universities) ? criteria.universities : [],
+    merit_based:               criteria.meritBased       ?? null,
+    currently_studying:        criteria.currentlyStudying ?? null,
+    employment_status:         criteria.employmentStatus  ?? 'all',
+    annual_family_income_min:  criteria.annualFamilyIncome?.min !== '' && criteria.annualFamilyIncome?.min != null
+                                 ? Number(criteria.annualFamilyIncome.min) : null,
+    annual_family_income_max:  criteria.annualFamilyIncome?.max !== '' && criteria.annualFamilyIncome?.max != null
+                                 ? Number(criteria.annualFamilyIncome.max) : null,
+    self_income_min:           criteria.selfIncome?.min  !== '' && criteria.selfIncome?.min != null
+                                 ? Number(criteria.selfIncome.min) : null,
+    self_income_max:           criteria.selfIncome?.max  !== '' && criteria.selfIncome?.max != null
+                                 ? Number(criteria.selfIncome.max) : null,
+    ews_only:                  criteria.ewsOnly          ?? null,
+    house_ownership:           criteria.houseOwnership   ?? 'all',
+    agricultural_family:       criteria.agriculturalFamily ?? null,
+    vehicle_ownership:         criteria.vehicleOwnership ?? 'all',
+    has_assets:                criteria.hasAssets        ?? null,
+    has_investments:           criteria.hasInvestments   ?? null,
+    aadhaar_required:          criteria.aadhaarRequired  ?? 'not_required',
+  };
+}
+
+// ─── Helper: map DB row → frontend Scholarship shape ─────────────────────────
+function rowToScholarship(row, tiers = []) {
+  return {
+    id:          row.id,
+    name:        row.name,
+    description: row.description || '',
+    baseAmount:  row.base_amount != null ? Number(row.base_amount) : '',
+    status:      row.status,
+    createdAt:   row.created_at,
+    tieredAmounts: tiers.map(t => ({
+      id:        t.id,
+      label:     t.label,
+      amount:    Number(t.amount),
+      condition: t.condition_note || '',
+    })),
+    criteria: {
+      ageLimit: {
+        min: row.age_min != null ? Number(row.age_min) : '',
+        max: row.age_max != null ? Number(row.age_max) : '',
+      },
+      gender:                 row.gender,
+      disabilityRequired:     row.disability_required,
+      maritalStatus:          row.marital_status,
+      maxFamilySize:          row.max_family_size != null ? Number(row.max_family_size) : '',
+      maxDependents:          row.max_dependents  != null ? Number(row.max_dependents)  : '',
+      singleParentOnly:       row.single_parent_only,
+      disabledFamilyMember:   row.disabled_family_member,
+      familyType:             row.family_type,
+      states:                 row.states       || [],
+      districts:              row.districts    || [],
+      educationLevels:        row.education_levels  || [],
+      degrees:                row.degrees      || [],
+      universities:           row.universities || [],
+      meritBased:             row.merit_based,
+      currentlyStudying:      row.currently_studying,
+      employmentStatus:       row.employment_status,
+      annualFamilyIncome: {
+        min: row.annual_family_income_min != null ? Number(row.annual_family_income_min) : '',
+        max: row.annual_family_income_max != null ? Number(row.annual_family_income_max) : '',
+      },
+      selfIncome: {
+        min: row.self_income_min != null ? Number(row.self_income_min) : '',
+        max: row.self_income_max != null ? Number(row.self_income_max) : '',
+      },
+      ewsOnly:            row.ews_only,
+      houseOwnership:     row.house_ownership,
+      agriculturalFamily: row.agricultural_family,
+      vehicleOwnership:   row.vehicle_ownership,
+      hasAssets:          row.has_assets,
+      hasInvestments:     row.has_investments,
+      aadhaarRequired:    row.aadhaar_required,
+    },
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+// LIST  GET /sangha/scholarships
+// ════════════════════════════════════════════════════════════
+const listScholarships = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
+    const rows = await pool.query(
+      `SELECT * FROM scholarships WHERE sangha_id=$1 ORDER BY created_at DESC`,
+      [sanghaId]
+    );
+
+    // Fetch tiers for all scholarships in one query
+    const ids = rows.rows.map(r => r.id);
+    let tiersMap = {};
+    if (ids.length > 0) {
+      const tiersRes = await pool.query(
+        `SELECT * FROM scholarship_tiers WHERE scholarship_id = ANY($1) ORDER BY sort_order`,
+        [ids]
+      );
+      for (const t of tiersRes.rows) {
+        if (!tiersMap[t.scholarship_id]) tiersMap[t.scholarship_id] = [];
+        tiersMap[t.scholarship_id].push(t);
+      }
+    }
+
+    const scholarships = rows.rows.map(r => rowToScholarship(r, tiersMap[r.id] || []));
+    res.json(scholarships);
+  } catch (err) {
+    console.error('[listScholarships]', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ════════════════════════════════════════════════════════════
+// CREATE  POST /sangha/scholarships
+// ════════════════════════════════════════════════════════════
+const createScholarship = async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
+    const { name, description, baseAmount, status, tieredAmounts, criteria } = req.body;
+    if (!name || !name.trim())
+      return res.status(400).json({ message: 'Scholarship name is required' });
+
+    const c = buildCriteriaColumns(criteria);
+
+    await client.query('BEGIN');
+
+    const ins = await client.query(
+      `INSERT INTO scholarships (
+         sangha_id, name, description, base_amount, status,
+         age_min, age_max, gender, disability_required, marital_status,
+         max_family_size, max_dependents, single_parent_only, disabled_family_member, family_type,
+         states, districts,
+         education_levels, degrees, universities, merit_based, currently_studying, employment_status,
+         annual_family_income_min, annual_family_income_max,
+         self_income_min, self_income_max,
+         ews_only, house_ownership, agricultural_family, vehicle_ownership,
+         has_assets, has_investments, aadhaar_required
+       ) VALUES (
+         $1,$2,$3,$4,$5,
+         $6,$7,$8,$9,$10,
+         $11,$12,$13,$14,$15,
+         $16,$17,
+         $18,$19,$20,$21,$22,$23,
+         $24,$25,$26,$27,
+         $28,$29,$30,$31,$32,$33,$34
+       ) RETURNING *`,
+      [
+        sanghaId, name.trim(), description || null,
+        baseAmount !== '' && baseAmount != null ? Number(baseAmount) : null,
+        status || 'draft',
+        c.age_min, c.age_max, c.gender, c.disability_required, c.marital_status,
+        c.max_family_size, c.max_dependents, c.single_parent_only, c.disabled_family_member, c.family_type,
+        c.states, c.districts,
+        c.education_levels, c.degrees, c.universities, c.merit_based, c.currently_studying, c.employment_status,
+        c.annual_family_income_min, c.annual_family_income_max,
+        c.self_income_min, c.self_income_max,
+        c.ews_only, c.house_ownership, c.agricultural_family, c.vehicle_ownership,
+        c.has_assets, c.has_investments, c.aadhaar_required,
+      ]
+    );
+
+    const scholarshipId = ins.rows[0].id;
+    await upsertTiers(client, scholarshipId, tieredAmounts || []);
+
+    await client.query('COMMIT');
+
+    // Fetch tiers for response
+    const tiers = await pool.query(
+      'SELECT * FROM scholarship_tiers WHERE scholarship_id=$1 ORDER BY sort_order',
+      [scholarshipId]
+    );
+
+    res.status(201).json(rowToScholarship(ins.rows[0], tiers.rows));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[createScholarship]', err);
+    res.status(500).json({ message: 'Server error' });
+  } finally {
+    client.release();
+  }
+};
+
+// ════════════════════════════════════════════════════════════
+// UPDATE  PUT /sangha/scholarships/:id
+// ════════════════════════════════════════════════════════════
+const updateScholarship = async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
+    const { id: scholarshipId } = req.params;
+
+    // Ensure the scholarship belongs to this sangha
+    const existing = await pool.query(
+      'SELECT id FROM scholarships WHERE id=$1 AND sangha_id=$2',
+      [scholarshipId, sanghaId]
+    );
+    if (existing.rows.length === 0)
+      return res.status(404).json({ message: 'Scholarship not found' });
+
+    const { name, description, baseAmount, status, tieredAmounts, criteria } = req.body;
+    if (!name || !name.trim())
+      return res.status(400).json({ message: 'Scholarship name is required' });
+
+    const c = buildCriteriaColumns(criteria);
+
+    await client.query('BEGIN');
+
+    const upd = await client.query(
+      `UPDATE scholarships SET
+         name=$1, description=$2, base_amount=$3, status=$4,
+         age_min=$5, age_max=$6, gender=$7, disability_required=$8, marital_status=$9,
+         max_family_size=$10, max_dependents=$11, single_parent_only=$12,
+         disabled_family_member=$13, family_type=$14,
+         states=$15, districts=$16,
+         education_levels=$17, degrees=$18, universities=$19,
+         merit_based=$20, currently_studying=$21, employment_status=$22,
+         annual_family_income_min=$23, annual_family_income_max=$24,
+         self_income_min=$25, self_income_max=$26,
+         ews_only=$27, house_ownership=$28, agricultural_family=$29,
+         vehicle_ownership=$30, has_assets=$31, has_investments=$32,
+         aadhaar_required=$33, updated_at=NOW()
+       WHERE id=$34 AND sangha_id=$35
+       RETURNING *`,
+      [
+        name.trim(), description || null,
+        baseAmount !== '' && baseAmount != null ? Number(baseAmount) : null,
+        status || 'draft',
+        c.age_min, c.age_max, c.gender, c.disability_required, c.marital_status,
+        c.max_family_size, c.max_dependents, c.single_parent_only,
+        c.disabled_family_member, c.family_type,
+        c.states, c.districts,
+        c.education_levels, c.degrees, c.universities,
+        c.merit_based, c.currently_studying, c.employment_status,
+        c.annual_family_income_min, c.annual_family_income_max,
+        c.self_income_min, c.self_income_max,
+        c.ews_only, c.house_ownership, c.agricultural_family,
+        c.vehicle_ownership, c.has_assets, c.has_investments,
+        c.aadhaar_required,
+        scholarshipId, sanghaId,
+      ]
+    );
+
+    await upsertTiers(client, scholarshipId, tieredAmounts || []);
+    await client.query('COMMIT');
+
+    const tiers = await pool.query(
+      'SELECT * FROM scholarship_tiers WHERE scholarship_id=$1 ORDER BY sort_order',
+      [scholarshipId]
+    );
+
+    res.json(rowToScholarship(upd.rows[0], tiers.rows));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[updateScholarship]', err);
+    res.status(500).json({ message: 'Server error' });
+  } finally {
+    client.release();
+  }
+};
+
+// ════════════════════════════════════════════════════════════
+// DELETE  DELETE /sangha/scholarships/:id
+// ════════════════════════════════════════════════════════════
+const deleteScholarship = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
+    const { id: scholarshipId } = req.params;
+
+    const result = await pool.query(
+      'DELETE FROM scholarships WHERE id=$1 AND sangha_id=$2 RETURNING id',
+      [scholarshipId, sanghaId]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'Scholarship not found' });
+
+    res.json({ message: 'Scholarship deleted' });
+  } catch (err) {
+    console.error('[deleteScholarship]', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ════════════════════════════════════════════════════════════
+// ELIGIBLE MEMBERS  GET /sangha/scholarships/:id/eligible-members
+//
+// Runs all stored criteria against the sangha's approved profiles.
+// Uses the same tables as the existing reports/export logic.
+// ════════════════════════════════════════════════════════════
+const getEligibleMembers = async (req, res) => {
+  try {
+    const { id: userId } = req.user;
+    const sanghaId = await getSanghaId(userId);
+    if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
+    const { id: scholarshipId } = req.params;
+
+    const schRes = await pool.query(
+      'SELECT * FROM scholarships WHERE id=$1 AND sangha_id=$2',
+      [scholarshipId, sanghaId]
+    );
+    if (schRes.rows.length === 0)
+      return res.status(404).json({ message: 'Scholarship not found' });
+
+    const s = schRes.rows[0];
+
+    // ── Build WHERE conditions ────────────────────────────────────────────────
+    // We join all relevant tables and apply criteria. Profile must be approved.
+    const conditions = [
+      `p.sangha_id = '${sanghaId}'`,
+      `p.status = 'approved'`,
+    ];
+
+    // Personal — age (from personal_details.date_of_birth)
+    if (s.age_min != null) {
+      conditions.push(
+        `EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) >= ${s.age_min}`
+      );
+    }
+    if (s.age_max != null) {
+      conditions.push(
+        `EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) <= ${s.age_max}`
+      );
+    }
+
+    // Gender
+    if (s.gender && s.gender !== 'all') {
+      conditions.push(`LOWER(pd.gender::text) = '${s.gender.toLowerCase()}'`);
+    }
+
+    // Disability
+    if (s.disability_required === true) {
+      conditions.push(`pd.has_disability = 'yes'`);
+    } else if (s.disability_required === false) {
+      conditions.push(`(pd.has_disability IS NULL OR pd.has_disability != 'yes')`);
+    }
+
+    // Marital status
+    if (s.marital_status && s.marital_status !== 'all') {
+      conditions.push(`pd.marital_status = '${s.marital_status}'`);
+    }
+
+    // Family — states (from addresses)
+    if (s.states && s.states.length > 0) {
+      const stateList = s.states.map(st => `'${st.replace(/'/g, "''")}'`).join(',');
+      conditions.push(`EXISTS (
+        SELECT 1 FROM addresses a2
+        WHERE a2.profile_id = p.id AND a2.state = ANY(ARRAY[${stateList}])
+      )`);
+    }
+
+    // Districts
+    if (s.districts && s.districts.length > 0) {
+      const distList = s.districts.map(d => `'${d.replace(/'/g, "''")}'`).join(',');
+      conditions.push(`EXISTS (
+        SELECT 1 FROM addresses a2
+        WHERE a2.profile_id = p.id
+          AND LOWER(TRIM(a2.district)) = ANY(ARRAY[${distList.toLowerCase()}])
+      )`);
+    }
+
+    // Academic — education level
+    if (s.education_levels && s.education_levels.length > 0) {
+      const eduList = s.education_levels.map(e => `'${e.replace(/'/g, "''")}'`).join(',');
+      conditions.push(`EXISTS (
+        SELECT 1 FROM member_education me2
+        WHERE me2.profile_id = p.id
+          AND me2.highest_education = ANY(ARRAY[${eduList}])
+      )`);
+    }
+
+    // Currently studying
+    if (s.currently_studying === true) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM member_education me2
+        WHERE me2.profile_id = p.id AND me2.is_currently_studying = true
+      )`);
+    } else if (s.currently_studying === false) {
+      conditions.push(`NOT EXISTS (
+        SELECT 1 FROM member_education me2
+        WHERE me2.profile_id = p.id AND me2.is_currently_studying = true
+      )`);
+    }
+
+    // Employment status
+    if (s.employment_status && s.employment_status !== 'all') {
+      const empMap = {
+        employed:      `'employee'`,
+        unemployed:    `'unemployed'`,
+        self_employed: `'self_employed'`,
+      };
+      const pgVal = empMap[s.employment_status];
+      if (pgVal) {
+        conditions.push(`EXISTS (
+          SELECT 1 FROM member_education me2
+          WHERE me2.profile_id = p.id AND me2.profession_type::text = ${pgVal}
+        )`);
+      }
+    }
+
+    // Financial — annual family income
+    if (s.annual_family_income_min != null) {
+      conditions.push(`ed.family_income::numeric >= ${s.annual_family_income_min}`);
+    }
+    if (s.annual_family_income_max != null) {
+      conditions.push(`ed.family_income::numeric <= ${s.annual_family_income_max}`);
+    }
+
+    // Self income
+    if (s.self_income_min != null) {
+      conditions.push(`ed.self_income::numeric >= ${s.self_income_min}`);
+    }
+    if (s.self_income_max != null) {
+      conditions.push(`ed.self_income::numeric <= ${s.self_income_max}`);
+    }
+
+    // House ownership
+    if (s.house_ownership && s.house_ownership !== 'all') {
+      if (s.house_ownership === 'owns') {
+        conditions.push(`ed.fac_own_house = true`);
+      } else if (s.house_ownership === 'rents') {
+        conditions.push(`ed.fac_rented_house = true`);
+      } else if (s.house_ownership === 'none') {
+        conditions.push(`(ed.fac_own_house = false OR ed.fac_own_house IS NULL)`);
+        conditions.push(`(ed.fac_rented_house = false OR ed.fac_rented_house IS NULL)`);
+      }
+    }
+
+    // Agricultural family
+    if (s.agricultural_family === true) {
+      conditions.push(`ed.fac_agricultural_land = true`);
+    } else if (s.agricultural_family === false) {
+      conditions.push(`(ed.fac_agricultural_land = false OR ed.fac_agricultural_land IS NULL)`);
+    }
+
+    // Vehicle ownership
+    if (s.vehicle_ownership && s.vehicle_ownership !== 'all') {
+      if (s.vehicle_ownership === 'no_vehicle') {
+        conditions.push(`(ed.fac_car = false OR ed.fac_car IS NULL)`);
+        conditions.push(`(ed.fac_two_wheeler = false OR ed.fac_two_wheeler IS NULL)`);
+      } else if (s.vehicle_ownership === 'two_wheeler') {
+        conditions.push(`ed.fac_two_wheeler = true`);
+        conditions.push(`(ed.fac_car = false OR ed.fac_car IS NULL)`);
+      } else if (s.vehicle_ownership === 'four_wheeler') {
+        conditions.push(`ed.fac_car = true`);
+      }
+    }
+
+    // Assets
+    if (s.has_assets === true) {
+      conditions.push(`(ed.fac_own_house = true OR ed.fac_agricultural_land = true OR ed.fac_car = true OR ed.fac_two_wheeler = true)`);
+    } else if (s.has_assets === false) {
+      conditions.push(`(ed.fac_own_house IS NOT TRUE AND ed.fac_agricultural_land IS NOT TRUE AND ed.fac_car IS NOT TRUE AND ed.fac_two_wheeler IS NOT TRUE)`);
+    }
+
+    // Investments
+    if (s.has_investments === true) {
+      conditions.push(`(ed.inv_fixed_deposits = true OR ed.inv_mutual_funds_sip = true OR ed.inv_shares_demat = true OR ed.inv_others = true)`);
+    } else if (s.has_investments === false) {
+      conditions.push(`(ed.inv_fixed_deposits IS NOT TRUE AND ed.inv_mutual_funds_sip IS NOT TRUE AND ed.inv_shares_demat IS NOT TRUE AND ed.inv_others IS NOT TRUE)`);
+    }
+
+    // Aadhaar
+    if (s.aadhaar_required === 'yes') {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM member_documents md2
+        WHERE md2.profile_id = p.id AND LOWER(md2.aadhaar_coverage::text) = 'yes'
+      )`);
+    } else if (s.aadhaar_required === 'no') {
+      conditions.push(`NOT EXISTS (
+        SELECT 1 FROM member_documents md2
+        WHERE md2.profile_id = p.id AND LOWER(md2.aadhaar_coverage::text) = 'yes'
+      )`);
+    }
+
+    // Family type
+    if (s.family_type && s.family_type !== 'all') {
+      conditions.push(`fi.family_type::text LIKE '%${s.family_type}%'`);
+    }
+
+    // ── Build query ───────────────────────────────────────────────────────────
+    const whereClause = conditions.join('\n  AND ');
+
+    const sql = `
+      SELECT
+        p.id                                                       AS profile_id,
+        u.email,
+        u.phone,
+        TRIM(CONCAT(
+          COALESCE(pd.first_name,''), ' ',
+          COALESCE(pd.middle_name || ' ',''),
+          COALESCE(pd.last_name,'')
+        ))                                                         AS full_name,
+        pd.gender::text                                            AS gender,
+        TO_CHAR(pd.date_of_birth,'DD-Mon-YYYY')                   AS date_of_birth,
+        EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth))::int AS age,
+        pd.marital_status,
+        ed.family_income::text                                     AS family_income,
+        ed.self_income::text                                       AS self_income,
+        fi.family_type::text                                       AS family_type,
+        TRIM(a.city)                                               AS city,
+        a.district,
+        a.state
+      FROM profiles p
+      JOIN users u ON u.id = p.user_id
+      LEFT JOIN personal_details  pd ON pd.profile_id = p.id
+      LEFT JOIN economic_details  ed ON ed.profile_id = p.id
+      LEFT JOIN family_info       fi ON fi.profile_id = p.id
+      LEFT JOIN addresses         a  ON a.profile_id  = p.id
+      WHERE ${whereClause}
+      ORDER BY full_name
+      LIMIT 1000
+    `;
+
+    const result = await pool.query(sql);
+    res.json({
+      scholarship: rowToScholarship(s, []),
+      totalEligible: result.rows.length,
+      members: result.rows,
+    });
+  } catch (err) {
+    console.error('[getEligibleMembers]', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
 module.exports = {
   registerSendOtp, registerVerifyOtp,
   loginSendOtp, loginVerifyOtp,
@@ -2118,5 +2708,10 @@ module.exports = {
   getMemberRequests, approveMemberRequest, rejectMemberRequest,
   getAdvancedReports,
   getExportData,
-  getFullExportData
+  getFullExportData,
+  listScholarships,
+  createScholarship,
+  updateScholarship,
+  deleteScholarship,
+  getEligibleMembers,
 };
