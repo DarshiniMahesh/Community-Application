@@ -1,9 +1,12 @@
-//Community-Application\backend\server.js
+// Community-Application\backend\server.js
+const path = require('path');         // ← must come first
+const dotenv = require('dotenv');
+dotenv.config({ path: path.resolve(__dirname, '.env') }); // .env is right next to server.js
+
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'loaded ✓' : 'MISSING ✗');
+
 const express = require("express");
 const cors = require("cors");
-const dotenv = require("dotenv");
-
-dotenv.config();
 
 const app = express();
 
@@ -22,18 +25,27 @@ const adminRoutes  = require('./src/routes/admin');
 const authRoutes   = require("./src/routes/auth");
 const userRoutes   = require("./src/routes/users");
 const sanghaRoutes = require("./src/routes/sangha");
+const userschlRoutes = require('./src/routes/userschl');
+
+console.log('userschl routes loaded ✓');
+const adminSchlRoutes = require('./src/routes/adminschl');
+
+
 
 app.use('/api/admin',  adminRoutes);
 app.use("/api/auth",   authRoutes);
 app.use("/api/users",  userRoutes);
 app.use("/api/sangha", sanghaRoutes);
+app.use('/api/userschl', userschlRoutes);
+app.use('/api/admin',    adminSchlRoutes);
+
 
 // ─── HEALTH CHECK ─────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// ─── 404 HANDLER ─────────────────────────────────────────────
+// ─── 404 HANDLER ──────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });
 });

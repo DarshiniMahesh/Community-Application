@@ -1,4 +1,7 @@
+//Community-Application\User\src\app\dashboard\layout.tsx
 "use client";
+
+
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
@@ -6,14 +9,16 @@ import { LayoutDashboard, User, Users, CheckCircle, Menu, X, LogOut } from "luci
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { clearAuth, getToken, api } from "@/lib/api";
+import { ScholarshipIcon } from "@/components/ui/ScholarshipIcon";
 
 type ProfileStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "changes_requested";
+
 
 const baseNavigation = [
   { name: "Dashboard",  href: "/dashboard",        icon: LayoutDashboard },
   { name: "My Profile", href: "/dashboard/profile", icon: User },
   { name: "Status",     href: "/dashboard/status",  icon: CheckCircle },
-  { name:"apply to scholarship", href:"dashboard/userscholarship", icon: CheckCircle },
+  { name:"apply to scholarships", href:"dashboard/userscholarship", icon: CheckCircle },
 ];
 
 const sanghaNav = {
@@ -33,6 +38,7 @@ const statusBadge = (status: ProfileStatus) => {
     default:                  return null;
   }
 };
+
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
@@ -61,6 +67,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     clearAuth();
     router.push("/auth/login");
   };
+
 
   // Build navigation: show Sangha Membership tab only when profile is approved
   const navigation = [...baseNavigation, sanghaNav];

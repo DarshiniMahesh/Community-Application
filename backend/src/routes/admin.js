@@ -39,11 +39,15 @@ router.post('/users/reject',                ac.rejectUser);
 // otherwise Express matches 'pending-detail' as the :id param
 router.get('/users/:id/pending-detail',     ac.getUserPendingDetail);
 router.get('/users/:id/profile',            ac.getUserProfile);
+router.get('/users/:id/scholarships',    ac.getUserScholarships);
 router.put('/users/:id/profile',            ac.updateUserProfile);
 
 // Activity logs
 router.get('/activity-logs',          ac.getActivityLogs);
 
+// Scholarship management (admin) – mounted at root to allow routes like /scholarships, /sanghas
+const adminSchlRoutes = require('./adminschl');
+router.use(adminSchlRoutes);
 
 // Blocklist — search-based
 router.get('/blocklist/users',            ac.getBlocklistUsers);

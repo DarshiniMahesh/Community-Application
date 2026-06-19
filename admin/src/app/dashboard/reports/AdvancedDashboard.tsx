@@ -1426,8 +1426,8 @@ function UserTab({ data, loading, onGoToCustomReport }: {
                   data={[
                     { label: "Single (Never Married)", ...(maritalBarData.find(m => m.label === "Single (Never Married)") ?? { male: 0, female: 0, other: 0 }) },
                     { label: "Married",               ...(maritalBarData.find(m => m.label === "Married")               ?? { male: 0, female: 0, other: 0 }) },
-                    { label: "Single / Divorced",     ...(maritalBarData.find(m => m.label === "Single & Divorced")     ?? { male: 0, female: 0, other: 0 }) },
-                    { label: "Single / Widowed",      ...(maritalBarData.find(m => m.label === "Single & Widowed")      ?? { male: 0, female: 0, other: 0 }) },
+                    { label: "Single(Divorced)",     ...(maritalBarData.find(m => m.label === "Single(Divorced)")     ?? { male: 0, female: 0, other: 0 }) },
+                    { label: "Single(Widowed)",      ...(maritalBarData.find(m => m.label === "Single(Widowed)")      ?? { male: 0, female: 0, other: 0 }) },
                   ]}
                   margin={{ left: -16, right: 8, top: 8, bottom: 8 }}
                   barCategoryGap="28%"

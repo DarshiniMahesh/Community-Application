@@ -16,6 +16,7 @@ const NAV = [
     { href: '/dashboard/history',   label: 'Activity Log',      icon: 'clock'  },
     { href: '/dashboard/reports',   label: 'Reports',           icon: 'chart'  },
     { href: '/dashboard/blocklist', label: 'Block',             icon: 'block'  },
+    {href:'/dashboard/adminscholarship', label:'scholarship', icon:'block'}
   ]},
 ];
 

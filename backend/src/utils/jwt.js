@@ -1,3 +1,4 @@
+//Community-Application\backend\src\utils\jwt.js
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 

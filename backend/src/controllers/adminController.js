@@ -16,6 +16,17 @@ const loginSendOtp = async (req, res) => {
 const envEmail    = process.env.ADMIN_EMAIL;
 const envPassword = process.env.ADMIN_PASSWORD;
 
+
+console.log("=== LOGIN DEBUG ===");
+console.log("ENV EMAIL:", envEmail);
+console.log("ENV PASSWORD:", envPassword);
+
+console.log("REQ EMAIL:", email);
+console.log("REQ PASSWORD:", password);
+
+console.log("EMAIL MATCH:", email === envEmail);
+console.log("PASSWORD MATCH:", password === envPassword);
+
 if (!envEmail || !envPassword)
   return res.status(500).json({ message: 'Admin credentials not configured' });
 
@@ -44,6 +55,7 @@ if (userRes.rows.length === 0) {
   await pool.query(
     `UPDATE users SET password_hash=$1, is_active=true WHERE id=$2`,
     [password_hash, userRes.rows[0].id]
+    
   );
 }
 
@@ -942,6 +954,55 @@ const getUserPendingDetail = async (req, res) => {
   }
 };
 
+// ─── GET /admin/users/:id/scholarships ───────────────────────
+const getUserScholarships = async (req, res) => {
+  try {
+    const { id } = req.params; // user id (uuid)
+
+    // Resolve profile_id from user id
+    const profileRes = await pool.query(
+      `SELECT id FROM profiles WHERE user_id = $1`,
+      [id]
+    );
+
+    if (profileRes.rows.length === 0)
+      return res.status(404).json({ message: 'Profile not found for this user' });
+
+    const profileId = profileRes.rows[0].id;
+
+    const result = await pool.query(
+      `SELECT
+         sa.id                  AS application_id,
+         -- Member name: family member name if family_member_id set, else applicant's own name
+         COALESCE(fm.name, pd.first_name || ' ' || pd.last_name)
+                                AS member_name,
+         fm.relation            AS member_relation,
+         sc.name                AS scholarship_name,
+         sc.id                  AS scholarship_id,
+         sa.status,
+         sa.applied_at,
+         sa.reviewed_at,
+         sa.review_comment,
+         sc.base_amount,
+         sg.sangha_name
+       FROM scholarship_applications sa
+       JOIN scholarships     sc ON sc.id  = sa.scholarship_id
+       JOIN sanghas          sg ON sg.id  = sa.sangha_id
+       JOIN profiles          p ON p.id   = sa.profile_id
+       JOIN personal_details pd ON pd.profile_id = p.id
+       LEFT JOIN family_members fm ON fm.id = sa.family_member_id
+       WHERE sa.profile_id = $1
+       ORDER BY sa.applied_at DESC`,
+      [profileId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('getUserScholarships error:', err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = {
   loginSendOtp,
   loginVerifyOtp,
@@ -972,4 +1033,5 @@ module.exports = {
   updateUserProfile,
   getAllBlocklistUsers,
   getAllBlocklistSanghas,
+  getUserScholarships,
 };

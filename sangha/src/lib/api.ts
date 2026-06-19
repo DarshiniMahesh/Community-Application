@@ -1,3 +1,4 @@
+//sangha\src\lib\api.ts
 import { API_BASE } from './constants';
 
 const getHeaders = () => {
@@ -6,7 +7,7 @@ const getHeaders = () => {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-};
+};[[[[]]]]
 
 export const api = {
   get: async (path: string) => {

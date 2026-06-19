@@ -1,4 +1,3 @@
-/*harshi*/
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -225,11 +224,34 @@ interface ProfileData {
   sangha?: SanghaInfo | null;
 }
 
+// ─── Scholarship Types ────────────────────────────────────────────────────────
+
+interface ScholarshipApplication {
+  application_id: string;
+  member_name: string;
+  member_relation: string | null;
+  scholarship_name: string;
+  scholarship_id: string;
+  status: 'approved' | 'rejected' | 'pending' | 'under_review';
+  applied_at: string;
+  reviewed_at?: string;
+  review_comment?: string;
+  base_amount?: number;
+  sangha_name?: string;
+}
+
+type ScholarshipTab = 'approved' | 'under_review' | 'rejected';
+
+const SCHOLARSHIP_TABS: { key: ScholarshipTab; label: string; icon: string }[] = [
+  { key: 'approved',     label: 'Accepted',      icon: '✅' },
+  { key: 'under_review', label: 'Under Review',   icon: '🔍' },
+  { key: 'rejected',     label: 'Rejected',       icon: '❌' },
+];
+
 type Tab = 'approved'  | 'rejected';
 
 const STATUS_TABS: { key: Tab; label: string }[] = [
   { key: 'approved', label: 'Approved' },
-  
   { key: 'rejected', label: 'Rejected' },
 ];
 
@@ -315,7 +337,6 @@ function downloadAsPdf(data: object, filename: string) {
 
 const tabColor = (key: Tab) => {
   if (key === 'approved') return { active: '#7c3aed', badge: '#7c3aed', badgeText: '#fff', inactiveBadge: '#ede9fe', inactiveBadgeText: '#5b21b6' };
-  
   return                         { active: '#374151', badge: '#374151', badgeText: '#fff', inactiveBadge: '#f3f4f6', inactiveBadgeText: '#374151' };
 };
 
@@ -424,9 +445,8 @@ function IncomeCard({ label, value }: { label: string; value: string }) {
 function AddressCard({ addr }: { addr: Address }) {
   const line1 = [addr.flat_no, addr.building, addr.street, addr.area].filter(Boolean).join(', ');
   const line2 = [addr.taluk, addr.district, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ');
-  //google maps location not enetred also is handled
-  const hasCoords = addr.latitude != null && addr.longitude != null && addr?.latitude !== undefined &&
-  addr?.longitude !== undefined;;
+  const hasCoords = addr.latitude != null && addr.longitude != null &&
+    addr?.latitude !== undefined && addr?.longitude !== undefined;
 
   const addrTypeLabel: Record<string, string> = {
     current: '🏠 Current Address',
@@ -444,7 +464,6 @@ function AddressCard({ addr }: { addr: Address }) {
       {line1 && <p style={{ color: '#374151', margin: '0 0 2px', fontSize: 13 }}>{line1}</p>}
       {line2 && <p style={{ color: '#6b7280', margin: 0, fontSize: 12 }}>{line2}</p>}
       {!line1 && !line2 && <p style={{ color: '#9ca3af', margin: 0 }}>—</p>}
-      //view on map 
       {hasCoords && (
         <a
           href={`https://maps.google.com/?q=${addr.latitude},${addr.longitude}`}
@@ -571,7 +590,6 @@ function CompletionOverview({ profile }: { profile: ProfileData['profile'] }) {
           marginTop: 8, padding: '6px 10px', background: '#fef2f2',
           border: '1px solid #fecaca', borderRadius: 6,
         }}>
-          
         </div>
       )}
     </div>
@@ -759,6 +777,257 @@ function DocumentsBox({ row }: { row: DocumentRow }) {
   );
 }
 
+// ─── Scholarship Modal ────────────────────────────────────────────────────────
+
+function ScholarshipModal({
+  userName,
+  userId,
+  onClose,
+}: {
+  userName: string;
+  userId: string;
+  onClose: () => void;
+}) {
+  const [activeTab, setActiveTab]     = useState<ScholarshipTab>('approved');
+  const [applications, setApplications] = useState<ScholarshipApplication[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('admin_token');
+    if (!token) return;
+
+    setLoading(true);
+    setError(null);
+
+    fetch(`${BASE_URL}/api/admin/users/${userId}/scholarships`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to fetch scholarship applications');
+        return r.json();
+      })
+      .then((data: ScholarshipApplication[]) => setApplications(Array.isArray(data) ? data : []))
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [userId]);
+
+  // Map pending → under_review for display grouping
+  const normalizeAppStatus = (s: string): ScholarshipTab => {
+    if (s === 'approved') return 'approved';
+    if (s === 'rejected') return 'rejected';
+    return 'under_review'; // pending, under_review, etc.
+  };
+
+  const tabCounts: Record<ScholarshipTab, number> = {
+    approved:     applications.filter(a => normalizeAppStatus(a.status) === 'approved').length,
+    under_review: applications.filter(a => normalizeAppStatus(a.status) === 'under_review').length,
+    rejected:     applications.filter(a => normalizeAppStatus(a.status) === 'rejected').length,
+  };
+
+  const filtered = applications.filter(a => normalizeAppStatus(a.status) === activeTab);
+
+  const tabStyles: Record<ScholarshipTab, { active: string; badge: string; badgeText: string; rowAccent: string }> = {
+    approved:     { active: '#059669', badge: '#059669', badgeText: '#fff', rowAccent: '#dcfce7' },
+    under_review: { active: '#d97706', badge: '#d97706', badgeText: '#fff', rowAccent: '#fef3c7' },
+    rejected:     { active: '#dc2626', badge: '#dc2626', badgeText: '#fff', rowAccent: '#fee2e2' },
+  };
+
+  const getAppStatusBadge = (status: string) => {
+    const s = status.toLowerCase();
+    if (s === 'approved')     return { bg: '#dcfce7', color: '#064e3b', border: '#86efac', label: 'Accepted' };
+    if (s === 'rejected')     return { bg: '#fee2e2', color: '#991b1b', border: '#fca5a5', label: 'Rejected' };
+    if (s === 'under_review') return { bg: '#fef3c7', color: '#92400e', border: '#fde68a', label: 'Under Review' };
+    return                           { bg: '#fef3c7', color: '#92400e', border: '#fde68a', label: 'Pending' };
+  };
+
+  return (
+    <Modal
+      open
+      title={`Scholarship Applications — ${userName}`}
+      onClose={onClose}
+      footer={
+        <button onClick={onClose} style={{
+          background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8,
+          padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: '#374151',
+        }}>
+          Close
+        </button>
+      }
+    >
+    <div style={{ minWidth: 780 }}>
+
+        {/* ── Tab Bar ── */}
+        <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', marginBottom: 0 }}>
+          {SCHOLARSHIP_TABS.map(({ key, label, icon }) => {
+            const cfg  = tabStyles[key];
+            const isActive = activeTab === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                style={{
+                  padding: '10px 20px', fontWeight: isActive ? 700 : 500, fontSize: 13,
+                  background: 'none', border: 'none',
+                  borderBottom: isActive ? `2px solid ${cfg.active}` : '2px solid transparent',
+                  color: isActive ? cfg.active : '#6b7280', cursor: 'pointer',
+                  transition: 'all .15s', marginBottom: -2,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <span>{icon}</span>
+                {label}
+                <span style={{
+                  background: isActive ? cfg.badge : '#f3f4f6',
+                  color: isActive ? cfg.badgeText : '#6b7280',
+                  borderRadius: 99, fontSize: 11, fontWeight: 700, padding: '1px 7px',
+                  minWidth: 22, textAlign: 'center',
+                }}>
+                  {tabCounts[key]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Content ── */}
+        <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', color: '#9ca3af' }}>
+              <div style={{ fontSize: 32, marginBottom: 10 }}>⏳</div>
+              <p style={{ margin: 0, fontSize: 14 }}>Loading applications…</p>
+            </div>
+          ) : error ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', color: '#ef4444' }}>
+              <div style={{ fontSize: 32, marginBottom: 10 }}>⚠️</div>
+              <p style={{ margin: 0, fontSize: 14 }}>{error}</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', color: '#9ca3af' }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>🎓</div>
+              <p style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>No {SCHOLARSHIP_TABS.find(t => t.key === activeTab)?.label.toLowerCase()} applications</p>
+              <p style={{ margin: '6px 0 0', fontSize: 12 }}>No scholarship applications found in this category.</p>
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#f9fafb', position: 'sticky', top: 0, zIndex: 1 }}>
+                  {['Member Name', 'Relation', 'Scholarship', 'Sangha', 'Applied On'].map(h => (
+                    <th key={h} style={{
+                      padding: '10px 10px', textAlign: 'left', fontSize: 11, fontWeight: 700,
+                      color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em',
+                      borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap',
+                    }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((app, idx) => {
+                  const badge = getAppStatusBadge(app.status);
+                  const isEven = idx % 2 === 0;
+                  return (
+                    <tr
+                      key={app.application_id}
+                      style={{ background: isEven ? '#fff' : '#fafafa', borderBottom: '1px solid #f3f4f6' }}
+                    >
+                      {/* Member Name */}
+                      <td style={{ padding: '10px 10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{
+                            width: 28, height: 28, borderRadius: '50%',
+                            background: app.member_relation ? '#ede9fe' : 'linear-gradient(135deg,#7c3aed,#a78bfa)',
+                            color: app.member_relation ? '#5b21b6' : '#fff',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 11, fontWeight: 800, flexShrink: 0,
+                          }}>
+                            {app.member_name?.[0]?.toUpperCase() ?? '?'}
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>
+                            {app.member_name || '—'}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Relation */}
+                      <td style={{ padding: '10px 10px' }}>
+                        {app.member_relation ? (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center',
+                            padding: '2px 9px', borderRadius: 99, fontSize: 11, fontWeight: 600,
+                            background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd',
+                          }}>
+                            {app.member_relation}
+                          </span>
+                        ) : (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center',
+                            padding: '2px 9px', borderRadius: 99, fontSize: 11, fontWeight: 600,
+                            background: 'linear-gradient(90deg,#ede9fe,#faf5ff)', color: '#5b21b6',
+                            border: '1px solid #c4b5fd',
+                          }}>
+                            Self
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Scholarship Name */}
+                      <td style={{ padding: '10px 10px' }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>
+                          {app.scholarship_name || '—'}
+                        </span>
+                        {app.base_amount != null && (
+                          <span style={{ display: 'block', fontSize: 11, color: '#7c3aed', fontWeight: 600, marginTop: 2 }}>
+                            ₹{app.base_amount.toLocaleString('en-IN')}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Sangha */}
+                      <td style={{ padding: '10px 10px', fontSize: 12, color: '#6b7280' }}>
+                        {app.sangha_name || '—'}
+                      </td>
+
+                      {/* Applied On */}
+                      <td style={{ padding: '10px 10px', fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        {formatDate(app.applied_at)}
+                      </td>
+
+                      
+                      
+                          
+                        
+                      
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* ── Footer summary ── */}
+        {!loading && !error && applications.length > 0 && (
+          <div style={{
+            padding: '10px 14px', background: '#f9fafb', borderTop: '1px solid #e5e7eb',
+            display: 'flex', gap: 20, alignItems: 'center',
+          }}>
+            <span style={{ fontSize: 11, color: '#9ca3af' }}>Total applications: <strong style={{ color: '#374151' }}>{applications.length}</strong></span>
+            {SCHOLARSHIP_TABS.map(({ key, label, icon }) => (
+              tabCounts[key] > 0 && (
+                <span key={key} style={{ fontSize: 11, color: '#6b7280' }}>
+                  {icon} {label}: <strong style={{ color: tabStyles[key].active }}>{tabCounts[key]}</strong>
+                </span>
+              )
+            ))}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 // ─── ProfileDetail ────────────────────────────────────────────────────────────
 
 function ProfileDetail({
@@ -869,21 +1138,19 @@ function ProfileDetail({
               {getStatusLabel(profileStatus)}
             </div>
             {normalizeStatus(profileStatus) === null && (
-  <>
-    <button onClick={onApprove} disabled={isMutating} style={{
-      background: '#dcfce7', color: '#064e3b', border: '1px solid #86efac',
-      borderRadius: 8, padding: '6px 16px', fontWeight: 700, fontSize: 12,
-      cursor: isMutating ? 'not-allowed' : 'pointer', opacity: isMutating ? 0.6 : 1,
-    }}>✓ Approve</button>
-    <button onClick={onReject} disabled={isMutating} style={{
-      background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5',
-      borderRadius: 8, padding: '6px 16px', fontWeight: 700, fontSize: 12,
-      cursor: isMutating ? 'not-allowed' : 'pointer', opacity: isMutating ? 0.6 : 1,
-    }}>✕ Reject</button>
-  </>
-)}
-               
-          
+              <>
+                <button onClick={onApprove} disabled={isMutating} style={{
+                  background: '#dcfce7', color: '#064e3b', border: '1px solid #86efac',
+                  borderRadius: 8, padding: '6px 16px', fontWeight: 700, fontSize: 12,
+                  cursor: isMutating ? 'not-allowed' : 'pointer', opacity: isMutating ? 0.6 : 1,
+                }}>✓ Approve</button>
+                <button onClick={onReject} disabled={isMutating} style={{
+                  background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5',
+                  borderRadius: 8, padding: '6px 16px', fontWeight: 700, fontSize: 12,
+                  cursor: isMutating ? 'not-allowed' : 'pointer', opacity: isMutating ? 0.6 : 1,
+                }}>✕ Reject</button>
+              </>
+            )}
           </div>
         </div>
 
@@ -902,19 +1169,16 @@ function ProfileDetail({
           )}
         </div>
       </div>
-{data.profile?.status === 'rejected' && data.profile?.review_comment && (
-  <div style={{
-    background: '#fee2e2',
-    border: '1px solid #fca5a5',
-    color: '#991b1b',
-    padding: '10px 14px',
-    borderRadius: 8,
-    marginBottom: 12,
-    fontWeight: 600,
-  }}>
-    💬 Rejection Reason: {data.profile.review_comment}
-  </div>
-)}
+
+      {data.profile?.status === 'rejected' && data.profile?.review_comment && (
+        <div style={{
+          background: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b',
+          padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontWeight: 600,
+        }}>
+          💬 Rejection Reason: {data.profile.review_comment}
+        </div>
+      )}
+
       {/* ══ COMPLETION OVERVIEW ══ */}
       <CompletionOverview profile={data.profile} />
 
@@ -1246,25 +1510,27 @@ export default function UsersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-const [statusTab, setStatusTab] = useState<Tab>('approved');
+  const [statusTab, setStatusTab] = useState<Tab>('approved');
 
+  useEffect(() => {
+    const status = searchParams.get('status');
+    if (status === 'approved' || status === 'rejected') {
+      setStatusTab(status);
+    }
+  }, [searchParams]);
 
-useEffect(() => {
-  const status = searchParams.get('status');
+  const [search, setSearch]                   = useState('');
+  const [list, setList]                       = useState<UserItem[]>([]);
+  const [loading, setLoading]                 = useState(true);
+  const [isFocused, setIsFocused]             = useState(false);
 
-  if (status === 'approved' || status === 'rejected') {
-    setStatusTab(status);
-  }
-}, [searchParams]);
-  const [search, setSearch]                 = useState('');
-  const [list, setList]                     = useState<UserItem[]>([]);
-  const [loading, setLoading]               = useState(true);
-  const [isFocused, setIsFocused]           = useState(false);
+  const [modal, setModal]                     = useState<UserItem | null>(null);
+  const [profileData, setProfileData]         = useState<ProfileData | null>(null);
+  const [profileLoading, setProfileLoading]   = useState(false);
+  const [isMutating, setIsMutating]           = useState(false);
 
-  const [modal, setModal]                   = useState<UserItem | null>(null);
-  const [profileData, setProfileData]       = useState<ProfileData | null>(null);
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [isMutating, setIsMutating]         = useState(false);
+  // ── Scholarship modal state ──
+  const [schlModal, setSchlModal]             = useState<UserItem | null>(null);
 
   const getToken = useCallback(() => {
     const token = sessionStorage.getItem('admin_token');
@@ -1399,20 +1665,19 @@ useEffect(() => {
     a.click();
   };
 
-const countFor = (t: Tab) => list.filter(u => normalizeStatus(u.status) === t).length;
- const filtered = list
-  .filter(u => normalizeStatus(u.status) === statusTab)
-  .filter(u => {
-    const fullName = `${u.first_name || ''} ${u.last_name || ''}`.toLowerCase();
-    const q = search.toLowerCase();
-    return (
-      fullName.includes(q) ||
-      (u.email ?? '').toLowerCase().includes(q) ||
-      (u.id ?? '').toString().includes(q) ||
-      (u.sangha_name ?? '').toLowerCase().includes(q)
-    );
-  });
-       
+  const countFor = (t: Tab) => list.filter(u => normalizeStatus(u.status) === t).length;
+  const filtered = list
+    .filter(u => normalizeStatus(u.status) === statusTab)
+    .filter(u => {
+      const fullName = `${u.first_name || ''} ${u.last_name || ''}`.toLowerCase();
+      const q = search.toLowerCase();
+      return (
+        fullName.includes(q) ||
+        (u.email ?? '').toLowerCase().includes(q) ||
+        (u.id ?? '').toString().includes(q) ||
+        (u.sangha_name ?? '').toLowerCase().includes(q)
+      );
+    });
 
   if (loading) return (
     <div style={{ textAlign: 'center', padding: 60, color: '#9ca3af' }}>Loading...</div>
@@ -1579,8 +1844,9 @@ const countFor = (t: Tab) => list.filter(u => normalizeStatus(u.status) === t).l
                     ) : '—'}
                   </td>
                   <td style={{ padding: '10px 14px' }}>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {/* View button */}
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+
+                      {/* View Profile button */}
                       <button
                         onClick={() => openModal(u)}
                         title="View Profile"
@@ -1593,7 +1859,22 @@ const countFor = (t: Tab) => list.filter(u => normalizeStatus(u.status) === t).l
                         👁
                       </button>
 
-                      {/* ── Download PDF button ── */}
+                      {/* Scholarships button */}
+                      <button
+                        onClick={() => setSchlModal(u)}
+                        title="View Scholarship Applications"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          background: '#faf5ff', border: '1px solid #c4b5fd',
+                          borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
+                          fontSize: 12, fontWeight: 600, color: '#6d28d9', lineHeight: 1,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        🎓 <span style={{ fontSize: 11 }}>Scholarships</span>
+                      </button>
+
+                      {/* Download PDF button */}
                       <button
                         title="Download PDF"
                         onClick={() => downloadAsPdf(u, displayName)}
@@ -1605,6 +1886,7 @@ const countFor = (t: Tab) => list.filter(u => normalizeStatus(u.status) === t).l
                       >
                         ⬇️
                       </button>
+
                     </div>
                   </td>
                 </tr>
@@ -1621,12 +1903,13 @@ const countFor = (t: Tab) => list.filter(u => normalizeStatus(u.status) === t).l
         </table>
       </div>
 
-      {/* ── Modal ── */}
+      {/* ── Profile Modal ── */}
       {modal && (
         <Modal
           open
           title={`User Profile — ${`${modal.first_name || ''} ${modal.last_name || ''}`.trim() || modal.id}`}
           onClose={closeModal}
+          
           footer={
             <button onClick={closeModal} style={{
               background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8,
@@ -1658,6 +1941,16 @@ const countFor = (t: Tab) => list.filter(u => normalizeStatus(u.status) === t).l
           </div>
         </Modal>
       )}
+
+      {/* ── Scholarship Modal ── */}
+      {schlModal && (
+        <ScholarshipModal
+          userId={schlModal.id}
+          userName={`${schlModal.first_name || ''} ${schlModal.last_name || ''}`.trim() || schlModal.email}
+          onClose={() => setSchlModal(null)}
+        />
+      )}
+
     </div>
   );
 }

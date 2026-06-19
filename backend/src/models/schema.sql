@@ -1,591 +1,475 @@
--- ============================================================
--- RSB COMMUNITY PORTAL — Complete PostgreSQL Schema (Safe Re-Run)
--- Covers: User + Sangha + Admin (Unified users table)
--- ============================================================
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
--- Enable UUID
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- ============================================================
--- ENUMS (safe to re-run — skips if already exists)
--- ============================================================
-
-DO $$ BEGIN
-  CREATE TYPE user_role AS ENUM ('user', 'sangha', 'admin');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE profile_status AS ENUM (
-    'draft',
-    'submitted',
-    'under_review',
-    'approved',
-    'rejected',
-    'changes_requested'
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE sangha_status AS ENUM (
-    'pending_approval',
-    'approved',
-    'rejected',
-    'suspended'
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE gender_type AS ENUM ('male', 'female', 'other');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE family_type AS ENUM ('nuclear', 'joint');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE member_status AS ENUM ('active', 'passed_away', 'unknown');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE profession_type AS ENUM (
-    'private', 'government', 'ias_ips_ifs',
-    'self_employed', 'farmer', 'training', 'other'
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE self_employed_type AS ENUM (
-    'self_small_firm', 'self_company', 'self_shop',
-    'freelancer', 'farmer', 'other', 'training'
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE income_slab AS ENUM (
-    'below_1l', '1_2l', '2_3l', '3_5l',
-    '5_10l', '10_25l', '25l_plus'
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE doc_coverage AS ENUM ('self', 'wife', 'kids', 'parents', 'all');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE review_action AS ENUM ('approved', 'rejected', 'changes_requested');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-
--- ============================================================
--- 1. USERS — Single table for all roles
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS users (
-  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  role                user_role NOT NULL DEFAULT 'user',
-  email               VARCHAR(255) UNIQUE,
-  phone               VARCHAR(20) UNIQUE,
-  password_hash       TEXT,
-  otp_code            VARCHAR(6),
-  otp_expires_at      TIMESTAMP,
-  is_phone_verified   BOOLEAN DEFAULT FALSE,
-  is_email_verified   BOOLEAN DEFAULT FALSE,
-  is_active           BOOLEAN DEFAULT TRUE,
-  is_deleted          BOOLEAN DEFAULT FALSE,
-  last_login_at       TIMESTAMP,
-  last_login_ip       VARCHAR(45),
-  created_at          TIMESTAMP DEFAULT NOW(),
-  updated_at          TIMESTAMP DEFAULT NOW()
+CREATE TABLE public.addresses (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL,
+  address_type character varying NOT NULL,
+  flat_no character varying,
+  building character varying,
+  street character varying,
+  area character varying,
+  city character varying,
+  state character varying,
+  pincode character varying,
+  latitude numeric,
+  longitude numeric,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  landmark character varying,
+  taluk character varying,
+  district character varying,
+  country character varying,
+  CONSTRAINT addresses_pkey PRIMARY KEY (id),
+  CONSTRAINT addresses_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
-
--- ============================================================
--- 2. SANGHA PROFILES — One per sangha user
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS sanghas (
-  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  sangha_auth_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-
-  -- basic info
-  sangha_name      TEXT NOT NULL,
-  logo_url         TEXT,
-
-  -- address
-  address_line     TEXT,
-  pincode          CHAR(6),
-  village_town     TEXT,
-  taluk            TEXT,
-  district         TEXT,
-  state            TEXT,
-
-  -- root contact (login email/phone)
-  email            TEXT,
-  phone            TEXT,
-
-  -- description
-  description      TEXT,
-
-  -- sangha contact (custom)
-  sangha_contact_same BOOLEAN DEFAULT TRUE,
-  sangha_phone        TEXT,
-  sangha_email        TEXT,
-
-  status           sangha_status NOT NULL DEFAULT 'pending_approval',
-  rejection_reason TEXT,
-
-  created_at       TIMESTAMP DEFAULT NOW(),
-  updated_at       TIMESTAMP DEFAULT NOW(),
-
-  UNIQUE (sangha_auth_id)
+CREATE TABLE public.economic_details (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL UNIQUE,
+  self_income USER-DEFINED,
+  family_income USER-DEFINED,
+  inv_fixed_deposits boolean DEFAULT false,
+  inv_mutual_funds_sip boolean DEFAULT false,
+  inv_shares_demat boolean DEFAULT false,
+  inv_others boolean DEFAULT false,
+  fac_rented_house boolean DEFAULT false,
+  fac_own_house boolean DEFAULT false,
+  fac_agricultural_land boolean DEFAULT false,
+  fac_two_wheeler boolean DEFAULT false,
+  fac_car boolean DEFAULT false,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT economic_details_pkey PRIMARY KEY (id),
+  CONSTRAINT economic_details_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
-
--- ============================================================
--- 3. SANGHA MEMBERS — Internal team members of a Sangha
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS sangha_members (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  sangha_id   UUID NOT NULL REFERENCES sanghas(id) ON DELETE CASCADE,
-  full_name   VARCHAR(150) NOT NULL,
-  gender      VARCHAR(10),
-  phone       VARCHAR(20),
-  email       VARCHAR(255),
-  dob         DATE,
-  role        VARCHAR(100),
-  member_type VARCHAR(50),
-  created_at  TIMESTAMP DEFAULT NOW(),
-  updated_at  TIMESTAMP DEFAULT NOW()
+CREATE TABLE public.family_history (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL UNIQUE,
+  ancestral_challenge_notes text,
+  demigods_info text,
+  snake_god_naga_info text,
+  common_relative_names text,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT family_history_pkey PRIMARY KEY (id),
+  CONSTRAINT family_history_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
-
--- ============================================================
--- 4. PROFILES — Census form, one per user
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS profiles (
-  id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id                 UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  status                  profile_status NOT NULL DEFAULT 'draft',
-  submitted_at            TIMESTAMP,
-  reviewed_at             TIMESTAMP,
-  reviewed_by             UUID REFERENCES users(id),
-  review_comment          TEXT,
-  sangha_id               UUID REFERENCES sanghas(id),
-  step1_personal_pct      SMALLINT DEFAULT 0,
-  step2_religious_pct     SMALLINT DEFAULT 0,
-  step3_family_pct        SMALLINT DEFAULT 0,
-  step4_location_pct      SMALLINT DEFAULT 0,
-  step5_education_pct     SMALLINT DEFAULT 0,
-  step6_economic_pct      SMALLINT DEFAULT 0,
-  overall_completion_pct  SMALLINT DEFAULT 0,
-  step1_completed         BOOLEAN DEFAULT FALSE,
-  step2_completed         BOOLEAN DEFAULT FALSE,
-  step3_completed         BOOLEAN DEFAULT FALSE,
-  step4_completed         BOOLEAN DEFAULT FALSE,
-  step5_completed         BOOLEAN DEFAULT FALSE,
-  step6_completed         BOOLEAN DEFAULT FALSE,
-  photo_url               TEXT,
-  photo_uploaded_at       TIMESTAMP,
-  created_at              TIMESTAMP DEFAULT NOW(),
-  updated_at              TIMESTAMP DEFAULT NOW(),
-  UNIQUE (user_id)
+CREATE TABLE public.family_info (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL UNIQUE,
+  family_type USER-DEFINED,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT family_info_pkey PRIMARY KEY (id),
+  CONSTRAINT family_info_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
-
--- ============================================================
--- 5. PERSONAL DETAILS — Step 1
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS personal_details (
-  id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  first_name            VARCHAR(100) NOT NULL,
-  middle_name           VARCHAR(100),
-  last_name             VARCHAR(100) NOT NULL,
-  gender                gender_type NOT NULL,
-  date_of_birth         DATE,
-  fathers_name          VARCHAR(150),
-  mothers_name          VARCHAR(150),
-  mothers_maiden_name   VARCHAR(150),
-  wife_name             VARCHAR(150),
-  wife_maiden_name      VARCHAR(150),
-  husbands_name         VARCHAR(150),
-  surname_in_use        VARCHAR(100),
-  surname_as_per_gotra  VARCHAR(100),
-  is_married            BOOLEAN DEFAULT FALSE,
-  has_disability        VARCHAR(5),
-  is_part_of_sangha     VARCHAR(5),
-  sangha_name           VARCHAR(255),
-  sangha_tenure         VARCHAR(20),
-  sangha_role           VARCHAR(100),
-  created_at            TIMESTAMP DEFAULT NOW(),
-  updated_at            TIMESTAMP DEFAULT NOW(),
-  UNIQUE (profile_id)
+CREATE TABLE public.family_members (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL,
+  family_info_id uuid NOT NULL,
+  relation character varying,
+  name character varying,
+  age smallint,
+  dob date,
+  disability character varying DEFAULT 'no'::character varying,
+  gender USER-DEFINED,
+  photo_url text,
+  status USER-DEFINED DEFAULT 'active'::member_status,
+  sort_order smallint DEFAULT 0,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT family_members_pkey PRIMARY KEY (id),
+  CONSTRAINT family_members_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT family_members_family_info_id_fkey FOREIGN KEY (family_info_id) REFERENCES public.family_info(id)
 );
-
--- ============================================================
--- 6. RELIGIOUS DETAILS — Step 2
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS religious_details (
-  id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  gotra                 VARCHAR(100),
-  pravara               VARCHAR(200),
-  upanama               VARCHAR(100),
-  kuladevata            VARCHAR(100),
-  kuladevata_other      VARCHAR(100),
-  surname_in_use        VARCHAR(100),
-  surname_as_per_gotra  VARCHAR(100),
-  priest_name           VARCHAR(150),
-  priest_location       VARCHAR(200),
-  created_at            TIMESTAMP DEFAULT NOW(),
-  updated_at            TIMESTAMP DEFAULT NOW(),
-  UNIQUE (profile_id)
+CREATE TABLE public.member_certifications (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  member_education_id uuid NOT NULL,
+  certification character varying NOT NULL,
+  sort_order smallint DEFAULT 0,
+  CONSTRAINT member_certifications_pkey PRIMARY KEY (id),
+  CONSTRAINT member_certifications_member_education_id_fkey FOREIGN KEY (member_education_id) REFERENCES public.member_education(id)
 );
-ALTER TABLE religious_details
-  ADD COLUMN upanama_general     TEXT,
-  ADD COLUMN upanama_proper      TEXT,
-  ADD COLUMN demi_god_challenge  TEXT,
-  ADD COLUMN demi_god            TEXT,
-  ADD COLUMN demi_god_notes      TEXT;
--- ============================================================
--- 7. FAMILY INFORMATION — Step 3
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS family_info (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  family_type family_type,
-  created_at  TIMESTAMP DEFAULT NOW(),
-  updated_at  TIMESTAMP DEFAULT NOW(),
-  UNIQUE (profile_id)
+CREATE TABLE public.member_documents (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL,
+  member_name character varying,
+  member_relation character varying,
+  sort_order smallint DEFAULT 0,
+  aadhaar_coverage USER-DEFINED,
+  pan_coverage USER-DEFINED,
+  voter_id_coverage USER-DEFINED,
+  land_doc_coverage USER-DEFINED,
+  dl_coverage USER-DEFINED,
+  CONSTRAINT member_documents_pkey PRIMARY KEY (id),
+  CONSTRAINT member_documents_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
-
-CREATE TABLE IF NOT EXISTS family_members (
-  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  family_info_id UUID NOT NULL REFERENCES family_info(id) ON DELETE CASCADE,
-  relation       VARCHAR(100) NOT NULL,
-  name           VARCHAR(150),
-  age            SMALLINT,
-  dob            DATE,
-  disability     VARCHAR(5) DEFAULT 'no',
-  gender         gender_type,
-  photo_url      TEXT,
-  status         member_status DEFAULT 'active',
-  sort_order     SMALLINT DEFAULT 0,
-  created_at     TIMESTAMP DEFAULT NOW(),
-  updated_at     TIMESTAMP DEFAULT NOW()
+CREATE TABLE public.member_education (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL,
+  member_name character varying,
+  member_relation character varying,
+  sort_order smallint DEFAULT 0,
+  highest_education character varying,
+  brief_profile text,
+  profession_type USER-DEFINED,
+  profession_other character varying,
+  self_employed_type USER-DEFINED,
+  self_employed_other character varying,
+  industry character varying,
+  is_currently_studying boolean DEFAULT false,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  is_currently_working boolean,
+  CONSTRAINT member_education_pkey PRIMARY KEY (id),
+  CONSTRAINT member_education_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
-
--- ============================================================
--- 8. ADDRESSES — Step 4
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS addresses (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  address_type VARCHAR(20) NOT NULL,
-  flat_no      VARCHAR(50),
-  building     VARCHAR(150),
-  street       VARCHAR(200),
-  area         VARCHAR(150),
-  city         VARCHAR(100),
-  state        VARCHAR(100),
-  pincode      VARCHAR(10),
-  latitude     DECIMAL(10, 8),
-  longitude    DECIMAL(11, 8),
-  created_at   TIMESTAMP DEFAULT NOW(),
-  updated_at   TIMESTAMP DEFAULT NOW(),
-  UNIQUE (profile_id, address_type)
+CREATE TABLE public.member_educations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  member_education_id uuid NOT NULL,
+  degree_name text,
+  degree_type text,
+  university text,
+  start_date date,
+  end_date date,
+  certificate text,
+  sort_order integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT member_educations_pkey PRIMARY KEY (id),
+  CONSTRAINT member_educations_member_education_id_fkey FOREIGN KEY (member_education_id) REFERENCES public.member_education(id)
 );
-
--- ============================================================
--- 9. EDUCATION & PROFESSION — Step 5
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS member_education (
-  id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  member_name           VARCHAR(150),
-  member_relation       VARCHAR(100),
-  sort_order            SMALLINT DEFAULT 0,
-  highest_education     VARCHAR(100),
-  brief_profile         TEXT,
-  profession_type       profession_type,
-  profession_other      VARCHAR(200),
-  self_employed_type    self_employed_type,
-  self_employed_other   VARCHAR(200),
-  industry              VARCHAR(150),
-  is_currently_studying BOOLEAN DEFAULT FALSE,
-  created_at            TIMESTAMP DEFAULT NOW(),
-  updated_at            TIMESTAMP DEFAULT NOW()
+CREATE TABLE public.member_insurance (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL,
+  member_name character varying,
+  member_relation character varying,
+  sort_order smallint DEFAULT 0,
+  health_coverage ARRAY,
+  life_coverage ARRAY,
+  term_coverage ARRAY,
+  konkani_card_coverage ARRAY,
+  CONSTRAINT member_insurance_pkey PRIMARY KEY (id),
+  CONSTRAINT member_insurance_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
-
-CREATE TABLE IF NOT EXISTS member_certifications (
-  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  member_education_id UUID NOT NULL REFERENCES member_education(id) ON DELETE CASCADE,
-  certification       VARCHAR(300) NOT NULL,
-  sort_order          SMALLINT DEFAULT 0
+CREATE TABLE public.member_languages (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  member_education_id uuid NOT NULL,
+  language character varying NOT NULL,
+  language_other character varying,
+  CONSTRAINT member_languages_pkey PRIMARY KEY (id),
+  CONSTRAINT member_languages_member_education_id_fkey FOREIGN KEY (member_education_id) REFERENCES public.member_education(id)
 );
-
-CREATE TABLE IF NOT EXISTS member_languages (
-  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  member_education_id UUID NOT NULL REFERENCES member_education(id) ON DELETE CASCADE,
-  language            VARCHAR(50) NOT NULL,
-  language_other      VARCHAR(100),
-  UNIQUE (member_education_id, language)
+CREATE TABLE public.member_sanghas (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  profile_id uuid NOT NULL,
+  sangha_id uuid NOT NULL,
+  sangha_name text,
+  role text,
+  tenure text,
+  status text DEFAULT 'pending'::text,
+  sort_order integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT member_sanghas_pkey PRIMARY KEY (id),
+  CONSTRAINT member_sanghas_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT member_sanghas_sangha_id_fkey FOREIGN KEY (sangha_id) REFERENCES public.sanghas(id)
 );
-
--- ============================================================
--- 10. ECONOMIC DETAILS — Step 6
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS economic_details (
-  id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  self_income           income_slab,
-  family_income         income_slab,
-  inv_fixed_deposits    BOOLEAN DEFAULT FALSE,
-  inv_mutual_funds_sip  BOOLEAN DEFAULT FALSE,
-  inv_shares_demat      BOOLEAN DEFAULT FALSE,
-  inv_others            BOOLEAN DEFAULT FALSE,
-  fac_rented_house      BOOLEAN DEFAULT FALSE,
-  fac_own_house         BOOLEAN DEFAULT FALSE,
-  fac_agricultural_land BOOLEAN DEFAULT FALSE,
-  fac_two_wheeler       BOOLEAN DEFAULT FALSE,
-  fac_car               BOOLEAN DEFAULT FALSE,
-  created_at            TIMESTAMP DEFAULT NOW(),
-  updated_at            TIMESTAMP DEFAULT NOW(),
-  UNIQUE (profile_id)
+CREATE TABLE public.personal_details (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL UNIQUE,
+  first_name character varying NOT NULL,
+  middle_name character varying,
+  last_name character varying NOT NULL,
+  gender USER-DEFINED NOT NULL,
+  date_of_birth date,
+  fathers_name character varying,
+  mothers_name character varying,
+  mothers_maiden_name character varying,
+  wife_name character varying,
+  wife_maiden_name character varying,
+  husbands_name character varying,
+  surname_in_use character varying,
+  surname_as_per_gotra character varying,
+  has_disability character varying,
+  is_part_of_sangha character varying,
+  sangha_name character varying,
+  sangha_tenure character varying,
+  sangha_role character varying,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  marital_status character varying,
+  CONSTRAINT personal_details_pkey PRIMARY KEY (id),
+  CONSTRAINT personal_details_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
-
-CREATE TABLE IF NOT EXISTS member_insurance (
-  id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id            UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  member_name           VARCHAR(150),
-  member_relation       VARCHAR(100),
-  sort_order            SMALLINT DEFAULT 0,
-  health_coverage       doc_coverage[],
-  life_coverage         doc_coverage[],
-  term_coverage         doc_coverage[],
-  konkani_card_coverage doc_coverage[]
+CREATE TABLE public.profile_edit_requests (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL,
+  requested_by uuid NOT NULL,
+  reason text,
+  status character varying DEFAULT 'pending'::character varying,
+  reviewed_by uuid,
+  reviewed_at timestamp without time zone,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT profile_edit_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT profile_edit_requests_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT profile_edit_requests_requested_by_fkey FOREIGN KEY (requested_by) REFERENCES public.users(id),
+  CONSTRAINT profile_edit_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES public.users(id)
 );
-
-CREATE TABLE IF NOT EXISTS member_documents (
-  id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id           UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  member_name          VARCHAR(150),
-  member_relation      VARCHAR(100),
-  sort_order           SMALLINT DEFAULT 0,
-  aadhaar_coverage     doc_coverage[],
-  pan_coverage         doc_coverage[],
-  voter_id_coverage    doc_coverage[],
-  land_doc_coverage    doc_coverage[],
-  dl_coverage          doc_coverage[],
-  all_records_coverage doc_coverage[]
+CREATE TABLE public.profile_review_history (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL,
+  action USER-DEFINED NOT NULL,
+  performed_by uuid NOT NULL,
+  comment text,
+  snapshot jsonb,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT profile_review_history_pkey PRIMARY KEY (id),
+  CONSTRAINT profile_review_history_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT profile_review_history_performed_by_fkey FOREIGN KEY (performed_by) REFERENCES public.users(id)
 );
-
--- ============================================================
--- 11. FAMILY HISTORY — Ancestral info
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS family_history (
-  id                        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id                UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  ancestral_challenge_notes TEXT,
-  demigods_info             TEXT,
-  snake_god_naga_info       TEXT,
-  common_relative_names     TEXT,
-  created_at                TIMESTAMP DEFAULT NOW(),
-  updated_at                TIMESTAMP DEFAULT NOW(),
-  UNIQUE (profile_id)
+CREATE TABLE public.profiles (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL UNIQUE,
+  status USER-DEFINED NOT NULL DEFAULT 'draft'::profile_status,
+  submitted_at timestamp without time zone,
+  reviewed_at timestamp without time zone,
+  reviewed_by uuid,
+  review_comment text,
+  sangha_id uuid,
+  step1_personal_pct smallint DEFAULT 0,
+  step2_religious_pct smallint DEFAULT 0,
+  step3_family_pct smallint DEFAULT 0,
+  step4_location_pct smallint DEFAULT 0,
+  step5_education_pct smallint DEFAULT 0,
+  step6_economic_pct smallint DEFAULT 0,
+  overall_completion_pct smallint DEFAULT 0,
+  step1_completed boolean DEFAULT false,
+  step2_completed boolean DEFAULT false,
+  step3_completed boolean DEFAULT false,
+  step4_completed boolean DEFAULT false,
+  step5_completed boolean DEFAULT false,
+  step6_completed boolean DEFAULT false,
+  photo_url text,
+  photo_uploaded_at timestamp without time zone,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  step7_sangha_pct integer DEFAULT 0,
+  step7_completed boolean DEFAULT false,
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT profiles_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES public.users(id),
+  CONSTRAINT profiles_sangha_id_fkey FOREIGN KEY (sangha_id) REFERENCES public.sanghas(id)
 );
-
--- ============================================================
--- 12. PROFILE REVIEW HISTORY — Audit trail
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS profile_review_history (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  action       review_action NOT NULL,
-  performed_by UUID NOT NULL REFERENCES users(id),
-  comment      TEXT,
-  snapshot     JSONB,
-  created_at   TIMESTAMP DEFAULT NOW()
+CREATE TABLE public.religious_details (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL UNIQUE,
+  gotra character varying,
+  pravara character varying,
+  kuladevata character varying,
+  kuladevata_other character varying,
+  surname_in_use character varying,
+  surname_as_per_gotra character varying,
+  priest_name character varying,
+  priest_location character varying,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  upanama_general text,
+  upanama_proper text,
+  demi_god_challenge text,
+  demi_gods ARRAY,
+  demi_god_other text,
+  ancestral_challenge character varying,
+  ancestral_challenge_notes text,
+  CONSTRAINT religious_details_pkey PRIMARY KEY (id),
+  CONSTRAINT religious_details_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
-
--- ============================================================
--- 13. PROFILE EDIT REQUESTS
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS profile_edit_requests (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  requested_by UUID NOT NULL REFERENCES users(id),
-  reason       TEXT,
-  status       VARCHAR(20) DEFAULT 'pending',
-  reviewed_by  UUID REFERENCES users(id),
-  reviewed_at  TIMESTAMP,
-  created_at   TIMESTAMP DEFAULT NOW()
+CREATE TABLE public.sangha_members (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  sangha_id uuid NOT NULL,
+  gender character varying,
+  phone character varying,
+  email character varying,
+  dob date,
+  role character varying,
+  member_type character varying,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  first_name text NOT NULL,
+  middle_name text,
+  last_name text NOT NULL,
+  CONSTRAINT sangha_members_pkey PRIMARY KEY (id),
+  CONSTRAINT sangha_members_sangha_id_fkey FOREIGN KEY (sangha_id) REFERENCES public.sanghas(id)
 );
-
--- ============================================================
--- INDEXES (safe to re-run)
--- ============================================================
-
-CREATE INDEX IF NOT EXISTS idx_users_email               ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_phone               ON users(phone);
-CREATE INDEX IF NOT EXISTS idx_users_role                ON users(role);
-
-CREATE INDEX IF NOT EXISTS idx_sanghas_auth_id           ON sanghas(sangha_auth_id);
-CREATE INDEX IF NOT EXISTS idx_sanghas_status            ON sanghas(status);
-
-CREATE INDEX IF NOT EXISTS idx_sangha_members_sangha     ON sangha_members(sangha_id);
-
-CREATE INDEX IF NOT EXISTS idx_profiles_user             ON profiles(user_id);
-CREATE INDEX IF NOT EXISTS idx_profiles_status           ON profiles(status);
-CREATE INDEX IF NOT EXISTS idx_profiles_sangha           ON profiles(sangha_id);
-
-CREATE INDEX IF NOT EXISTS idx_family_members_profile    ON family_members(profile_id);
-CREATE INDEX IF NOT EXISTS idx_addresses_profile         ON addresses(profile_id);
-CREATE INDEX IF NOT EXISTS idx_member_edu_profile        ON member_education(profile_id);
-CREATE INDEX IF NOT EXISTS idx_member_insurance_profile  ON member_insurance(profile_id);
-CREATE INDEX IF NOT EXISTS idx_member_documents_profile  ON member_documents(profile_id);
-CREATE INDEX IF NOT EXISTS idx_review_history_profile    ON profile_review_history(profile_id);
-CREATE INDEX IF NOT EXISTS idx_review_history_performer  ON profile_review_history(performed_by);
-
--- ============================================================
--- FUNCTION — auto updated_at
--- ============================================================
-
-CREATE OR REPLACE FUNCTION set_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- ============================================================
--- FUNCTION — auto overall_completion_pct
--- ============================================================
-
-CREATE OR REPLACE FUNCTION update_overall_completion()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.overall_completion_pct := (
-    NEW.step1_personal_pct +
-    NEW.step2_religious_pct +
-    NEW.step3_family_pct +
-    NEW.step4_location_pct +
-    NEW.step5_education_pct +
-    NEW.step6_economic_pct
-  ) / 6;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- ============================================================
--- TRIGGERS (drop first to allow safe re-run)
--- ============================================================
-
-DROP TRIGGER IF EXISTS trg_users_updated         ON users;
-DROP TRIGGER IF EXISTS trg_sanghas_updated        ON sanghas;
-DROP TRIGGER IF EXISTS trg_sangha_members_updated ON sangha_members;
-DROP TRIGGER IF EXISTS trg_profiles_updated       ON profiles;
-DROP TRIGGER IF EXISTS trg_personal_updated       ON personal_details;
-DROP TRIGGER IF EXISTS trg_religious_updated      ON religious_details;
-DROP TRIGGER IF EXISTS trg_family_updated         ON family_info;
-DROP TRIGGER IF EXISTS trg_location_updated       ON addresses;
-DROP TRIGGER IF EXISTS trg_education_updated      ON member_education;
-DROP TRIGGER IF EXISTS trg_economic_updated       ON economic_details;
-DROP TRIGGER IF EXISTS trg_family_history_updated ON family_history;
-DROP TRIGGER IF EXISTS trg_completion_pct         ON profiles;
-
-CREATE TRIGGER trg_users_updated
-  BEFORE UPDATE ON users
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_sanghas_updated
-  BEFORE UPDATE ON sanghas
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_sangha_members_updated
-  BEFORE UPDATE ON sangha_members
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_profiles_updated
-  BEFORE UPDATE ON profiles
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_personal_updated
-  BEFORE UPDATE ON personal_details
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_religious_updated
-  BEFORE UPDATE ON religious_details
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_family_updated
-  BEFORE UPDATE ON family_info
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_location_updated
-  BEFORE UPDATE ON addresses
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_education_updated
-  BEFORE UPDATE ON member_education
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_economic_updated
-  BEFORE UPDATE ON economic_details
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_family_history_updated
-  BEFORE UPDATE ON family_history
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_completion_pct
-  BEFORE INSERT OR UPDATE ON profiles
-  FOR EACH ROW EXECUTE FUNCTION update_overall_completion();
-
--- ============================================================
--- SEED — Default admin account
--- ============================================================
-
-INSERT INTO users (email, phone, role, is_email_verified, is_active)
-VALUES ('admin@gmail.com', '9999999999', 'admin', TRUE, TRUE)
-ON CONFLICT (email) DO NOTHING;
-
--- Set bcrypt hash for password: admin123
-UPDATE users
-SET password_hash = '$2b$10$wHh8lQFQmY7zv9qK1QzQ6uYJqz0J6QJp0qvR6z7Yt8Xw8Gq9J1m9W'
-WHERE email = 'admin@gmail.com';
-
-
---changes--
--- Drop the old full_name column since controller builds it from first/middle/last
-ALTER TABLE sangha_members DROP COLUMN IF EXISTS full_name;
- 
--- Confirm final structure
-SELECT column_name, data_type, is_nullable
-FROM information_schema.columns
-WHERE table_name = 'sangha_members'
-ORDER BY ordinal_position;
-
-INSERT INTO sangha_members (sangha_id, first_name, last_name, email, phone, role, member_type)
-SELECT p.sangha_id, pd.first_name, pd.last_name, u.email, u.phone, pd.sangha_role, pd.sangha_tenure
-FROM profiles p
-JOIN personal_details pd ON pd.profile_id = p.id
-JOIN users u ON u.id = p.user_id
-WHERE p.status = 'approved' AND pd.is_part_of_sangha = 'yes' AND p.sangha_id IS NOT NULL;
-
-UPDATE sangha_members sm
-SET gender = pd.gender
-FROM profiles p
-JOIN personal_details pd ON pd.profile_id = p.id
-JOIN users u ON u.id = p.user_id
-WHERE sm.email = u.email OR sm.phone = u.phone;
- 
+CREATE TABLE public.sanghas (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  sangha_auth_id uuid NOT NULL UNIQUE,
+  sangha_name text NOT NULL,
+  logo_url text,
+  address_line text,
+  pincode character,
+  village_town text,
+  taluk text,
+  district text,
+  state text,
+  email text,
+  phone text,
+  description text,
+  sangha_contact_same boolean DEFAULT true,
+  sangha_phone text,
+  sangha_email text,
+  status USER-DEFINED NOT NULL DEFAULT 'pending_approval'::sangha_status,
+  rejection_reason text,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  is_blocked boolean DEFAULT false,
+  address_line2 text,
+  address_line3 text,
+  city text,
+  CONSTRAINT sanghas_pkey PRIMARY KEY (id),
+  CONSTRAINT sanghas_sangha_auth_id_fkey FOREIGN KEY (sangha_auth_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.scholarship_applications (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  scholarship_id uuid NOT NULL,
+  profile_id uuid NOT NULL,
+  sangha_id uuid NOT NULL,
+  status USER-DEFINED NOT NULL DEFAULT 'pending'::scholarship_app_status,
+  applied_at timestamp without time zone DEFAULT now(),
+  reviewed_at timestamp without time zone,
+  reviewed_by uuid,
+  review_comment text,
+  family_member_id uuid,
+  checked_criteria jsonb DEFAULT '[]'::jsonb,
+  CONSTRAINT scholarship_applications_pkey PRIMARY KEY (id),
+  CONSTRAINT scholarship_applications_scholarship_id_fkey FOREIGN KEY (scholarship_id) REFERENCES public.scholarships(id),
+  CONSTRAINT scholarship_applications_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT scholarship_applications_sangha_id_fkey FOREIGN KEY (sangha_id) REFERENCES public.sanghas(id),
+  CONSTRAINT scholarship_applications_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES public.users(id),
+  CONSTRAINT scholarship_applications_family_member_id_fkey FOREIGN KEY (family_member_id) REFERENCES public.family_members(id)
+);
+CREATE TABLE public.scholarship_categories (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  sangha_id uuid,
+  name text NOT NULL,
+  color text NOT NULL DEFAULT '#534AB7'::text,
+  sort_order smallint NOT NULL DEFAULT 0,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT scholarship_categories_pkey PRIMARY KEY (id),
+  CONSTRAINT scholarship_categories_sangha_id_fkey FOREIGN KEY (sangha_id) REFERENCES public.sanghas(id)
+);
+CREATE TABLE public.scholarship_eligibility_cache (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  profile_id uuid NOT NULL,
+  scholarship_id uuid NOT NULL,
+  is_eligible boolean DEFAULT false,
+  reasons ARRAY DEFAULT '{}'::text[],
+  calculated_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT scholarship_eligibility_cache_pkey PRIMARY KEY (id),
+  CONSTRAINT scholarship_eligibility_cache_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT scholarship_eligibility_cache_scholarship_id_fkey FOREIGN KEY (scholarship_id) REFERENCES public.scholarships(id)
+);
+CREATE TABLE public.scholarship_tiers (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  scholarship_id uuid NOT NULL,
+  label text NOT NULL,
+  amount numeric NOT NULL,
+  condition_note text,
+  sort_order smallint NOT NULL DEFAULT 0,
+  CONSTRAINT scholarship_tiers_pkey PRIMARY KEY (id),
+  CONSTRAINT scholarship_tiers_scholarship_id_fkey FOREIGN KEY (scholarship_id) REFERENCES public.scholarships(id)
+);
+CREATE TABLE public.scholarships (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  sangha_id uuid NOT NULL,
+  name text NOT NULL,
+  description text,
+  base_amount numeric,
+  status USER-DEFINED NOT NULL DEFAULT 'draft'::scholarship_status,
+  age_min smallint,
+  age_max smallint,
+  gender USER-DEFINED NOT NULL DEFAULT 'all'::gender_eligibility,
+  disability_required boolean,
+  marital_status USER-DEFINED NOT NULL DEFAULT 'all'::marital_eligibility,
+  max_family_size smallint,
+  max_dependents smallint,
+  single_parent_only boolean,
+  disabled_family_member boolean,
+  family_type USER-DEFINED NOT NULL DEFAULT 'all'::family_type_eligibility,
+  states ARRAY NOT NULL DEFAULT '{}'::text[],
+  districts ARRAY NOT NULL DEFAULT '{}'::text[],
+  education_levels ARRAY NOT NULL DEFAULT '{}'::text[],
+  degrees ARRAY NOT NULL DEFAULT '{}'::text[],
+  universities ARRAY NOT NULL DEFAULT '{}'::text[],
+  merit_based boolean,
+  currently_studying boolean,
+  employment_status USER-DEFINED NOT NULL DEFAULT 'all'::employment_eligibility,
+  annual_family_income_min numeric,
+  annual_family_income_max numeric,
+  self_income_min numeric,
+  self_income_max numeric,
+  ews_only boolean,
+  house_ownership USER-DEFINED NOT NULL DEFAULT 'all'::house_ownership_eligibility,
+  agricultural_family boolean,
+  vehicle_ownership USER-DEFINED NOT NULL DEFAULT 'all'::vehicle_eligibility,
+  has_assets boolean,
+  has_investments boolean,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  category_id uuid,
+  visibility USER-DEFINED NOT NULL DEFAULT 'primary_sangha_only'::scholarship_visibility,
+  max_approvals_unlimited boolean NOT NULL DEFAULT true,
+  max_approvals smallint,
+  application_start date,
+  application_end date,
+  religion ARRAY NOT NULL DEFAULT '{}'::text[],
+  caste ARRAY NOT NULL DEFAULT '{}'::text[],
+  domicile boolean,
+  orphan boolean,
+  minority_community boolean,
+  sports_quota boolean,
+  rural_background boolean,
+  cgpa_min numeric,
+  percentage_min numeric,
+  health_insurance boolean,
+  life_insurance boolean,
+  term_insurance boolean,
+  aadhaar_card USER-DEFINED NOT NULL DEFAULT 'all'::doc_card_coverage,
+  pan_card USER-DEFINED NOT NULL DEFAULT 'all'::doc_card_coverage,
+  voter_id USER-DEFINED NOT NULL DEFAULT 'all'::doc_card_coverage,
+  driving_license USER-DEFINED NOT NULL DEFAULT 'all'::doc_card_coverage,
+  konkani_card boolean,
+  land_documents boolean,
+  fac_rented_house boolean,
+  fac_own_house boolean,
+  fac_agricultural_land boolean,
+  fac_two_wheeler boolean,
+  fac_car boolean,
+  inv_fixed_deposits boolean,
+  inv_mutual_funds_sip boolean,
+  inv_shares_demat boolean,
+  inv_others boolean,
+  CONSTRAINT scholarships_pkey PRIMARY KEY (id),
+  CONSTRAINT scholarships_sangha_id_fkey FOREIGN KEY (sangha_id) REFERENCES public.sanghas(id),
+  CONSTRAINT scholarships_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.scholarship_categories(id)
+);
+CREATE TABLE public.users (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  role USER-DEFINED NOT NULL DEFAULT 'user'::user_role,
+  email character varying UNIQUE,
+  phone character varying UNIQUE,
+  password_hash text,
+  otp_code character varying,
+  otp_expires_at timestamp without time zone,
+  is_phone_verified boolean DEFAULT false,
+  is_email_verified boolean DEFAULT false,
+  is_active boolean DEFAULT true,
+  is_deleted boolean DEFAULT false,
+  last_login_at timestamp without time zone,
+  last_login_ip character varying,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  is_blocked boolean DEFAULT false,
+  CONSTRAINT users_pkey PRIMARY KEY (id)
+);

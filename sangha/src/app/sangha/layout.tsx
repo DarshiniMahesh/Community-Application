@@ -1,3 +1,4 @@
+//Community-Application\sangha\src\app\sangha\layout.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -5,9 +6,12 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Menu, X, LogOut, Users, UserCog,
   FileText, Activity, UserCircle2, Clock, ShieldOff,
+  Badge,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clearAuth } from "@/lib/api";
+import { ScholarshipIcon } from "@/components/ui/scholarshipIcon";
+
 
 const navigation = [
   { name: "Dashboard",       href: "/sangha/dashboard",       icon: Users },
@@ -15,7 +19,7 @@ const navigation = [
   { name: "Pending Users",   href: "/sangha/pending-users",   icon: Clock },
   { name: "Member Requests", href: "/sangha/member-requests", icon: Users },
   { name: "Sangha Members",  href: "/sangha/members",         icon: Users },
-  { name:"scholarships",     href:"/sangha/scholarships",      icon:Users},
+  { name:"scholarships",     href:"/sangha/scholarships",      icon:ScholarshipIcon},
   { name: "Analytics",         href: "/sangha/reports",         icon: FileText },
   { name: "Activity Logs",   href: "/sangha/activity-logs",   icon: Activity },
   { name: "Block Users",     href: "/sangha/block",           icon: ShieldOff },
