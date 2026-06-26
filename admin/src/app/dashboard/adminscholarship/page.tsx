@@ -8,7 +8,7 @@ import {
   Users, BookOpen, MapPin, Tag, Building2, CheckCircle2,
   XCircle, Clock, Eye, X, Loader2, GraduationCap,
   IndianRupee, Calendar, AlertCircle, FileText,
-  Banknote, ListChecks, Minus,
+  Banknote, ListChecks, Minus, User, Award, ClipboardList,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,11 +111,44 @@ interface DocumentDetail {
   landDocCoverage: string; dlCoverage: string;
 }
 
+// Scholarship history (applied / benefitted tabs)
+interface ScholarshipHistoryRecord {
+  applicationId: string;
+  status: string;
+  appliedAt: string;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+  approvalNotes: string | null;
+  scholarship: {
+    id: string;
+    title: string;
+    amount: number | null;
+    disbursementDate: string | null;
+    deadline: string | null;
+    status: string;
+  };
+  sangha: {
+    id: string; name: string; state: string; district: string; logo: string | null;
+  };
+}
+interface ScholarshipHistoryMeta {
+  type: "applied" | "benefitted";
+  year: number | null;
+  availableYears: number[];
+  currentYear: number;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 const API_BASE = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api`;
 const STATUS_TABS = ["all", "approved", "rejected", "pending"] as const;
+const DETAIL_TABS = [
+  { key: "info", label: "Info", icon: User },
+  { key: "applied", label: "Applied Scholarships", icon: ClipboardList },
+  { key: "benefitted", label: "Benefitted Scholarships", icon: Award },
+] as const;
+type DetailTabKey = (typeof DETAIL_TABS)[number]["key"];
 
 const getAuthHeaders = () => {
   const token = typeof window !== "undefined" ? sessionStorage.getItem("admin_token") : null;
@@ -388,7 +421,539 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// APPLICANT DETAIL MODAL
+// APPLICANT INFO TAB — the original full-profile detail rendering
+// ─────────────────────────────────────────────────────────────────────────────
+function ApplicantInfoTab({
+  detail, loading, error,
+}: {
+  detail: ApplicantDetail | null; loading: boolean; error: string | null;
+}) {
+  const isSelf = detail?.applicantType === "self";
+  const selfData = isSelf ? (detail?.data as SelfDetail) : null;
+  const fmData = !isSelf ? (detail?.data as FamilyMemberDetail) : null;
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 240, gap: 12 }}>
+        <Loader2 size={28} className="a-spin" style={{ color: C.orange500 }} />
+        <span style={{ fontSize: 14, color: C.gray500 }}>Loading applicant details…</span>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 240, gap: 12, color: C.red600 }}>
+        <AlertCircle size={28} />
+        <span style={{ fontSize: 14 }}>{error}</span>
+      </div>
+    );
+  }
+  if (!detail) return null;
+
+  return (
+    <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 24 }}>
+
+      {/* ── FAMILY MEMBER VIEW ── */}
+      {!isSelf && fmData && (
+        <>
+          {/* Basic Info */}
+          <div>
+            <SectionTitle>Basic Information</SectionTitle>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+              <DField label="Name" value={fmData.name} />
+              <DField label="Relation" value={fmData.relation} />
+              <DField label="Gender" value={fmData.gender ? fmData.gender.charAt(0).toUpperCase() + fmData.gender.slice(1) : null} />
+              <DField label="Date of Birth" value={formatDate(fmData.dob)} />
+              {!fmData.dob && fmData.age != null && <DField label="Age" value={`${fmData.age} years`} />}
+              <DField label="Status" value={fmData.status ? formatMemberStatus(fmData.status) : null} />
+              <DField label="Disability" value={fmData.disability === "yes" ? "Yes" : fmData.disability === "no" ? "No" : null} />
+            </div>
+          </div>
+
+          {/* Education */}
+          {fmData.education && (
+            <div>
+              <SectionTitle>Education & Profession</SectionTitle>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14, marginBottom: 14 }}>
+                <DField label="Highest Education" value={fmData.education.highestEducation} />
+                <DField label="Profession" value={fmData.education.professionType ? formatProfession(fmData.education.professionType) : null} />
+                <DField label="Industry" value={fmData.education.industry} />
+                <DField label="Currently Studying" value={fmData.education.isCurrentlyStudying ? "Yes" : "No"} />
+                <DField label="Currently Working" value={fmData.education.isCurrentlyWorking ? "Yes" : "No"} />
+                {fmData.education.briefProfile && <DField label="Brief Profile" value={fmData.education.briefProfile} />}
+              </div>
+
+              {fmData.education.degrees.filter(d => d.degree_type).length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em" }}>Degrees</span>
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {fmData.education.degrees.filter(d => d.degree_type).map((d, i) => (
+                      <div key={i} style={{ padding: "10px 12px", borderRadius: 10, background: C.white, border: `1px solid ${C.gray100}`, fontSize: 12 }}>
+                        <span style={{ fontWeight: 600 }}>{d.degree_type}</span>
+                        {d.degree_name && <span style={{ color: C.gray500, marginLeft: 8 }}>{d.degree_name}</span>}
+                        {d.university && <span style={{ color: C.gray500, marginLeft: 8 }}>· {d.university}</span>}
+                        {d.start_date && d.end_date && (
+                          <span style={{ color: C.gray400, fontSize: 11, marginLeft: 8 }}>{formatDate(d.start_date)} – {formatDate(d.end_date)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {fmData.education.languages.length > 0 && (
+                <div>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em" }}>Languages</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {fmData.education.languages.map((l, i) => (
+                      <span key={i} style={{ padding: "3px 10px", borderRadius: 9999, fontSize: 11, fontWeight: 600, background: C.orange50, color: C.orange700, border: `1px solid ${C.orange200}` }}>
+                        {l.language === "Other" ? l.language_other : l.language}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Insurance */}
+          {fmData.insurance && (
+            <div>
+              <SectionTitle>Insurance</SectionTitle>
+              <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
+                <CovRow label="Health Insurance" value={covArray(fmData.insurance.healthCoverage)} />
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Life Insurance" value={covArray(fmData.insurance.lifeCoverage)} /></div>
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Term Insurance" value={covArray(fmData.insurance.termCoverage)} /></div>
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Konkani Card" value={covArray(fmData.insurance.konkaniCardCoverage)} /></div>
+              </div>
+            </div>
+          )}
+
+          {/* Documents */}
+          {fmData.documents && (
+            <div>
+              <SectionTitle>Documents</SectionTitle>
+              <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
+                <CovRow label="Aadhaar Card" value={covScalar(fmData.documents.aadhaarCoverage)} />
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="PAN Card" value={covScalar(fmData.documents.panCoverage)} /></div>
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Voter ID" value={covScalar(fmData.documents.voterIdCoverage)} /></div>
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Land Documents" value={covScalar(fmData.documents.landDocCoverage)} /></div>
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Driving License" value={covScalar(fmData.documents.dlCoverage)} /></div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── SELF VIEW ── */}
+      {isSelf && selfData && (
+        <>
+          {/* Personal */}
+          <div>
+            <SectionTitle>Personal Details</SectionTitle>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+              <DField label="Full Name" value={selfData.personal.fullName} />
+              <DField label="Gender" value={selfData.personal.gender ? selfData.personal.gender.charAt(0).toUpperCase() + selfData.personal.gender.slice(1) : null} />
+              <DField label="Date of Birth" value={formatDate(selfData.personal.dateOfBirth)} />
+              <DField label="Marital Status" value={selfData.personal.maritalStatus ? formatMarital(selfData.personal.maritalStatus) : null} />
+              <DField label="Father's Name" value={selfData.personal.fathersName} />
+              <DField label="Mother's Name" value={selfData.personal.mothersName} />
+              <DField label="Mother's Maiden Name" value={selfData.personal.mothersMaidenName} />
+              {selfData.personal.wifeName && <DField label="Wife's Name" value={selfData.personal.wifeName} />}
+              {selfData.personal.wifeMaidenName && <DField label="Wife's Maiden Name" value={selfData.personal.wifeMaidenName} />}
+              {selfData.personal.husbandsName && <DField label="Husband's Name" value={selfData.personal.husbandsName} />}
+              <DField label="Surname in Use" value={selfData.personal.surnameInUse} />
+              <DField label="Surname as per Gotra" value={selfData.personal.surnameAsPerGotra} />
+              <DField label="Disability" value={
+                selfData.personal.hasDisability === "yes" || selfData.personal.hasDisability === "true" ? "Yes" : "No"
+              } />
+            </div>
+          </div>
+
+          {/* Contact */}
+          <div>
+            <SectionTitle>Contact</SectionTitle>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
+              <DField label="Email" value={selfData.contact.email} />
+              <DField label="Phone" value={selfData.contact.phone} />
+            </div>
+          </div>
+
+          {/* Religious */}
+          {selfData.religious && (
+            <div>
+              <SectionTitle>Religious Details</SectionTitle>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 12 }}>
+                <DField label="Gotra" value={selfData.religious.gotra} />
+                <DField label="Pravara" value={selfData.religious.pravara} />
+                <DField label="Kuladevata" value={selfData.religious.kuladevata} />
+                <DField label="Surname in Use" value={selfData.religious.surnameInUse} />
+                <DField label="Surname as per Gotra" value={selfData.religious.surnameAsPerGotra} />
+                <DField label="Family Priest" value={selfData.religious.priestName} />
+                <DField label="Priest Location" value={selfData.religious.priestLocation} />
+                <DField label="Upanama (General)" value={selfData.religious.upanamaGeneral} />
+                <DField label="Upanama (Proper)" value={selfData.religious.upanamaProper} />
+                <DField label="Ancestral Challenge"
+                  value={selfData.religious.ancestralChallenge === "yes" ? "Yes" : selfData.religious.ancestralChallenge === "no" ? "No" : null}
+                />
+                {selfData.religious.ancestralChallenge === "yes" && (
+                  <DField label="Ancestral Notes" value={selfData.religious.ancestralChallengeNotes} />
+                )}
+              </div>
+              {selfData.religious.demiGods.filter(d => d !== "Other").length > 0 && (
+                <div>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em" }}>Demi Gods</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {[
+                      ...selfData.religious.demiGods.filter(d => d !== "Other"),
+                      ...(selfData.religious.demiGodOther
+                        ? selfData.religious.demiGodOther.split(",").map(s => s.trim()).filter(Boolean)
+                        : []),
+                    ].map((g, i) => (
+                      <span key={i} style={{ padding: "3px 10px", borderRadius: 9999, fontSize: 11, fontWeight: 600, background: C.purple50, color: C.purple700, border: `1px solid ${C.purple100}` }}>
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Addresses */}
+          {selfData.addresses.length > 0 && (
+            <div>
+              <SectionTitle>Addresses</SectionTitle>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {selfData.addresses.map((a, i) => (
+                  <div key={i} style={{ padding: "12px 14px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.orange600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
+                      {formatAddrType(a.type)}
+                    </div>
+                    <div style={{ fontSize: 13, color: C.gray700, lineHeight: 1.5 }}>{formatAddressObj(a)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Education */}
+          {selfData.education && (
+            <div>
+              <SectionTitle>Education & Profession</SectionTitle>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14, marginBottom: 14 }}>
+                <DField label="Highest Education" value={selfData.education.highestEducation} />
+                <DField label="Profession" value={selfData.education.professionType ? formatProfession(selfData.education.professionType) : null} />
+                <DField label="Industry" value={selfData.education.industry} />
+                <DField label="Currently Studying" value={selfData.education.isCurrentlyStudying ? "Yes" : "No"} />
+                <DField label="Currently Working" value={selfData.education.isCurrentlyWorking ? "Yes" : "No"} />
+                {selfData.education.briefProfile && <DField label="Brief Profile" value={selfData.education.briefProfile} />}
+              </div>
+
+              {selfData.education.degrees.filter(d => d.degree_type).length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em" }}>Degrees</span>
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {selfData.education.degrees.filter(d => d.degree_type).map((d, i) => (
+                      <div key={i} style={{ padding: "10px 12px", borderRadius: 10, background: C.white, border: `1px solid ${C.gray100}`, fontSize: 12 }}>
+                        <span style={{ fontWeight: 600 }}>{d.degree_type}</span>
+                        {d.degree_name && <span style={{ color: C.gray500, marginLeft: 8 }}>{d.degree_name}</span>}
+                        {d.university && <span style={{ color: C.gray500, marginLeft: 8 }}>· {d.university}</span>}
+                        {d.start_date && d.end_date && (
+                          <span style={{ color: C.gray400, fontSize: 11, marginLeft: 8 }}>{formatDate(d.start_date)} – {formatDate(d.end_date)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selfData.education.languages.length > 0 && (
+                <div>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em" }}>Languages</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {selfData.education.languages.map((l, i) => (
+                      <span key={i} style={{ padding: "3px 10px", borderRadius: 9999, fontSize: 11, fontWeight: 600, background: C.orange50, color: C.orange700, border: `1px solid ${C.orange200}` }}>
+                        {l.language === "Other" ? l.language_other : l.language}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Economic */}
+          {selfData.economic && (
+            <div>
+              <SectionTitle>Economic Details</SectionTitle>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                <div style={{ padding: "12px 14px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}` }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Self Income</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.gray800 }}>{selfData.economic.selfIncome || "—"}</div>
+                </div>
+                <div style={{ padding: "12px 14px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}` }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Family Income</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.gray800 }}>{selfData.economic.familyIncome || "—"}</div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 8 }}>Facilities</span>
+                  <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
+                    <CovRow label="Rented House" value={selfData.economic.facilities.rentedHouse ?? null} />
+                    <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Own House" value={selfData.economic.facilities.ownHouse ?? null} /></div>
+                    <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Agricultural Land" value={selfData.economic.facilities.agriculturalLand ?? null} /></div>
+                    <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Two Wheeler" value={selfData.economic.facilities.twoWheeler ?? null} /></div>
+                    <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Car" value={selfData.economic.facilities.car ?? null} /></div>
+                  </div>
+                </div>
+                <div>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 8 }}>Investments</span>
+                  <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
+                    <CovRow label="Fixed Deposits" value={selfData.economic.investments.fixedDeposits ?? null} />
+                    <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Mutual Funds / SIP" value={selfData.economic.investments.mutualFunds ?? null} /></div>
+                    <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Shares / Demat" value={selfData.economic.investments.sharesDemat ?? null} /></div>
+                    <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Others" value={selfData.economic.investments.others ?? null} /></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Insurance */}
+          {selfData.insurance && (
+            <div>
+              <SectionTitle>Insurance</SectionTitle>
+              <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
+                <CovRow label="Health Insurance" value={covArray(selfData.insurance.healthCoverage)} />
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Life Insurance" value={covArray(selfData.insurance.lifeCoverage)} /></div>
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Term Insurance" value={covArray(selfData.insurance.termCoverage)} /></div>
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Konkani Card" value={covArray(selfData.insurance.konkaniCardCoverage)} /></div>
+              </div>
+            </div>
+          )}
+
+          {/* Documents */}
+          {selfData.documents && (
+            <div>
+              <SectionTitle>Documents</SectionTitle>
+              <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
+                <CovRow label="Aadhaar Card" value={covScalar(selfData.documents.aadhaarCoverage)} />
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="PAN Card" value={covScalar(selfData.documents.panCoverage)} /></div>
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Voter ID" value={covScalar(selfData.documents.voterIdCoverage)} /></div>
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Land Documents" value={covScalar(selfData.documents.landDocCoverage)} /></div>
+                <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Driving License" value={covScalar(selfData.documents.dlCoverage)} /></div>
+              </div>
+            </div>
+          )}
+
+          {/* Sangha memberships */}
+          {selfData.sanghas.length > 0 && (
+            <div>
+              <SectionTitle>Sangha Memberships</SectionTitle>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {selfData.sanghas.map((sg, i) => (
+                  <div key={i} style={{ padding: "12px 14px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.gray800 }}>{sg.sangha_name}</div>
+                      {sg.role && <div style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>{sg.role}{sg.tenure ? ` · ${sg.tenure}` : ""}</div>}
+                    </div>
+                    <StatusBadge status={sg.status} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCHOLARSHIP HISTORY TAB — shared by "Applied" and "Benefitted" tabs.
+// Fetches /admin/applications/:applicationId/scholarship-history
+// "applied"     -> all statuses, filterable by year, defaults to current year
+// "benefitted"  -> approved only, defaults to showing all years
+// ─────────────────────────────────────────────────────────────────────────────
+function ScholarshipHistoryTab({
+  applicationId, type,
+}: {
+  applicationId: string; type: "applied" | "benefitted";
+}) {
+  const currentYear = new Date().getFullYear();
+  const [records, setRecords] = useState<ScholarshipHistoryRecord[]>([]);
+  const [meta, setMeta] = useState<ScholarshipHistoryMeta | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number | "all">(
+    type === "applied" ? currentYear : "all"
+  );
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
+
+  const load = useCallback(async (yearParam: number | "all") => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data } = await axios.get(
+        `${API_BASE}/admin/applications/${applicationId}/scholarship-history`,
+        { params: { type, year: yearParam }, headers: getAuthHeaders() }
+      );
+      if (data.success) {
+        setRecords(data.data);
+        setMeta(data.meta);
+      } else {
+        setError("Failed to load scholarship history.");
+      }
+    } catch {
+      setError("Failed to load scholarship history. Please try again.");
+    } finally {
+      setLoading(false);
+      setInitialized(true);
+    }
+  }, [applicationId, type]);
+
+  // Initial load: applied tab defaults to current year, benefitted defaults to all years
+  useEffect(() => {
+    load(type === "applied" ? currentYear : "all");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicationId, type]);
+
+  const handleYearChange = (val: string) => {
+    const next: number | "all" = val === "all" ? "all" : Number(val);
+    setSelectedYear(next);
+    load(next);
+  };
+
+  // Build the year options list: years that actually have data, plus the
+  // current year (so the selector always offers it even with zero records yet).
+  const yearOptions = (() => {
+    const years = new Set<number>(meta?.availableYears || []);
+    years.add(currentYear);
+    return Array.from(years).sort((a, b) => b - a);
+  })();
+
+  const accentColor = type === "applied" ? C.orange500 : C.green600;
+
+  return (
+    <div style={{ padding: "20px 28px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Year filter row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ fontSize: 12, color: C.gray500 }}>
+          {type === "applied"
+            ? "Showing scholarships this applicant has applied to."
+            : "Showing scholarships this applicant has been approved for."}
+        </div>
+        <div style={{ position: "relative" }}>
+          <Calendar size={12} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
+          <select
+            value={String(selectedYear)}
+            onChange={e => handleYearChange(e.target.value)}
+            style={{
+              WebkitAppearance: "none", appearance: "none",
+              paddingLeft: 30, paddingRight: 28, paddingTop: 7, paddingBottom: 7,
+              fontSize: 12, fontWeight: 600, border: `1px solid ${C.gray200}`, borderRadius: 10,
+              outline: "none", backgroundColor: C.gray50, color: C.gray700, cursor: "pointer",
+              fontFamily: "'DM Sans', sans-serif",
+            }}
+          >
+            <option value="all">All Years</option>
+            {yearOptions.map(y => (
+              <option key={y} value={y}>{y}{y === currentYear ? " (Current)" : ""}</option>
+            ))}
+          </select>
+          <ChevronDown size={12} style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 180, gap: 10, color: accentColor }}>
+          <Loader2 size={22} className="a-spin" />
+          <span style={{ fontSize: 14 }}>Loading…</span>
+        </div>
+      ) : error ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 180, gap: 10, color: C.red600 }}>
+          <AlertCircle size={26} />
+          <span style={{ fontSize: 13 }}>{error}</span>
+        </div>
+      ) : initialized && records.length === 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 180, color: C.gray400 }}>
+          {type === "applied" ? <ClipboardList size={36} style={{ marginBottom: 8, opacity: 0.3 }} /> : <Award size={36} style={{ marginBottom: 8, opacity: 0.3 }} />}
+          <p style={{ fontSize: 13, margin: 0 }}>
+            {type === "applied"
+              ? `No applications found${selectedYear !== "all" ? ` for ${selectedYear}` : ""}.`
+              : "No approved scholarships found yet."}
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {records.map(rec => (
+            <div key={rec.applicationId} style={{
+              padding: "14px 16px", borderRadius: 14, background: C.white,
+              border: `1px solid ${C.gray100}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+            }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0 }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                    backgroundColor: `${accentColor}18`, display: "flex", alignItems: "center",
+                    justifyContent: "center", overflow: "hidden", marginTop: 1,
+                  }}>
+                    {rec.sangha.logo
+                      ? <img src={rec.sangha.logo} alt={rec.sangha.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      : <Building2 size={15} style={{ color: accentColor }} />}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.gray800, fontFamily: "'Lora', serif", lineHeight: 1.3 }}>
+                      {rec.scholarship.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: C.brick, fontWeight: 600, marginTop: 2 }}>{rec.sangha.name}</div>
+                  </div>
+                </div>
+                <StatusBadge status={rec.status} />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3, display: "flex", alignItems: "center", gap: 3 }}>
+                    <Calendar size={10} /> Applied On
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.gray700 }}>{formatDate(rec.appliedAt)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3, display: "flex", alignItems: "center", gap: 3 }}>
+                    <IndianRupee size={10} /> Amount
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: accentColor }}>
+                    {rec.scholarship.amount != null ? `₹${Number(rec.scholarship.amount).toLocaleString("en-IN")}` : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3, display: "flex", alignItems: "center", gap: 3 }}>
+                    <Banknote size={10} /> Disbursement
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.gray700 }}>{formatDate(rec.scholarship.disbursementDate)}</div>
+                </div>
+              </div>
+
+              {rec.rejectionReason && (
+                <p style={{ fontSize: 11, color: C.red600, margin: "10px 0 0", fontStyle: "italic" }}>Reason: {rec.rejectionReason}</p>
+              )}
+              {rec.approvalNotes && (
+                <p style={{ fontSize: 11, color: C.green700, margin: "10px 0 0", fontStyle: "italic" }}>Notes: {rec.approvalNotes}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APPLICANT DETAIL MODAL — tabbed: Info / Applied Scholarships / Benefitted Scholarships
 // ─────────────────────────────────────────────────────────────────────────────
 function ApplicantDetailModal({
   applicationId, applicantName, isFamilyMember, onClose,
@@ -398,6 +963,7 @@ function ApplicantDetailModal({
   isFamilyMember: boolean;
   onClose: () => void;
 }) {
+  const [activeTab, setActiveTab] = useState<DetailTabKey>("info");
   const [detail, setDetail] = useState<ApplicantDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -422,10 +988,6 @@ function ApplicantDetailModal({
     load();
   }, [applicationId]);
 
-  const isSelf = detail?.applicantType === "self";
-  const selfData = isSelf ? (detail?.data as SelfDetail) : null;
-  const fmData = !isSelf ? (detail?.data as FamilyMemberDetail) : null;
-
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div
@@ -435,7 +997,7 @@ function ApplicantDetailModal({
       <div style={{
         position: "relative", backgroundColor: C.white,
         borderRadius: 20, boxShadow: "0 30px 80px rgba(0,0,0,0.32)",
-        width: "100%", maxWidth: 720, maxHeight: "92vh",
+        width: "100%", maxWidth: 760, maxHeight: "92vh",
         display: "flex", flexDirection: "column", overflow: "hidden",
         animation: "aModalIn 0.28s cubic-bezier(0.16,1,0.3,1) both",
         fontFamily: "'DM Sans', sans-serif",
@@ -455,339 +1017,40 @@ function ApplicantDetailModal({
               <X size={22} />
             </button>
           </div>
+
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: 4, marginTop: 16 }}>
+            {DETAIL_TABS.map(tab => {
+              const Icon = tab.icon;
+              const active = activeTab === tab.key;
+              return (
+                <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "8px 14px", fontSize: 12.5, fontWeight: 600,
+                    borderRadius: 10, border: "none", cursor: "pointer",
+                    background: active ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.14)",
+                    color: active ? C.orange600 : "#fed7aa",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <Icon size={13} /> {tab.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", background: "#fafafa" }}>
-          {loading ? (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 240, gap: 12 }}>
-              <Loader2 size={28} className="a-spin" style={{ color: C.orange500 }} />
-              <span style={{ fontSize: 14, color: C.gray500 }}>Loading applicant details…</span>
-            </div>
-          ) : error ? (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 240, gap: 12, color: C.red600 }}>
-              <AlertCircle size={28} />
-              <span style={{ fontSize: 14 }}>{error}</span>
-            </div>
-          ) : detail && (
-            <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 24 }}>
-
-              {/* ── FAMILY MEMBER VIEW ── */}
-              {!isSelf && fmData && (
-                <>
-                  {/* Basic Info */}
-                  <div>
-                    <SectionTitle>Basic Information</SectionTitle>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-                      <DField label="Name" value={fmData.name} />
-                      <DField label="Relation" value={fmData.relation} />
-                      <DField label="Gender" value={fmData.gender ? fmData.gender.charAt(0).toUpperCase() + fmData.gender.slice(1) : null} />
-                      <DField label="Date of Birth" value={formatDate(fmData.dob)} />
-                      {!fmData.dob && fmData.age != null && <DField label="Age" value={`${fmData.age} years`} />}
-                      <DField label="Status" value={fmData.status ? formatMemberStatus(fmData.status) : null} />
-                      <DField label="Disability" value={fmData.disability === "yes" ? "Yes" : fmData.disability === "no" ? "No" : null} />
-                    </div>
-                  </div>
-
-                  {/* Education */}
-                  {fmData.education && (
-                    <div>
-                      <SectionTitle>Education & Profession</SectionTitle>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14, marginBottom: 14 }}>
-                        <DField label="Highest Education" value={fmData.education.highestEducation} />
-                        <DField label="Profession" value={fmData.education.professionType ? formatProfession(fmData.education.professionType) : null} />
-                        <DField label="Industry" value={fmData.education.industry} />
-                        <DField label="Currently Studying" value={fmData.education.isCurrentlyStudying ? "Yes" : "No"} />
-                        <DField label="Currently Working" value={fmData.education.isCurrentlyWorking ? "Yes" : "No"} />
-                        {fmData.education.briefProfile && <DField label="Brief Profile" value={fmData.education.briefProfile} />}
-                      </div>
-
-                      {fmData.education.degrees.filter(d => d.degree_type).length > 0 && (
-                        <div style={{ marginBottom: 12 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em" }}>Degrees</span>
-                          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-                            {fmData.education.degrees.filter(d => d.degree_type).map((d, i) => (
-                              <div key={i} style={{ padding: "10px 12px", borderRadius: 10, background: C.white, border: `1px solid ${C.gray100}`, fontSize: 12 }}>
-                                <span style={{ fontWeight: 600 }}>{d.degree_type}</span>
-                                {d.degree_name && <span style={{ color: C.gray500, marginLeft: 8 }}>{d.degree_name}</span>}
-                                {d.university && <span style={{ color: C.gray500, marginLeft: 8 }}>· {d.university}</span>}
-                                {d.start_date && d.end_date && (
-                                  <span style={{ color: C.gray400, fontSize: 11, marginLeft: 8 }}>{formatDate(d.start_date)} – {formatDate(d.end_date)}</span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {fmData.education.languages.length > 0 && (
-                        <div>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em" }}>Languages</span>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                            {fmData.education.languages.map((l, i) => (
-                              <span key={i} style={{ padding: "3px 10px", borderRadius: 9999, fontSize: 11, fontWeight: 600, background: C.orange50, color: C.orange700, border: `1px solid ${C.orange200}` }}>
-                                {l.language === "Other" ? l.language_other : l.language}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Insurance */}
-                  {fmData.insurance && (
-                    <div>
-                      <SectionTitle>Insurance</SectionTitle>
-                      <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
-                        <CovRow label="Health Insurance" value={covArray(fmData.insurance.healthCoverage)} />
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Life Insurance" value={covArray(fmData.insurance.lifeCoverage)} /></div>
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Term Insurance" value={covArray(fmData.insurance.termCoverage)} /></div>
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Konkani Card" value={covArray(fmData.insurance.konkaniCardCoverage)} /></div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Documents */}
-                  {fmData.documents && (
-                    <div>
-                      <SectionTitle>Documents</SectionTitle>
-                      <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
-                        <CovRow label="Aadhaar Card" value={covScalar(fmData.documents.aadhaarCoverage)} />
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="PAN Card" value={covScalar(fmData.documents.panCoverage)} /></div>
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Voter ID" value={covScalar(fmData.documents.voterIdCoverage)} /></div>
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Land Documents" value={covScalar(fmData.documents.landDocCoverage)} /></div>
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Driving License" value={covScalar(fmData.documents.dlCoverage)} /></div>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* ── SELF VIEW ── */}
-              {isSelf && selfData && (
-                <>
-                  {/* Personal */}
-                  <div>
-                    <SectionTitle>Personal Details</SectionTitle>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-                      <DField label="Full Name" value={selfData.personal.fullName} />
-                      <DField label="Gender" value={selfData.personal.gender ? selfData.personal.gender.charAt(0).toUpperCase() + selfData.personal.gender.slice(1) : null} />
-                      <DField label="Date of Birth" value={formatDate(selfData.personal.dateOfBirth)} />
-                      <DField label="Marital Status" value={selfData.personal.maritalStatus ? formatMarital(selfData.personal.maritalStatus) : null} />
-                      <DField label="Father's Name" value={selfData.personal.fathersName} />
-                      <DField label="Mother's Name" value={selfData.personal.mothersName} />
-                      <DField label="Mother's Maiden Name" value={selfData.personal.mothersMaidenName} />
-                      {selfData.personal.wifeName && <DField label="Wife's Name" value={selfData.personal.wifeName} />}
-                      {selfData.personal.wifeMaidenName && <DField label="Wife's Maiden Name" value={selfData.personal.wifeMaidenName} />}
-                      {selfData.personal.husbandsName && <DField label="Husband's Name" value={selfData.personal.husbandsName} />}
-                      <DField label="Surname in Use" value={selfData.personal.surnameInUse} />
-                      <DField label="Surname as per Gotra" value={selfData.personal.surnameAsPerGotra} />
-                      <DField label="Disability" value={
-                        selfData.personal.hasDisability === "yes" || selfData.personal.hasDisability === "true" ? "Yes" : "No"
-                      } />
-                    </div>
-                  </div>
-
-                  {/* Contact */}
-                  <div>
-                    <SectionTitle>Contact</SectionTitle>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
-                      <DField label="Email" value={selfData.contact.email} />
-                      <DField label="Phone" value={selfData.contact.phone} />
-                    </div>
-                  </div>
-
-                  {/* Religious */}
-                  {selfData.religious && (
-                    <div>
-                      <SectionTitle>Religious Details</SectionTitle>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 12 }}>
-                        <DField label="Gotra" value={selfData.religious.gotra} />
-                        <DField label="Pravara" value={selfData.religious.pravara} />
-                        <DField label="Kuladevata" value={selfData.religious.kuladevata} />
-                        <DField label="Surname in Use" value={selfData.religious.surnameInUse} />
-                        <DField label="Surname as per Gotra" value={selfData.religious.surnameAsPerGotra} />
-                        <DField label="Family Priest" value={selfData.religious.priestName} />
-                        <DField label="Priest Location" value={selfData.religious.priestLocation} />
-                        <DField label="Upanama (General)" value={selfData.religious.upanamaGeneral} />
-                        <DField label="Upanama (Proper)" value={selfData.religious.upanamaProper} />
-                        <DField label="Ancestral Challenge"
-                          value={selfData.religious.ancestralChallenge === "yes" ? "Yes" : selfData.religious.ancestralChallenge === "no" ? "No" : null}
-                        />
-                        {selfData.religious.ancestralChallenge === "yes" && (
-                          <DField label="Ancestral Notes" value={selfData.religious.ancestralChallengeNotes} />
-                        )}
-                      </div>
-                      {selfData.religious.demiGods.filter(d => d !== "Other").length > 0 && (
-                        <div>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em" }}>Demi Gods</span>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                            {[
-                              ...selfData.religious.demiGods.filter(d => d !== "Other"),
-                              ...(selfData.religious.demiGodOther
-                                ? selfData.religious.demiGodOther.split(",").map(s => s.trim()).filter(Boolean)
-                                : []),
-                            ].map((g, i) => (
-                              <span key={i} style={{ padding: "3px 10px", borderRadius: 9999, fontSize: 11, fontWeight: 600, background: C.purple50, color: C.purple700, border: `1px solid ${C.purple100}` }}>
-                                {g}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Addresses */}
-                  {selfData.addresses.length > 0 && (
-                    <div>
-                      <SectionTitle>Addresses</SectionTitle>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                        {selfData.addresses.map((a, i) => (
-                          <div key={i} style={{ padding: "12px 14px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}` }}>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: C.orange600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
-                              {formatAddrType(a.type)}
-                            </div>
-                            <div style={{ fontSize: 13, color: C.gray700, lineHeight: 1.5 }}>{formatAddressObj(a)}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Education */}
-                  {selfData.education && (
-                    <div>
-                      <SectionTitle>Education & Profession</SectionTitle>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14, marginBottom: 14 }}>
-                        <DField label="Highest Education" value={selfData.education.highestEducation} />
-                        <DField label="Profession" value={selfData.education.professionType ? formatProfession(selfData.education.professionType) : null} />
-                        <DField label="Industry" value={selfData.education.industry} />
-                        <DField label="Currently Studying" value={selfData.education.isCurrentlyStudying ? "Yes" : "No"} />
-                        <DField label="Currently Working" value={selfData.education.isCurrentlyWorking ? "Yes" : "No"} />
-                        {selfData.education.briefProfile && <DField label="Brief Profile" value={selfData.education.briefProfile} />}
-                      </div>
-
-                      {selfData.education.degrees.filter(d => d.degree_type).length > 0 && (
-                        <div style={{ marginBottom: 12 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em" }}>Degrees</span>
-                          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-                            {selfData.education.degrees.filter(d => d.degree_type).map((d, i) => (
-                              <div key={i} style={{ padding: "10px 12px", borderRadius: 10, background: C.white, border: `1px solid ${C.gray100}`, fontSize: 12 }}>
-                                <span style={{ fontWeight: 600 }}>{d.degree_type}</span>
-                                {d.degree_name && <span style={{ color: C.gray500, marginLeft: 8 }}>{d.degree_name}</span>}
-                                {d.university && <span style={{ color: C.gray500, marginLeft: 8 }}>· {d.university}</span>}
-                                {d.start_date && d.end_date && (
-                                  <span style={{ color: C.gray400, fontSize: 11, marginLeft: 8 }}>{formatDate(d.start_date)} – {formatDate(d.end_date)}</span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {selfData.education.languages.length > 0 && (
-                        <div>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em" }}>Languages</span>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                            {selfData.education.languages.map((l, i) => (
-                              <span key={i} style={{ padding: "3px 10px", borderRadius: 9999, fontSize: 11, fontWeight: 600, background: C.orange50, color: C.orange700, border: `1px solid ${C.orange200}` }}>
-                                {l.language === "Other" ? l.language_other : l.language}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Economic */}
-                  {selfData.economic && (
-                    <div>
-                      <SectionTitle>Economic Details</SectionTitle>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-                        <div style={{ padding: "12px 14px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}` }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Self Income</div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: C.gray800 }}>{selfData.economic.selfIncome || "—"}</div>
-                        </div>
-                        <div style={{ padding: "12px 14px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}` }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Family Income</div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: C.gray800 }}>{selfData.economic.familyIncome || "—"}</div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                        <div>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 8 }}>Facilities</span>
-                          <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
-                            <CovRow label="Rented House" value={selfData.economic.facilities.rentedHouse ?? null} />
-                            <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Own House" value={selfData.economic.facilities.ownHouse ?? null} /></div>
-                            <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Agricultural Land" value={selfData.economic.facilities.agriculturalLand ?? null} /></div>
-                            <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Two Wheeler" value={selfData.economic.facilities.twoWheeler ?? null} /></div>
-                            <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Car" value={selfData.economic.facilities.car ?? null} /></div>
-                          </div>
-                        </div>
-                        <div>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 8 }}>Investments</span>
-                          <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
-                            <CovRow label="Fixed Deposits" value={selfData.economic.investments.fixedDeposits ?? null} />
-                            <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Mutual Funds / SIP" value={selfData.economic.investments.mutualFunds ?? null} /></div>
-                            <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Shares / Demat" value={selfData.economic.investments.sharesDemat ?? null} /></div>
-                            <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Others" value={selfData.economic.investments.others ?? null} /></div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Insurance */}
-                  {selfData.insurance && (
-                    <div>
-                      <SectionTitle>Insurance</SectionTitle>
-                      <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
-                        <CovRow label="Health Insurance" value={covArray(selfData.insurance.healthCoverage)} />
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Life Insurance" value={covArray(selfData.insurance.lifeCoverage)} /></div>
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Term Insurance" value={covArray(selfData.insurance.termCoverage)} /></div>
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Konkani Card" value={covArray(selfData.insurance.konkaniCardCoverage)} /></div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Documents */}
-                  {selfData.documents && (
-                    <div>
-                      <SectionTitle>Documents</SectionTitle>
-                      <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", background: C.white }}>
-                        <CovRow label="Aadhaar Card" value={covScalar(selfData.documents.aadhaarCoverage)} />
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="PAN Card" value={covScalar(selfData.documents.panCoverage)} /></div>
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Voter ID" value={covScalar(selfData.documents.voterIdCoverage)} /></div>
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Land Documents" value={covScalar(selfData.documents.landDocCoverage)} /></div>
-                        <div style={{ borderTop: `1px solid ${C.gray100}` }}><CovRow label="Driving License" value={covScalar(selfData.documents.dlCoverage)} /></div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Sangha memberships */}
-                  {selfData.sanghas.length > 0 && (
-                    <div>
-                      <SectionTitle>Sangha Memberships</SectionTitle>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {selfData.sanghas.map((sg, i) => (
-                          <div key={i} style={{ padding: "12px 14px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: C.gray800 }}>{sg.sangha_name}</div>
-                              {sg.role && <div style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>{sg.role}{sg.tenure ? ` · ${sg.tenure}` : ""}</div>}
-                            </div>
-                            <StatusBadge status={sg.status} />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+          {activeTab === "info" && (
+            <ApplicantInfoTab detail={detail} loading={loading} error={error} />
+          )}
+          {activeTab === "applied" && (
+            <ScholarshipHistoryTab applicationId={applicationId} type="applied" />
+          )}
+          {activeTab === "benefitted" && (
+            <ScholarshipHistoryTab applicationId={applicationId} type="benefitted" />
           )}
         </div>
 

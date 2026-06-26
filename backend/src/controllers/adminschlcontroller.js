@@ -1,4 +1,3 @@
-//Community-Application\backend\src\controllers\adminschlcontroller.js
 const pool = require("../config/db");
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -717,6 +716,160 @@ async function getApplicantDetails(req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /admin/applications/:applicationId/scholarship-history
+//
+// Powers the "Applied Scholarships" and "Benefitted Scholarships" tabs on the
+// applicant detail modal. Resolves the applicant (self OR family member) from
+// the given applicationId, then returns every scholarship application made by
+// that exact applicant (same profile + same family_member_id, or NULL for self),
+// across the requested year, along with the sangha name, applied date, the
+// scholarship's award amount, and the disbursement date.
+//
+// Query params:
+//   type  - "applied" (default, all statuses) | "benefitted" (approved only)
+//   year  - calendar year to filter "applied_at" by (default: current year)
+//           "all" can be passed to return every year's applications (mainly
+//           used for the "benefitted" tab, where the date range is less
+//           important than knowing every scholarship ever approved)
+// ─────────────────────────────────────────────────────────────────────────────
+async function getApplicantScholarshipHistory(req, res) {
+  try {
+    const { applicationId } = req.params;
+    const { type = "applied", year } = req.query;
+
+    // 1. Resolve the applicant identity (profile_id + family_member_id) from
+    //    the application that was clicked on, exactly like getApplicantDetails.
+    const appResult = await pool.query(
+      `SELECT sa.profile_id, sa.family_member_id
+       FROM scholarship_applications sa
+       WHERE sa.id = $1`,
+      [applicationId]
+    );
+    if (!appResult.rows.length) {
+      return res.status(404).json({ success: false, message: "Application not found" });
+    }
+    const { profile_id: profileId, family_member_id: familyMemberId } = appResult.rows[0];
+
+    // 2. Figure out which years this applicant actually has applications in,
+    //    so the frontend can populate a year selector and know the valid range.
+    const identityCondition = familyMemberId
+      ? "sa.profile_id = $1 AND sa.family_member_id = $2"
+      : "sa.profile_id = $1 AND sa.family_member_id IS NULL";
+    const identityParams = familyMemberId ? [profileId, familyMemberId] : [profileId];
+
+    const yearsResult = await pool.query(
+      `SELECT DISTINCT EXTRACT(YEAR FROM sa.applied_at)::int AS yr
+       FROM scholarship_applications sa
+       WHERE ${identityCondition}
+       ORDER BY yr DESC`,
+      identityParams
+    );
+    const availableYears = yearsResult.rows.map(r => r.yr);
+    const currentYear = new Date().getFullYear();
+
+    // 3. Build the main query.
+    const conditions = [identityCondition];
+    const params = [...identityParams];
+
+    if (type === "benefitted") {
+      conditions.push("sa.status = 'approved'");
+    }
+
+    // For "applied" tab, default to the current year unless "all" was passed
+    // or the caller specified a particular year. For "benefitted" tab we
+    // still honor an explicit year filter, but default to "all" so admins
+    // can see the full track record of approvals at a glance.
+    let resolvedYear = null;
+    if (year && year !== "all") {
+      resolvedYear = Number(year);
+      params.push(resolvedYear);
+      conditions.push(`EXTRACT(YEAR FROM sa.applied_at)::int = $${params.length}`);
+    } else if (!year && type === "applied") {
+      resolvedYear = currentYear;
+      params.push(resolvedYear);
+      conditions.push(`EXTRACT(YEAR FROM sa.applied_at)::int = $${params.length}`);
+    }
+    // else: year === "all" (or benefitted tab with no year param) -> no year filter
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const dataQuery = `
+      SELECT
+        sa.id                AS application_id,
+        sa.status,
+        sa.applied_at,
+        sa.reviewed_at,
+        sa.review_comment,
+        s.id                 AS scholarship_id,
+        s.name                AS scholarship_title,
+        s.base_amount          AS amount,
+        s.disbursement_date    AS disbursement_date,
+        s.application_end      AS deadline,
+        s.status               AS scholarship_status,
+        sg.id                AS sangha_id,
+        sg.sangha_name         AS sangha_name,
+        sg.state                AS sangha_state,
+        sg.district            AS sangha_district,
+        sg.logo_url             AS sangha_logo,
+        st.label                AS tier_label,
+        st.amount                AS tier_amount
+      FROM scholarship_applications sa
+      JOIN scholarships s   ON s.id  = sa.scholarship_id
+      JOIN sanghas sg       ON sg.id = s.sangha_id
+      LEFT JOIN LATERAL (
+        SELECT label, amount
+        FROM scholarship_tiers
+        WHERE scholarship_id = s.id
+        ORDER BY sort_order ASC
+        LIMIT 1
+      ) st ON true
+      ${whereClause}
+      ORDER BY sa.applied_at DESC
+    `;
+
+    const dataResult = await pool.query(dataQuery, params);
+
+    const records = dataResult.rows.map(row => ({
+      applicationId: row.application_id,
+      status: row.status,
+      appliedAt: row.applied_at,
+      reviewedAt: row.reviewed_at,
+      rejectionReason: row.status === "rejected" ? row.review_comment : null,
+      approvalNotes: row.status === "approved" ? row.review_comment : null,
+      scholarship: {
+        id: row.scholarship_id,
+        title: row.scholarship_title,
+        amount: row.amount != null ? row.amount : row.tier_amount,
+        disbursementDate: row.disbursement_date || row.deadline || null,
+        deadline: row.deadline,
+        status: row.scholarship_status,
+      },
+      sangha: {
+        id: row.sangha_id,
+        name: row.sangha_name,
+        state: row.sangha_state,
+        district: row.sangha_district,
+        logo: row.sangha_logo,
+      },
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: records,
+      meta: {
+        type,
+        year: resolvedYear,
+        availableYears,
+        currentYear,
+      },
+    });
+  } catch (err) {
+    console.error("getApplicantScholarshipHistory error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /admin/sanghas
 // ─────────────────────────────────────────────────────────────────────────────
 async function getAllSanghas(req, res) {
@@ -826,6 +979,7 @@ module.exports = {
   getScholarshipById,
   getScholarshipApplicants,
   getApplicantDetails,
+  getApplicantScholarshipHistory,
   getAllSanghas,
   getScholarshipCategories,
   getScholarshipStates,
