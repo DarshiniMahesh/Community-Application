@@ -21,23 +21,29 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ─── ROUTES ───────────────────────────────────────────────────
-const adminRoutes  = require('./src/routes/admin');
-const authRoutes   = require("./src/routes/auth");
-const userRoutes   = require("./src/routes/users");
-const sanghaRoutes = require("./src/routes/sangha");
-const userschlRoutes = require('./src/routes/userschl');
+const adminRoutes        = require('./src/routes/admin');
+const authRoutes         = require("./src/routes/auth");
+const userRoutes         = require("./src/routes/users");
+const sanghaRoutes       = require("./src/routes/sangha");
+const userschlRoutes     = require('./src/routes/userschl');
+const adminSchlRoutes    = require('./src/routes/adminschl');
+const companyRoutes      = require('./src/routes/company');
+const jobRoutes          = require('./src/routes/job');
+const referralRoutes     = require('./src/routes/referral');
+const jobModeratorRoutes = require('./src/routes/jobModerator');
 
 console.log('userschl routes loaded ✓');
-const adminSchlRoutes = require('./src/routes/adminschl');
 
-
-
-app.use('/api/admin',  adminRoutes);
-app.use("/api/auth",   authRoutes);
-app.use("/api/users",  userRoutes);
-app.use("/api/sangha", sanghaRoutes);
-app.use('/api/userschl', userschlRoutes);
-app.use('/api/admin',    adminSchlRoutes);
+app.use('/api/admin',         adminRoutes);
+app.use("/api/auth",          authRoutes);
+app.use("/api/users",         userRoutes);
+app.use("/api/sangha",        sanghaRoutes);
+app.use('/api/userschl',      userschlRoutes);
+app.use('/api/admin',         adminSchlRoutes);
+app.use('/api/company',       companyRoutes);
+app.use('/api/jobs',          jobRoutes);
+app.use('/api/referrals',     referralRoutes);
+app.use('/api/job-moderator', jobModeratorRoutes);
 
 
 // ─── HEALTH CHECK ─────────────────────────────────────────────

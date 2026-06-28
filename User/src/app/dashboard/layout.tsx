@@ -1,11 +1,9 @@
 //Community-Application\User\src\app\dashboard\layout.tsx
 "use client";
 
-
-
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { LayoutDashboard, User, Users, CheckCircle, Menu, X, LogOut } from "lucide-react";
+import { LayoutDashboard, User, Users, CheckCircle, Menu, X, LogOut, Briefcase } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { clearAuth, getToken, api } from "@/lib/api";
@@ -15,10 +13,11 @@ type ProfileStatus = "draft" | "submitted" | "under_review" | "approved" | "reje
 
 
 const baseNavigation = [
-  { name: "Dashboard",  href: "/dashboard",        icon: LayoutDashboard },
-  { name: "My Profile", href: "/dashboard/profile", icon: User },
-  { name: "Status",     href: "/dashboard/status",  icon: CheckCircle },
-  { name:"apply to scholarships", href:"dashboard/userscholarship", icon: CheckCircle },
+  { name: "Dashboard",             href: "/dashboard",                 icon: LayoutDashboard },
+  { name: "My Profile",            href: "/dashboard/profile",         icon: User },
+  { name: "Status",                href: "/dashboard/status",          icon: CheckCircle },
+  { name: "apply to scholarships", href: "dashboard/userscholarship",  icon: ScholarshipIcon },
+  { name: "My Career",             href: "/dashboard/my-career",       icon: Briefcase },
 ];
 
 const sanghaNav = {
@@ -68,8 +67,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push("/auth/login");
   };
 
-
-  // Build navigation: show Sangha Membership tab only when profile is approved
   const navigation = [...baseNavigation, sanghaNav];
 
   return (
@@ -123,7 +120,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 >
                   <item.icon className="h-5 w-5 flex-shrink-0" />
                   <span className="font-medium">{item.name}</span>
-                  {/* Green dot indicator for newly unlocked Sangha tab */}
                   {item.href === "/dashboard/sangha-membership" && (
                     <span className="ml-auto h-2 w-2 rounded-full bg-green-500" />
                   )}

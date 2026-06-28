@@ -12,18 +12,26 @@ const NAV = [
     { href: '/dashboard/sangha',    label: 'Sangha Management', icon: 'shield' },
   ]},
   { section: 'Workflow', items: [
-    { href: '/dashboard/approvals', label: 'Approvals',         icon: 'check', badge: true },
-    { href: '/dashboard/history',   label: 'Activity Log',      icon: 'clock'  },
-    { href: '/dashboard/reports',   label: 'Reports',           icon: 'chart'  },
-    { href: '/dashboard/blocklist', label: 'Block',             icon: 'block'  },
-    {href:'/dashboard/adminscholarship', label:'scholarship', icon:'block'}
+    { href: '/dashboard/approvals',      label: 'Approvals',       icon: 'check', badge: true },
+    { href: '/dashboard/history',        label: 'Activity Log',    icon: 'clock'  },
+    { href: '/dashboard/reports',        label: 'Reports',         icon: 'chart'  },
+    { href: '/dashboard/blocklist',      label: 'Block',           icon: 'block'  },
+    { href: '/dashboard/adminscholarship', label: 'Scholarship',   icon: 'block'  },
+    { href: '/dashboard/companies',      label: 'Companies',       icon: 'building' },
+    { href: '/dashboard/job-moderation', label: 'Job Moderation',  icon: 'briefcase' },
   ]},
 ];
 
 const ICONS: Record<string, React.ReactNode> = {
-  home: IC.home, users: IC.users, shield: IC.shield,
-  check: IC.check, clock: IC.clock, chart: IC.chart,
-  block: IC.block,
+  home:      IC.home,
+  users:     IC.users,
+  shield:    IC.shield,
+  check:     IC.check,
+  clock:     IC.clock,
+  chart:     IC.chart,
+  block:     IC.block,
+  building:  IC.building,
+  briefcase: IC.briefcase,
 };
 
 export default function Sidebar() {
@@ -79,7 +87,6 @@ export default function Sidebar() {
                 >
                   <span className="nav-icon">{ICONS[item.icon]}</span>
                   {item.label}
-                  
                 </div>
               );
             })}
@@ -88,7 +95,6 @@ export default function Sidebar() {
       </nav>
       <div className="sidebar-footer">
         <div className="user-pill">
-          
           <button className="logout-btn" onClick={handleLogout}>Logout</button>
         </div>
       </div>
