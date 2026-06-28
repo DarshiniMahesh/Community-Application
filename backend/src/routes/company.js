@@ -24,8 +24,8 @@ router.post('/reapply',          companyAuth, reapply);
 router.get('/dashboard/stats',   companyAuth, getDashboardStats);
 
 // ── Admin: Company management ─────────────────────────────────
-router.get('/admin/companies',              authenticate, requireRole('admin'), adminListCompanies);
-router.patch('/admin/companies/:id/approve', authenticate, requireRole('admin'), adminApproveCompany);
-router.patch('/admin/companies/:id/reject',  authenticate, requireRole('admin'), adminRejectCompany);
+router.get('/admin/companies',             authenticate, requireRole('admin'), adminListCompanies);
+router.put('/admin/companies/:id/approve', authenticate, requireRole('admin'), adminApproveCompany);
+router.put('/admin/companies/:id/reject',  authenticate, requireRole('admin'), adminRejectCompany);
 
 module.exports = router;
