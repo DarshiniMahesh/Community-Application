@@ -4,6 +4,7 @@ const {
   register, login, verifyOtp, resendOtp,
   getProfile, createProfile, updateProfile, reapply,
   getDashboardStats,
+  getEmployees, addEmployee, deleteEmployee,
   adminListCompanies, adminApproveCompany, adminRejectCompany,
 } = require('../controllers/companyController');
 const { authenticate, requireRole } = require('../middlewares/auth');
@@ -22,6 +23,11 @@ router.post('/profile',          companyAuth, createProfile);
 router.put('/profile',           companyAuth, updateProfile);
 router.post('/reapply',          companyAuth, reapply);
 router.get('/dashboard/stats',   companyAuth, getDashboardStats);
+
+// ── Company: Employees ─────────────────────────────────────────
+router.get('/employees',         companyAuth, getEmployees);
+router.post('/employees',        companyAuth, addEmployee);
+router.delete('/employees/:id',  companyAuth, deleteEmployee);
 
 // ── Admin: Company management ─────────────────────────────────
 router.get('/admin/companies',             authenticate, requireRole('admin'), adminListCompanies);

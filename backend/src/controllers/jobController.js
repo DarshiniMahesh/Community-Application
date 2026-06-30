@@ -1,4 +1,6 @@
 const pool = require('../config/db');
+const { createClient } = require('@supabase/supabase-js');
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 // ── Helper: get company id from auth user ─────────────────────
 async function getCompanyId(authId) {
@@ -143,7 +145,113 @@ const createJob = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+// ── Update Job ─────────────────────────────────────────────────
+const updateJob = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const companyId = await getCompanyId(req.user.id);
 
+    // Verify ownership
+    const ownership = await pool.query(
+      `SELECT id FROM company_jobs WHERE id=$1 AND company_id=$2`,
+      [id, companyId]
+    );
+    if (ownership.rows.length === 0)
+      return res.status(404).json({ message: 'Job not found or not authorized' });
+
+    const {
+      job_title, job_description, location, postal_code, country,
+      job_code, department, functional_area,
+      work_setting, employment_type,
+      experience_min_years, experience_max_years,
+      company_website, industry,
+      required_skills, preferred_skills, technical_skills, soft_skills,
+      key_responsibilities, responsibilities,
+      salary_min, salary_max,
+      contact_email, contact_phone,
+      screening_questions,
+      cover_letter_required, portfolio_required,
+      background_check_required,
+      application_deadline, expected_start_date, job_expiration,
+      number_of_openings, equal_opportunity_statement,
+      status,
+    } = req.body;
+
+    await pool.query(
+      `UPDATE company_jobs SET
+        job_title = COALESCE($1, job_title),
+        job_description = COALESCE($2, job_description),
+        location = COALESCE($3, location),
+        postal_code = COALESCE($4, postal_code),
+        country = COALESCE($5, country),
+        job_code = COALESCE($6, job_code),
+        department = COALESCE($7, department),
+        functional_area = COALESCE($8, functional_area),
+        work_setting = COALESCE($9, work_setting),
+        employment_type = COALESCE($10, employment_type),
+        experience_min_years = COALESCE($11, experience_min_years),
+        experience_max_years = COALESCE($12, experience_max_years),
+        company_website = COALESCE($13, company_website),
+        industry = COALESCE($14, industry),
+        required_skills = COALESCE($15, required_skills),
+        preferred_skills = COALESCE($16, preferred_skills),
+        technical_skills = COALESCE($17, technical_skills),
+        soft_skills = COALESCE($18, soft_skills),
+        key_responsibilities = COALESCE($19, key_responsibilities),
+        responsibilities = COALESCE($20, responsibilities),
+        salary_min = COALESCE($21, salary_min),
+        salary_max = COALESCE($22, salary_max),
+        contact_email = COALESCE($23, contact_email),
+        contact_phone = COALESCE($24, contact_phone),
+        screening_questions = COALESCE($25, screening_questions),
+        cover_letter_required = COALESCE($26, cover_letter_required),
+        portfolio_required = COALESCE($27, portfolio_required),
+        background_check_required = COALESCE($28, background_check_required),
+        application_deadline = COALESCE($29, application_deadline),
+        expected_start_date = COALESCE($30, expected_start_date),
+        expiry_date = COALESCE($31, expiry_date),
+        number_of_openings = COALESCE($32, number_of_openings),
+        equal_opportunity_statement = COALESCE($33, equal_opportunity_statement),
+        status = COALESCE($34, status),
+        updated_at = now()
+      WHERE id=$35`,
+      [
+        job_title, job_description, location, postal_code, country,
+        job_code, department, functional_area,
+        work_setting, employment_type,
+        experience_min_years, experience_max_years,
+        company_website, industry,
+        required_skills, preferred_skills, technical_skills, soft_skills,
+        key_responsibilities, responsibilities,
+        salary_min, salary_max,
+        contact_email, contact_phone,
+        screening_questions ? JSON.stringify(screening_questions) : undefined,
+        cover_letter_required, portfolio_required,
+        background_check_required,
+        application_deadline || null,
+        expected_start_date || null,
+        job_expiration || null,
+        number_of_openings,
+        equal_opportunity_statement,
+        status,
+        id,
+      ]
+    );
+
+    const updated = await pool.query(
+      `SELECT cj.*, COUNT(ja.id) as applicant_count
+       FROM company_jobs cj
+       LEFT JOIN job_applications ja ON ja.job_id = cj.id
+       WHERE cj.id=$1 GROUP BY cj.id`,
+      [id]
+    );
+    return res.json({ message: 'Job updated', job: updated.rows[0] });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
+    console.error('updateJob:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
 // ── List Jobs (company) ────────────────────────────────────────
 const listJobs = async (req, res) => {
   try {
@@ -360,10 +468,14 @@ const publicGetJob = async (req, res) => {
 // ── User: Apply to Job ────────────────────────────────────────
 const applyToJob = async (req, res) => {
   const { id } = req.params;
-  const { resume_url, cover_letter_url, portfolio_url, screening_answers } = req.body;
-
-  if (!resume_url)
-    return res.status(400).json({ message: 'Resume is required' });
+  const { portfolio_url, answers } = req.body;
+const resumeFile = req.files?.resume?.[0];
+const coverFile = req.files?.cover_letter?.[0];
+if (!resumeFile)
+  return res.status(400).json({ message: 'Resume is required' });
+const resume_url = `/uploads/resumes/${resumeFile.filename}`;
+const cover_letter_url = coverFile ? `/uploads/resumes/${coverFile.filename}` : null;
+const screening_answers = answers ? JSON.parse(answers) : {};
 
   try {
     // Check already applied
@@ -386,7 +498,7 @@ const applyToJob = async (req, res) => {
          (job_id, user_id, resume_url, cover_letter_url, portfolio_url, screening_answers, status)
        VALUES ($1,$2,$3,$4,$5,$6,'Submitted')`,
       [id, req.user.id, resume_url, cover_letter_url || null,
-       portfolio_url || null, JSON.stringify(screening_answers || {})]
+       portfolio_url || null, JSON.stringify(screening_answers)]
     );
     return res.status(201).json({ message: 'Application submitted' });
   } catch (err) {
@@ -399,11 +511,11 @@ const applyToJob = async (req, res) => {
 const getUserApplications = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT ja.id, cj.job_title, cj.company_name, ja.applied_at, ja.status
-       FROM job_applications ja
-       JOIN company_jobs cj ON cj.id = ja.job_id
-       WHERE ja.user_id=$1
-       ORDER BY ja.applied_at DESC`,
+      `SELECT ja.id, ja.job_id, cj.job_title, cj.company_name, ja.applied_at, ja.status
+ FROM job_applications ja
+ JOIN company_jobs cj ON cj.id = ja.job_id
+ WHERE ja.user_id=$1
+ ORDER BY ja.applied_at DESC`,
       [req.user.id]
     );
     return res.json({ applications: result.rows });
@@ -471,7 +583,7 @@ const adminListJobs = async (req, res) => {
 };
 
 module.exports = {
-  createJob, listJobs, getJob, deleteJob,
+  createJob, listJobs, getJob, deleteJob, updateJob,
   getJobApplicants, updateApplicantStatus, getAllApplications,
   publicListJobs, publicGetJob,
   applyToJob, getUserApplications, saveJob, getSavedJobs,

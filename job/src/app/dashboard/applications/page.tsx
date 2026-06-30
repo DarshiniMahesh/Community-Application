@@ -30,7 +30,7 @@ export default function ApplicationsPage() {
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
   useEffect(() => {
-    api.get("/company/applications")
+    api.get("/jobs/applications")
       .then((d) => setApplications(d.applications || []))
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -52,7 +52,7 @@ export default function ApplicationsPage() {
 
     setUpdatingId(app.id);
     try {
-      await api.patch(`/company/jobs/${app.job_id}/applicants/${app.id}/status`, { status: newStatus });
+      await api.patch(`/jobs/${app.job_id}/applicants/${app.id}/status`, { status: newStatus });
       setApplications((prev) =>
         prev.map((a) => (a.id === app.id ? { ...a, status: newStatus } : a))
       );

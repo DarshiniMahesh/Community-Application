@@ -65,11 +65,16 @@ const createReferral = async (req, res) => {
   }
 };
 
-// ── User: Get my referrals ─────────────────────────────────────
+// ── User: Get my referrals (with applicant counts) ─────────────
 const getMyReferrals = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT * FROM job_referrals WHERE user_id=$1 ORDER BY created_at DESC`,
+      `SELECT jr.*, COUNT(ra.id) as applicant_count
+       FROM job_referrals jr
+       LEFT JOIN referral_applications ra ON ra.referral_id = jr.id
+       WHERE jr.user_id=$1
+       GROUP BY jr.id
+       ORDER BY jr.created_at DESC`,
       [req.user.id]
     );
     return res.json({ referrals: result.rows });
@@ -153,7 +158,101 @@ const rejectReferral = async (req, res) => {
   }
 };
 
+// ── User: Apply to a referral ──────────────────────────────────
+const applyToReferral = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const existing = await pool.query(
+      `SELECT id FROM referral_applications WHERE referral_id=$1 AND user_id=$2`,
+      [id, req.user.id]
+    );
+    if (existing.rows.length > 0)
+      return res.status(409).json({ message: 'Already applied' });
+
+    await pool.query(
+      `INSERT INTO referral_applications (referral_id, user_id) VALUES ($1,$2)`,
+      [id, req.user.id]
+    );
+    return res.status(201).json({ message: 'Applied successfully' });
+  } catch (err) {
+    console.error('applyToReferral:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── User: Get applicants for a referral ────────────────────────
+const getReferralApplicants = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT ra.id, ra.status, ra.applied_at,
+              u.email, COALESCE(pd.first_name||' '||pd.last_name, u.email) as name
+       FROM referral_applications ra
+       JOIN users u ON u.id = ra.user_id
+       LEFT JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN personal_details pd ON pd.profile_id = p.id
+       WHERE ra.referral_id=$1 ORDER BY ra.applied_at DESC`,
+      [id]
+    );
+    return res.json({ applicants: result.rows });
+  } catch (err) {
+    console.error('getReferralApplicants:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── Referrer: Update applicant status (approve/reject) ─────────
+const updateReferralApplicantStatus = async (req, res) => {
+  const { id, applicantId } = req.params;
+  const { status } = req.body;
+
+  if (!['approved', 'rejected', 'applied'].includes(status))
+    return res.status(400).json({ message: 'Invalid status' });
+
+  try {
+    // Verify the referral belongs to this user
+    const referral = await pool.query(
+      `SELECT id FROM job_referrals WHERE id=$1 AND user_id=$2`,
+      [id, req.user.id]
+    );
+    if (referral.rows.length === 0)
+      return res.status(403).json({ message: 'Not authorized to manage this referral' });
+
+    const result = await pool.query(
+      `UPDATE referral_applications SET status=$1 WHERE id=$2 AND referral_id=$3 RETURNING id`,
+      [status, applicantId, id]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'Applicant not found' });
+
+    return res.json({ message: 'Applicant status updated' });
+  } catch (err) {
+    console.error('updateReferralApplicantStatus:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── User: Get my referral applications (status check) ──────────
+const getMyReferralApplications = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT ra.id, ra.referral_id, ra.status, ra.applied_at, jr.job_title, jr.company_name
+       FROM referral_applications ra
+       JOIN job_referrals jr ON jr.id = ra.referral_id
+       WHERE ra.user_id=$1
+       ORDER BY ra.applied_at DESC`,
+      [req.user.id]
+    );
+    return res.json({ applications: result.rows });
+  } catch (err) {
+    console.error('getMyReferralApplications:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   createReferral, getMyReferrals, listApprovedReferrals,
   moderatorListReferrals, approveReferral, rejectReferral,
+  applyToReferral, getReferralApplicants,
+  updateReferralApplicantStatus, getMyReferralApplications,
 };

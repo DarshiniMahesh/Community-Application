@@ -31,7 +31,7 @@ export default function JobPostingsPage() {
 
   const fetchJobs = () => {
     setLoading(true);
-    api.get("/company/jobs")
+    api.get("/jobs")
       .then((d: { jobs?: Job[] }) => setJobs(d.jobs || []))
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -47,7 +47,7 @@ export default function JobPostingsPage() {
   const handleDelete = async (id: string) => {
     setDeleting(true);
     try {
-      await api.delete(`/company/jobs/${id}`);
+      await api.delete(`/jobs/${id}`);
       fetchJobs();
       showToast("Job posting removed.");
     } catch (err: unknown) {

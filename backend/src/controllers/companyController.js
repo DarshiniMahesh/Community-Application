@@ -212,15 +212,17 @@ const updateProfile = async (req, res) => {
   } = req.body;
 
   try {
-    await pool.query(
+    const result = await pool.query(
       `UPDATE companies SET
          company_name=$1, company_description=$2, address_line1=$3, address_line2=$4,
-         company_category=$5, company_subcategory=$6, company_size=$7, updated_at=now()
-       WHERE company_auth_id=$8`,
+         company_category=$5, company_subcategory=$6, company_size=$7,
+         status='pending', rejection_reason=NULL, updated_at=now()
+       WHERE company_auth_id=$8
+       RETURNING status`,
       [company_name, company_description, address_line1, address_line2 || null,
        company_category, company_subcategory, company_size, req.user.id]
     );
-    return res.json({ message: 'Profile updated' });
+    return res.json({ message: 'Profile updated. Sent for re-approval.', status: result.rows[0]?.status });
   } catch (err) {
     console.error('updateProfile:', err);
     return res.status(500).json({ message: 'Internal server error' });
@@ -283,6 +285,82 @@ const getDashboardStats = async (req, res) => {
   }
 };
 
+// ── Employees: List ─────────────────────────────────────────────
+const getEmployees = async (req, res) => {
+  try {
+    const company = await pool.query(
+      `SELECT id FROM companies WHERE company_auth_id=$1`, [req.user.id]
+    );
+    if (company.rows.length === 0)
+      return res.status(404).json({ message: 'Company not found' });
+
+    const result = await pool.query(
+      `SELECT id, employee_name, employee_age, employee_gender,
+              employee_qualification, employee_role, created_at
+       FROM company_employees
+       WHERE company_id=$1
+       ORDER BY created_at DESC`,
+      [company.rows[0].id]
+    );
+    return res.json({ employees: result.rows });
+  } catch (err) {
+    console.error('getEmployees:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── Employees: Add ──────────────────────────────────────────────
+const addEmployee = async (req, res) => {
+  const { employee_name, employee_age, employee_gender, employee_qualification, employee_role } = req.body;
+
+  if (!employee_name || !employee_age || !employee_gender || !employee_qualification || !employee_role)
+    return res.status(400).json({ message: 'All employee fields are required' });
+
+  try {
+    const company = await pool.query(
+      `SELECT id FROM companies WHERE company_auth_id=$1`, [req.user.id]
+    );
+    if (company.rows.length === 0)
+      return res.status(404).json({ message: 'Company not found' });
+
+    const result = await pool.query(
+      `INSERT INTO company_employees
+         (company_id, employee_name, employee_age, employee_gender, employee_qualification, employee_role)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING id, employee_name, employee_age, employee_gender, employee_qualification, employee_role, created_at`,
+      [company.rows[0].id, employee_name, employee_age, employee_gender, employee_qualification, employee_role]
+    );
+    return res.status(201).json({ message: 'Employee added', employee: result.rows[0] });
+  } catch (err) {
+    console.error('addEmployee:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── Employees: Delete ────────────────────────────────────────────
+const deleteEmployee = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const company = await pool.query(
+      `SELECT id FROM companies WHERE company_auth_id=$1`, [req.user.id]
+    );
+    if (company.rows.length === 0)
+      return res.status(404).json({ message: 'Company not found' });
+
+    const result = await pool.query(
+      `DELETE FROM company_employees WHERE id=$1 AND company_id=$2 RETURNING id`,
+      [id, company.rows[0].id]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'Employee not found' });
+
+    return res.json({ message: 'Employee removed' });
+  } catch (err) {
+    console.error('deleteEmployee:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 // ── Admin: List Companies ──────────────────────────────────────
 const adminListCompanies = async (req, res) => {
   const { status } = req.query;
@@ -341,5 +419,6 @@ module.exports = {
   register, login, verifyOtp, resendOtp,
   getProfile, createProfile, updateProfile, reapply,
   getDashboardStats,
+  getEmployees, addEmployee, deleteEmployee,
   adminListCompanies, adminApproveCompany, adminRejectCompany,
 };

@@ -38,7 +38,7 @@ export default function AdminCompaniesPage() {
 
   const fetchCompanies = (status: TabType) => {
     setLoading(true);
-    api.get(`/company/admin/companies?status=${status}`)
+    api.get(`/api/company/admin/companies?status=${status}`)
       .then((d) => setCompanies(d.companies || []))
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -49,7 +49,7 @@ export default function AdminCompaniesPage() {
   const handleApprove = async (company: Company) => {
     setActionLoading(true);
     try {
-      await api.put(`/company/admin/companies/${company.id}/approve`, {});
+      await api.put(`/api/company/admin/companies/${company.id}/approve`, {});
       showToast(`${company.company_name} approved successfully.`);
       fetchCompanies(tab);
       setSelected(null);
@@ -72,7 +72,7 @@ export default function AdminCompaniesPage() {
     if (!rejectTarget) return;
     setActionLoading(true);
     try {
-      await api.put(`/company/admin/companies/${rejectTarget.id}/reject`, { reason: rejectReason });
+      await api.put(`/api/company/admin/companies/${rejectTarget.id}/reject`, { reason: rejectReason });
       showToast(`${rejectTarget.company_name} rejected.`);
       setShowRejectModal(false);
       fetchCompanies(tab);

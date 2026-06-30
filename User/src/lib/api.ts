@@ -42,6 +42,18 @@ export const api = {
     if (!res.ok) throw new Error(data.message || "Something went wrong");
     return data;
   },
+  // ✅ ADDED: PATCH method
+  patch: async (path: string, body: object): Promise<any> => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "PATCH",
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+    if (!res.ok) throw new Error(data.message || "Something went wrong");
+    return data;
+  },
 };
 
 export const saveAuth = (token: string, role: string) => {

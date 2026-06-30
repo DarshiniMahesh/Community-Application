@@ -43,6 +43,17 @@ export const api = {
     return data;
   },
 
+  patch: async (path: string, body: object) => {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Something went wrong');
+    return data;
+  },
+
   delete: async (path: string, body?: object) => {
     const res = await fetch(`${BASE_URL}${path}`, {
       method: 'DELETE',

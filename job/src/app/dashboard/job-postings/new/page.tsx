@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { EMPLOYMENT_TYPES, WORK_SETTINGS } from "@/lib/constants";
 import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 
 interface JobForm {
-  // 6.1
   job_title: string;
   job_description: string;
   location: string;
@@ -16,7 +15,6 @@ interface JobForm {
   job_code: string;
   department: string;
   functional_area: string;
-  // 6.2
   work_setting: string;
   employment_type: string;
   experience_min_years: string;
@@ -25,10 +23,8 @@ interface JobForm {
   experience_max_months: string;
   duration: string;
   contract_duration: string;
-  // 6.3
   company_website: string;
   industry: string;
-  // 6.4
   required_skills: string;
   preferred_skills: string;
   technical_skills: string;
@@ -37,7 +33,6 @@ interface JobForm {
   preferred_qualifications: string;
   certifications: string;
   licenses: string;
-  // 6.5
   responsibilities: string;
   key_responsibilities: string;
   role_overview: string;
@@ -49,7 +44,6 @@ interface JobForm {
   relocation_requirements: string;
   physical_requirements: string;
   shift_schedule: string;
-  // 6.6
   salary_min: string;
   salary_max: string;
   salary_grade: string;
@@ -61,7 +55,6 @@ interface JobForm {
   flexible_hours: string;
   remote_work_options: string;
   other_perks: string;
-  // 6.7
   screening_questions: string[];
   resume_required: boolean;
   cover_letter_required: boolean;
@@ -71,17 +64,14 @@ interface JobForm {
   recruitment_timeline: string;
   contact_phone: string;
   contact_email: string;
-  // 6.8
   job_poster: string;
   hiring_manager: string;
   job_expiration: string;
   number_of_openings: string;
-  // 6.9
   equal_opportunity_statement: string;
   ada_compliance: string;
   legal_disclosures: string;
   background_check_required: boolean;
-  // 6.10 (internal)
   reason_for_vacancy: string;
   budget_code: string;
   resume_scoring: string;
@@ -129,6 +119,108 @@ const SECTIONS = [
   "Internal / HR Fields",
 ];
 
+// Maps each validated field to the accordion section it lives in.
+// Used to auto-open + auto-scroll to the first invalid field on submit.
+const FIELD_SECTION: Partial<Record<keyof JobForm, number>> = {
+  job_title: 0, job_description: 0, location: 0, postal_code: 0, country: 0,
+  work_setting: 1, employment_type: 1,
+  company_website: 2,
+  required_skills: 3,
+  responsibilities: 4, key_responsibilities: 4,
+  contact_email: 6, application_deadline: 6,
+  job_expiration: 7,
+  equal_opportunity_statement: 8,
+  resume_scoring: 9,
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Field components defined OUTSIDE the page component.
+//
+// These were previously defined INSIDE NewJobPage's function body,
+// which meant a brand-new component function was created on every
+// re-render (i.e. every keystroke). React saw each one as a
+// different component type than the last render, so it unmounted
+// the old <input>/<textarea> DOM node and mounted a new one —
+// wiping focus after every single character. Defining them here
+// keeps a stable identity across renders, which fixes that.
+// ─────────────────────────────────────────────────────────────────
+
+function FieldGroup({
+  label, req, children, error,
+}: { label: string; req?: boolean; children: React.ReactNode; error?: string }) {
+  return (
+    <div style={styles.fieldGroup}>
+      <label style={styles.label}>
+        {label} {req && <span style={styles.req}>*</span>}
+      </label>
+      {children}
+      {error && <p style={styles.errText}>{error}</p>}
+    </div>
+  );
+}
+
+function TextInput({
+  value, onChange, placeholder, type = "text", error,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: string;
+  error?: string;
+}) {
+  return (
+    <input
+      style={{ ...styles.input, ...(error ? styles.inputError : {}) }}
+      type={type}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+function TextareaInput({
+  value, onChange, placeholder, rows = 4, error,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  rows?: number;
+  error?: string;
+}) {
+  return (
+    <textarea
+      style={{ ...styles.textarea, minHeight: rows * 24, ...(error ? styles.inputError : {}) }}
+      rows={rows}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+function SelectInput({
+  value, onChange, options, placeholder, error,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  placeholder?: string;
+  error?: string;
+}) {
+  return (
+    <select
+      title={placeholder || "Select option"}
+      style={{ ...styles.select, ...(error ? styles.inputError : {}) }}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">{placeholder || "Select..."}</option>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
 export default function NewJobPage() {
   const router = useRouter();
   const [form, setForm] = useState<JobForm>(EMPTY_FORM);
@@ -136,6 +228,8 @@ export default function NewJobPage() {
   const [openSections, setOpenSections] = useState<number[]>([0]);
   const [loading, setLoading] = useState(false);
   const [newQuestion, setNewQuestion] = useState("");
+
+  const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const set = (key: keyof JobForm, val: string | boolean | string[]) => {
     setForm((f) => ({ ...f, [key]: val }));
@@ -175,7 +269,6 @@ export default function NewJobPage() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contact_email)) e.contact_email = "Enter a valid email";
     if (!form.equal_opportunity_statement.trim()) e.equal_opportunity_statement = "EOE statement is required";
 
-    // Expiry not before today
     if (form.job_expiration) {
       const exp = new Date(form.job_expiration);
       const today = new Date();
@@ -183,14 +276,12 @@ export default function NewJobPage() {
       if (exp < today) e.job_expiration = "Expiry date cannot be in the past";
     }
 
-    // Deadline before expiry
     if (form.application_deadline && form.job_expiration) {
       const deadline = new Date(form.application_deadline);
       const expiry = new Date(form.job_expiration);
       if (deadline > expiry) e.application_deadline = "Deadline cannot be after job expiry date";
     }
 
-    // Resume scoring float
     if (form.resume_scoring && isNaN(parseFloat(form.resume_scoring))) {
       e.resume_scoring = "Must be a decimal number (e.g. 0.75)";
     }
@@ -198,30 +289,37 @@ export default function NewJobPage() {
     return e;
   };
 
+  const scrollToSection = (sectionIdx: number) => {
+    setTimeout(() => {
+      sectionRefs.current[sectionIdx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs = validate();
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
-      // Open sections with errors
-      const errorKeys = Object.keys(errs);
-      const sectionsToOpen: number[] = [];
-      if (errorKeys.some((k) => ["job_title","job_description","location","postal_code","country"].includes(k))) sectionsToOpen.push(0);
-      if (errorKeys.some((k) => ["work_setting","employment_type"].includes(k))) sectionsToOpen.push(1);
-      if (errorKeys.some((k) => ["company_website"].includes(k))) sectionsToOpen.push(2);
-      if (errorKeys.some((k) => ["required_skills"].includes(k))) sectionsToOpen.push(3);
-      if (errorKeys.some((k) => ["responsibilities","key_responsibilities"].includes(k))) sectionsToOpen.push(4);
-      if (errorKeys.some((k) => ["contact_email","application_deadline"].includes(k))) sectionsToOpen.push(6);
-      if (errorKeys.some((k) => ["job_expiration"].includes(k))) sectionsToOpen.push(7);
-      if (errorKeys.some((k) => ["equal_opportunity_statement"].includes(k))) sectionsToOpen.push(8);
-      if (errorKeys.some((k) => ["resume_scoring"].includes(k))) sectionsToOpen.push(9);
+
+      const errorKeys = Object.keys(errs) as (keyof JobForm)[];
+      const sectionsToOpen = [
+        ...new Set(
+          errorKeys
+            .map((k) => FIELD_SECTION[k])
+            .filter((s): s is number => s !== undefined)
+        ),
+      ];
       setOpenSections((prev) => [...new Set([...prev, ...sectionsToOpen])]);
+
+      if (sectionsToOpen.length > 0) {
+        scrollToSection(Math.min(...sectionsToOpen));
+      }
       return;
     }
 
     setLoading(true);
     try {
-      await api.post("/company/jobs", {
+      await api.post("/jobs", {
         ...form,
         number_of_openings: form.number_of_openings ? Number(form.number_of_openings) : null,
         resume_scoring: form.resume_scoring ? parseFloat(form.resume_scoring) : null,
@@ -231,54 +329,13 @@ export default function NewJobPage() {
       const msg = err instanceof Error ? err.message : "Failed to post job";
       setErrors({ job_title: msg });
       setOpenSections((prev) => [...new Set([...prev, 0])]);
+      scrollToSection(0);
     } finally {
       setLoading(false);
     }
   };
 
   const isContract = form.employment_type === "Contract";
-
-  const F = ({ label, req, children, error }: { label: string; req?: boolean; children: React.ReactNode; error?: string }) => (
-    <div style={styles.fieldGroup}>
-      <label style={styles.label}>
-        {label} {req && <span style={styles.req}>*</span>}
-      </label>
-      {children}
-      {error && <p style={styles.errText}>{error}</p>}
-    </div>
-  );
-
-  const Input = ({ name, placeholder, type = "text" }: { name: keyof JobForm; placeholder?: string; type?: string }) => (
-    <input
-      style={{ ...styles.input, ...(errors[name] ? styles.inputError : {}) }}
-      type={type}
-      placeholder={placeholder}
-      value={form[name] as string}
-      onChange={(e) => set(name, e.target.value)}
-    />
-  );
-
-  const Textarea = ({ name, placeholder, rows = 4 }: { name: keyof JobForm; placeholder?: string; rows?: number }) => (
-    <textarea
-      style={{ ...styles.textarea, ...(errors[name] ? styles.inputError : {}) }}
-      rows={rows}
-      placeholder={placeholder}
-      value={form[name] as string}
-      onChange={(e) => set(name, e.target.value)}
-    />
-  );
-
-  const Select = ({ name, options, placeholder }: { name: keyof JobForm; options: string[]; placeholder?: string }) => (
-  <select
-    title={placeholder || "Select option"}
-    style={{ ...styles.select, ...(errors[name] ? styles.inputError : {}) }}
-    value={form[name] as string}
-    onChange={(e) => set(name, e.target.value)}
-  >
-      <option value="">{placeholder || "Select..."}</option>
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
-    </select>
-  );
 
   return (
     <div>
@@ -291,7 +348,11 @@ export default function NewJobPage() {
         {SECTIONS.map((section, idx) => {
           const open = openSections.includes(idx);
           return (
-            <div key={section} style={styles.section}>
+            <div
+              key={section}
+              style={styles.section}
+              ref={(el) => { sectionRefs.current[idx] = el; }}
+            >
               <button
                 type="button"
                 style={styles.sectionHeader}
@@ -307,50 +368,48 @@ export default function NewJobPage() {
 
               {open && (
                 <div style={styles.sectionBody}>
-                  {/* ── Section 0: Job Identification ── */}
                   {idx === 0 && (
                     <>
-                      <F label="Job Title" req error={errors.job_title}>
-                        <Input name="job_title" placeholder="e.g. Senior Software Engineer" />
-                      </F>
-                      <F label="Job Description" req error={errors.job_description}>
-                        <Textarea name="job_description" rows={5} placeholder="Full description of duties, responsibilities, and requirements..." />
-                      </F>
+                      <FieldGroup label="Job Title" req error={errors.job_title}>
+                        <TextInput value={form.job_title} onChange={(v) => set("job_title", v)} placeholder="e.g. Senior Software Engineer" error={errors.job_title} />
+                      </FieldGroup>
+                      <FieldGroup label="Job Description" req error={errors.job_description}>
+                        <TextareaInput value={form.job_description} onChange={(v) => set("job_description", v)} rows={5} placeholder="Full description of duties, responsibilities, and requirements..." error={errors.job_description} />
+                      </FieldGroup>
                       <div style={styles.grid2}>
-                        <F label="Location" req error={errors.location}>
-                          <Input name="location" placeholder="City, State, Country" />
-                        </F>
-                        <F label="Postal Code / ZIP Code" req error={errors.postal_code}>
-                          <Input name="postal_code" placeholder="e.g. 560001" />
-                        </F>
+                        <FieldGroup label="Location" req error={errors.location}>
+                          <TextInput value={form.location} onChange={(v) => set("location", v)} placeholder="City, State, Country" error={errors.location} />
+                        </FieldGroup>
+                        <FieldGroup label="Postal Code / ZIP Code" req error={errors.postal_code}>
+                          <TextInput value={form.postal_code} onChange={(v) => set("postal_code", v)} placeholder="e.g. 560001" error={errors.postal_code} />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid3}>
-                        <F label="Country" req error={errors.country}>
-                          <Input name="country" placeholder="e.g. India" />
-                        </F>
-                        <F label="Job Code / Requisition ID">
-                          <Input name="job_code" placeholder="Internal tracking code" />
-                        </F>
-                        <F label="Department">
-                          <Input name="department" placeholder="e.g. Engineering" />
-                        </F>
+                        <FieldGroup label="Country" req error={errors.country}>
+                          <TextInput value={form.country} onChange={(v) => set("country", v)} placeholder="e.g. India" error={errors.country} />
+                        </FieldGroup>
+                        <FieldGroup label="Job Code / Requisition ID">
+                          <TextInput value={form.job_code} onChange={(v) => set("job_code", v)} placeholder="Internal tracking code" />
+                        </FieldGroup>
+                        <FieldGroup label="Department">
+                          <TextInput value={form.department} onChange={(v) => set("department", v)} placeholder="e.g. Engineering" />
+                        </FieldGroup>
                       </div>
-                      <F label="Functional Area">
-                        <Input name="functional_area" placeholder="e.g. Engineering, Sales, HR" />
-                      </F>
+                      <FieldGroup label="Functional Area">
+                        <TextInput value={form.functional_area} onChange={(v) => set("functional_area", v)} placeholder="e.g. Engineering, Sales, HR" />
+                      </FieldGroup>
                     </>
                   )}
 
-                  {/* ── Section 1: Work Setting & Employment ── */}
                   {idx === 1 && (
                     <>
                       <div style={styles.grid2}>
-                        <F label="Work Setting" req error={errors.work_setting}>
-                          <Select name="work_setting" options={WORK_SETTINGS} placeholder="Select work setting" />
-                        </F>
-                        <F label="Employment Type" req error={errors.employment_type}>
-                          <Select name="employment_type" options={EMPLOYMENT_TYPES} placeholder="Select employment type" />
-                        </F>
+                        <FieldGroup label="Work Setting" req error={errors.work_setting}>
+                          <SelectInput value={form.work_setting} onChange={(v) => set("work_setting", v)} options={WORK_SETTINGS} placeholder="Select work setting" error={errors.work_setting} />
+                        </FieldGroup>
+                        <FieldGroup label="Employment Type" req error={errors.employment_type}>
+                          <SelectInput value={form.employment_type} onChange={(v) => set("employment_type", v)} options={EMPLOYMENT_TYPES} placeholder="Select employment type" error={errors.employment_type} />
+                        </FieldGroup>
                       </div>
                       <div style={styles.fieldGroup}>
                         <label style={styles.label}>Experience Level (Min – Max)</label>
@@ -363,170 +422,164 @@ export default function NewJobPage() {
                         <p style={styles.hint}>Enter 0 for fresher / entry-level positions</p>
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Duration">
-                          <Select name="duration" options={["Permanent", "Temporary"]} placeholder="Select duration" />
-                        </F>
+                        <FieldGroup label="Duration">
+                          <SelectInput value={form.duration} onChange={(v) => set("duration", v)} options={["Permanent", "Temporary"]} placeholder="Select duration" />
+                        </FieldGroup>
                         {isContract && (
-                          <F label="Contract Duration">
-                            <Input name="contract_duration" placeholder="e.g. 6 months" />
-                          </F>
+                          <FieldGroup label="Contract Duration">
+                            <TextInput value={form.contract_duration} onChange={(v) => set("contract_duration", v)} placeholder="e.g. 6 months" />
+                          </FieldGroup>
                         )}
                       </div>
                     </>
                   )}
 
-                  {/* ── Section 2: Company Information ── */}
                   {idx === 2 && (
                     <>
                       <div style={styles.grid2}>
-                        <F label="Company Website" req error={errors.company_website}>
-                          <Input name="company_website" placeholder="https://yourcompany.com" />
-                        </F>
-                        <F label="Industry">
-                          <Input name="industry" placeholder="e.g. Technology, Finance" />
-                        </F>
+                        <FieldGroup label="Company Website" req error={errors.company_website}>
+                          <TextInput value={form.company_website} onChange={(v) => set("company_website", v)} placeholder="https://yourcompany.com" error={errors.company_website} />
+                        </FieldGroup>
+                        <FieldGroup label="Industry">
+                          <TextInput value={form.industry} onChange={(v) => set("industry", v)} placeholder="e.g. Technology, Finance" />
+                        </FieldGroup>
                       </div>
                       <p style={styles.hint}>Company name is auto-filled from your registered profile.</p>
                     </>
                   )}
 
-                  {/* ── Section 3: Qualifications & Requirements ── */}
                   {idx === 3 && (
                     <>
-                      <F label="Required Skills & Qualifications" req error={errors.required_skills}>
-                        <Textarea name="required_skills" placeholder="List must-have education, experience, technical & soft skills..." />
-                      </F>
+                      <FieldGroup label="Required Skills & Qualifications" req error={errors.required_skills}>
+                        <TextareaInput value={form.required_skills} onChange={(v) => set("required_skills", v)} rows={5} placeholder="List must-have education, experience, technical & soft skills..." error={errors.required_skills} />
+                      </FieldGroup>
                       <div style={styles.grid2}>
-                        <F label="Preferred Skills">
-                          <Textarea name="preferred_skills" rows={3} placeholder="Nice-to-have skills..." />
-                        </F>
-                        <F label="Technical Skills">
-                          <Textarea name="technical_skills" rows={3} placeholder="Specific technical competencies..." />
-                        </F>
+                        <FieldGroup label="Preferred Skills">
+                          <TextareaInput value={form.preferred_skills} onChange={(v) => set("preferred_skills", v)} rows={3} placeholder="Nice-to-have skills..." />
+                        </FieldGroup>
+                        <FieldGroup label="Technical Skills">
+                          <TextareaInput value={form.technical_skills} onChange={(v) => set("technical_skills", v)} rows={3} placeholder="Specific technical competencies..." />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Soft Skills">
-                          <Input name="soft_skills" placeholder="e.g. Communication, Leadership" />
-                        </F>
-                        <F label="Required Experience">
-                          <Input name="required_experience" placeholder="Specific experience requirements" />
-                        </F>
+                        <FieldGroup label="Soft Skills">
+                          <TextInput value={form.soft_skills} onChange={(v) => set("soft_skills", v)} placeholder="e.g. Communication, Leadership" />
+                        </FieldGroup>
+                        <FieldGroup label="Required Experience">
+                          <TextInput value={form.required_experience} onChange={(v) => set("required_experience", v)} placeholder="Specific experience requirements" />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Preferred Qualifications">
-                          <Input name="preferred_qualifications" placeholder="Additional beneficial qualifications" />
-                        </F>
-                        <F label="Certifications">
-                          <Input name="certifications" placeholder="e.g. AWS Certified, PMP" />
-                        </F>
+                        <FieldGroup label="Preferred Qualifications">
+                          <TextInput value={form.preferred_qualifications} onChange={(v) => set("preferred_qualifications", v)} placeholder="Additional beneficial qualifications" />
+                        </FieldGroup>
+                        <FieldGroup label="Certifications">
+                          <TextInput value={form.certifications} onChange={(v) => set("certifications", v)} placeholder="e.g. AWS Certified, PMP" />
+                        </FieldGroup>
                       </div>
-                      <F label="Licenses">
-                        <Input name="licenses" placeholder="Required professional licenses" />
-                      </F>
+                      <FieldGroup label="Licenses">
+                        <TextInput value={form.licenses} onChange={(v) => set("licenses", v)} placeholder="Required professional licenses" />
+                      </FieldGroup>
                     </>
                   )}
 
-                  {/* ── Section 4: Role Details ── */}
                   {idx === 4 && (
                     <>
-                      <F label="Role / Responsibilities" req error={errors.responsibilities}>
-                        <Textarea name="responsibilities" rows={5} placeholder="Specific duties and expectations (bullet points recommended)..." />
-                      </F>
-                      <F label="Key Responsibilities" req error={errors.key_responsibilities}>
-                        <Textarea name="key_responsibilities" rows={4} placeholder="Priority tasks and day-to-day activities..." />
-                      </F>
+                      <FieldGroup label="Role / Responsibilities" req error={errors.responsibilities}>
+                        <TextareaInput value={form.responsibilities} onChange={(v) => set("responsibilities", v)} rows={5} placeholder="Specific duties and expectations (bullet points recommended)..." error={errors.responsibilities} />
+                      </FieldGroup>
+                      <FieldGroup label="Key Responsibilities" req error={errors.key_responsibilities}>
+                        <TextareaInput value={form.key_responsibilities} onChange={(v) => set("key_responsibilities", v)} rows={4} placeholder="Priority tasks and day-to-day activities..." error={errors.key_responsibilities} />
+                      </FieldGroup>
                       <div style={styles.grid2}>
-                        <F label="Role Overview">
-                          <Textarea name="role_overview" rows={3} placeholder="High-level overview of position purpose..." />
-                        </F>
-                        <F label="Day-to-Day Activities">
-                          <Textarea name="day_to_day_activities" rows={3} placeholder="Detailed daily tasks..." />
-                        </F>
+                        <FieldGroup label="Role Overview">
+                          <TextareaInput value={form.role_overview} onChange={(v) => set("role_overview", v)} rows={3} placeholder="High-level overview of position purpose..." />
+                        </FieldGroup>
+                        <FieldGroup label="Day-to-Day Activities">
+                          <TextareaInput value={form.day_to_day_activities} onChange={(v) => set("day_to_day_activities", v)} rows={3} placeholder="Detailed daily tasks..." />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Long-term Goals">
-                          <Input name="long_term_goals" placeholder="Role's long-term objectives" />
-                        </F>
-                        <F label="Team Information">
-                          <Input name="team_information" placeholder="Team structure, who you'll work with" />
-                        </F>
+                        <FieldGroup label="Long-term Goals">
+                          <TextInput value={form.long_term_goals} onChange={(v) => set("long_term_goals", v)} placeholder="Role's long-term objectives" />
+                        </FieldGroup>
+                        <FieldGroup label="Team Information">
+                          <TextInput value={form.team_information} onChange={(v) => set("team_information", v)} placeholder="Team structure, who you'll work with" />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid3}>
-                        <F label="Reports To">
-                          <Input name="reports_to" placeholder="e.g. Engineering Manager" />
-                        </F>
-                        <F label="Travel Requirements">
-                          <Input name="travel_requirements" placeholder="e.g. 20% travel" />
-                        </F>
-                        <F label="Shift Schedule">
-                          <Input name="shift_schedule" placeholder="e.g. 9AM–6PM IST" />
-                        </F>
+                        <FieldGroup label="Reports To">
+                          <TextInput value={form.reports_to} onChange={(v) => set("reports_to", v)} placeholder="e.g. Engineering Manager" />
+                        </FieldGroup>
+                        <FieldGroup label="Travel Requirements">
+                          <TextInput value={form.travel_requirements} onChange={(v) => set("travel_requirements", v)} placeholder="e.g. 20% travel" />
+                        </FieldGroup>
+                        <FieldGroup label="Shift Schedule">
+                          <TextInput value={form.shift_schedule} onChange={(v) => set("shift_schedule", v)} placeholder="e.g. 9AM–6PM IST" />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Relocation Requirements">
-                          <Input name="relocation_requirements" placeholder="Relocation details if required" />
-                        </F>
-                        <F label="Physical Requirements">
-                          <Input name="physical_requirements" placeholder="Physical demands of the job" />
-                        </F>
+                        <FieldGroup label="Relocation Requirements">
+                          <TextInput value={form.relocation_requirements} onChange={(v) => set("relocation_requirements", v)} placeholder="Relocation details if required" />
+                        </FieldGroup>
+                        <FieldGroup label="Physical Requirements">
+                          <TextInput value={form.physical_requirements} onChange={(v) => set("physical_requirements", v)} placeholder="Physical demands of the job" />
+                        </FieldGroup>
                       </div>
                     </>
                   )}
 
-                  {/* ── Section 5: Compensation & Benefits ── */}
                   {idx === 5 && (
                     <>
                       <p style={styles.sectionNote}>All fields optional — mandatory in some locations by law.</p>
                       <div style={styles.grid2}>
-                        <F label="Salary Range — Minimum">
-                          <Input name="salary_min" type="number" placeholder="e.g. 500000" />
-                        </F>
-                        <F label="Salary Range — Maximum">
-                          <Input name="salary_max" type="number" placeholder="e.g. 1200000" />
-                        </F>
+                        <FieldGroup label="Salary Range — Minimum">
+                          <TextInput value={form.salary_min} onChange={(v) => set("salary_min", v)} type="number" placeholder="e.g. 500000" />
+                        </FieldGroup>
+                        <FieldGroup label="Salary Range — Maximum">
+                          <TextInput value={form.salary_max} onChange={(v) => set("salary_max", v)} type="number" placeholder="e.g. 1200000" />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Salary Grade">
-                          <Input name="salary_grade" placeholder="e.g. L4, Band B" />
-                        </F>
-                        <F label="Performance Bonuses">
-                          <Input name="performance_bonuses" placeholder="Bonus structure details" />
-                        </F>
+                        <FieldGroup label="Salary Grade">
+                          <TextInput value={form.salary_grade} onChange={(v) => set("salary_grade", v)} placeholder="e.g. L4, Band B" />
+                        </FieldGroup>
+                        <FieldGroup label="Performance Bonuses">
+                          <TextInput value={form.performance_bonuses} onChange={(v) => set("performance_bonuses", v)} placeholder="Bonus structure details" />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Signing Bonus">
-                          <Input name="signing_bonus" placeholder="Signing incentive amount" />
-                        </F>
-                        <F label="Health Benefits">
-                          <Input name="health_benefits" placeholder="Medical, dental, vision details" />
-                        </F>
+                        <FieldGroup label="Signing Bonus">
+                          <TextInput value={form.signing_bonus} onChange={(v) => set("signing_bonus", v)} placeholder="Signing incentive amount" />
+                        </FieldGroup>
+                        <FieldGroup label="Health Benefits">
+                          <TextInput value={form.health_benefits} onChange={(v) => set("health_benefits", v)} placeholder="Medical, dental, vision details" />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Retirement Plan">
-                          <Input name="retirement_plan" placeholder="e.g. EPF, 401(k)" />
-                        </F>
-                        <F label="Paid Time Off">
-                          <Input name="paid_time_off" placeholder="e.g. 21 days annual leave" />
-                        </F>
+                        <FieldGroup label="Retirement Plan">
+                          <TextInput value={form.retirement_plan} onChange={(v) => set("retirement_plan", v)} placeholder="e.g. EPF, 401(k)" />
+                        </FieldGroup>
+                        <FieldGroup label="Paid Time Off">
+                          <TextInput value={form.paid_time_off} onChange={(v) => set("paid_time_off", v)} placeholder="e.g. 21 days annual leave" />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Flexible Hours">
-                          <Input name="flexible_hours" placeholder="Flexible working policy" />
-                        </F>
-                        <F label="Remote Work Options">
-                          <Input name="remote_work_options" placeholder="Remote work details" />
-                        </F>
+                        <FieldGroup label="Flexible Hours">
+                          <TextInput value={form.flexible_hours} onChange={(v) => set("flexible_hours", v)} placeholder="Flexible working policy" />
+                        </FieldGroup>
+                        <FieldGroup label="Remote Work Options">
+                          <TextInput value={form.remote_work_options} onChange={(v) => set("remote_work_options", v)} placeholder="Remote work details" />
+                        </FieldGroup>
                       </div>
-                      <F label="Other Perks">
-                        <Textarea name="other_perks" rows={3} placeholder="Gym, meals, tuition reimbursement, etc." />
-                      </F>
+                      <FieldGroup label="Other Perks">
+                        <TextareaInput value={form.other_perks} onChange={(v) => set("other_perks", v)} rows={3} placeholder="Gym, meals, tuition reimbursement, etc." />
+                      </FieldGroup>
                     </>
                   )}
 
-                  {/* ── Section 6: Application Details ── */}
                   {idx === 6 && (
                     <>
-                      {/* Documents */}
                       <div style={styles.fieldGroup}>
                         <label style={styles.label}>Required Application Documents <span style={styles.req}>*</span></label>
                         <div style={styles.checkRow}>
@@ -545,7 +598,6 @@ export default function NewJobPage() {
                         </div>
                       </div>
 
-                      {/* Screening Questions */}
                       <div style={styles.fieldGroup}>
                         <label style={styles.label}>Screening Questions</label>
                         {form.screening_questions.map((q, i) => (
@@ -571,61 +623,59 @@ export default function NewJobPage() {
                       </div>
 
                       <div style={styles.grid2}>
-                        <F label="Contact Email" req error={errors.contact_email}>
-                          <Input name="contact_email" placeholder="hiring@company.com" />
-                        </F>
-                        <F label="Contact Phone">
-                          <Input name="contact_phone" placeholder="+91 XXXXXXXXXX" />
-                        </F>
+                        <FieldGroup label="Contact Email" req error={errors.contact_email}>
+                          <TextInput value={form.contact_email} onChange={(v) => set("contact_email", v)} placeholder="hiring@company.com" error={errors.contact_email} />
+                        </FieldGroup>
+                        <FieldGroup label="Contact Phone">
+                          <TextInput value={form.contact_phone} onChange={(v) => set("contact_phone", v)} placeholder="+91 XXXXXXXXXX" />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid3}>
-                        <F label="Application Deadline" error={errors.application_deadline}>
-                          <Input name="application_deadline" type="date" />
-                        </F>
-                        <F label="Expected Start Date">
-                          <Input name="expected_start_date" type="date" />
-                        </F>
-                        <F label="Recruitment Timeline">
-                          <Input name="recruitment_timeline" placeholder="e.g. 2–3 weeks" />
-                        </F>
+                        <FieldGroup label="Application Deadline" error={errors.application_deadline}>
+                          <TextInput value={form.application_deadline} onChange={(v) => set("application_deadline", v)} type="date" error={errors.application_deadline} />
+                        </FieldGroup>
+                        <FieldGroup label="Expected Start Date">
+                          <TextInput value={form.expected_start_date} onChange={(v) => set("expected_start_date", v)} type="date" />
+                        </FieldGroup>
+                        <FieldGroup label="Recruitment Timeline">
+                          <TextInput value={form.recruitment_timeline} onChange={(v) => set("recruitment_timeline", v)} placeholder="e.g. 2–3 weeks" />
+                        </FieldGroup>
                       </div>
                     </>
                   )}
 
-                  {/* ── Section 7: Job Settings ── */}
                   {idx === 7 && (
                     <>
                       <div style={styles.grid2}>
-                        <F label="Job Poster">
-                          <Input name="job_poster" placeholder="Name of person posting (if on behalf)" />
-                        </F>
-                        <F label="Hiring Manager">
-                          <Input name="hiring_manager" placeholder="Hiring manager name" />
-                        </F>
+                        <FieldGroup label="Job Poster">
+                          <TextInput value={form.job_poster} onChange={(v) => set("job_poster", v)} placeholder="Name of person posting (if on behalf)" />
+                        </FieldGroup>
+                        <FieldGroup label="Hiring Manager">
+                          <TextInput value={form.hiring_manager} onChange={(v) => set("hiring_manager", v)} placeholder="Hiring manager name" />
+                        </FieldGroup>
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Job Posting Expiration" error={errors.job_expiration}>
-                          <Input name="job_expiration" type="date" />
-                        </F>
-                        <F label="Number of Openings">
-                          <Input name="number_of_openings" type="number" placeholder="e.g. 3" />
-                        </F>
+                        <FieldGroup label="Job Posting Expiration" error={errors.job_expiration}>
+                          <TextInput value={form.job_expiration} onChange={(v) => set("job_expiration", v)} type="date" error={errors.job_expiration} />
+                        </FieldGroup>
+                        <FieldGroup label="Number of Openings">
+                          <TextInput value={form.number_of_openings} onChange={(v) => set("number_of_openings", v)} type="number" placeholder="e.g. 3" />
+                        </FieldGroup>
                       </div>
                     </>
                   )}
 
-                  {/* ── Section 8: Compliance & Legal ── */}
                   {idx === 8 && (
                     <>
-                      <F label="Equal Opportunity Statement" req error={errors.equal_opportunity_statement}>
-                        <Textarea name="equal_opportunity_statement" rows={3} placeholder="EOE statement..." />
-                      </F>
-                      <F label="ADA Compliance">
-                        <Input name="ada_compliance" placeholder="Americans with Disabilities Act compliance note" />
-                      </F>
-                      <F label="Legal Disclosures">
-                        <Textarea name="legal_disclosures" rows={2} placeholder="Any required legal disclosures..." />
-                      </F>
+                      <FieldGroup label="Equal Opportunity Statement" req error={errors.equal_opportunity_statement}>
+                        <TextareaInput value={form.equal_opportunity_statement} onChange={(v) => set("equal_opportunity_statement", v)} rows={3} placeholder="EOE statement..." error={errors.equal_opportunity_statement} />
+                      </FieldGroup>
+                      <FieldGroup label="ADA Compliance">
+                        <TextInput value={form.ada_compliance} onChange={(v) => set("ada_compliance", v)} placeholder="Americans with Disabilities Act compliance note" />
+                      </FieldGroup>
+                      <FieldGroup label="Legal Disclosures">
+                        <TextareaInput value={form.legal_disclosures} onChange={(v) => set("legal_disclosures", v)} rows={2} placeholder="Any required legal disclosures..." />
+                      </FieldGroup>
                       <div style={styles.fieldGroup}>
                         <label style={styles.checkLabel}>
                           <input
@@ -639,23 +689,22 @@ export default function NewJobPage() {
                     </>
                   )}
 
-                  {/* ── Section 9: Internal / HR Fields ── */}
                   {idx === 9 && (
                     <>
                       <div style={styles.internalNote}>
                         🔒 These fields are for internal use only and will not be shown to candidates.
                       </div>
                       <div style={styles.grid2}>
-                        <F label="Reason for Vacancy">
-                          <Select name="reason_for_vacancy" options={["New role", "Replacement", "Expansion"]} placeholder="Select reason" />
-                        </F>
-                        <F label="Budget Code">
-                          <Input name="budget_code" placeholder="Internal budget code" />
-                        </F>
+                        <FieldGroup label="Reason for Vacancy">
+                          <SelectInput value={form.reason_for_vacancy} onChange={(v) => set("reason_for_vacancy", v)} options={["New role", "Replacement", "Expansion"]} placeholder="Select reason" />
+                        </FieldGroup>
+                        <FieldGroup label="Budget Code">
+                          <TextInput value={form.budget_code} onChange={(v) => set("budget_code", v)} placeholder="Internal budget code" />
+                        </FieldGroup>
                       </div>
-                      <F label="Resume Scoring Weight" error={errors.resume_scoring}>
-                        <Input name="resume_scoring" placeholder="Float value e.g. 0.75" />
-                      </F>
+                      <FieldGroup label="Resume Scoring Weight" error={errors.resume_scoring}>
+                        <TextInput value={form.resume_scoring} onChange={(v) => set("resume_scoring", v)} placeholder="Float value e.g. 0.75" error={errors.resume_scoring} />
+                      </FieldGroup>
                     </>
                   )}
                 </div>
@@ -664,7 +713,6 @@ export default function NewJobPage() {
           );
         })}
 
-        {/* Submit */}
         <div style={styles.submitRow}>
           <button type="button" style={styles.cancelBtn} onClick={() => router.push("/dashboard/job-postings")}>
             Cancel
@@ -715,26 +763,28 @@ const styles: Record<string, React.CSSProperties> = {
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 0 },
   grid3: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 0 },
   grid4: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 },
-  fieldGroup: { marginBottom: 14 },
+  fieldGroup: { marginBottom: 16 },
   label: { display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 },
   input: {
     width: "100%", boxSizing: "border-box",
-    padding: "9px 12px", border: "1.5px solid #d1d5db",
-    borderRadius: 7, fontSize: 13, color: "#1a1a2e", outline: "none",
+    padding: "10px 12px", border: "1.5px solid #d1d5db",
+    borderRadius: 8, fontSize: 13.5, color: "#1a1a2e", outline: "none",
+    fontFamily: "inherit", background: "#fff",
   },
   textarea: {
     width: "100%", boxSizing: "border-box",
-    padding: "9px 12px", border: "1.5px solid #d1d5db",
-    borderRadius: 7, fontSize: 13, color: "#1a1a2e",
+    padding: "10px 12px", border: "1.5px solid #d1d5db",
+    borderRadius: 8, fontSize: 13.5, color: "#1a1a2e",
     resize: "vertical", outline: "none", fontFamily: "inherit",
+    lineHeight: 1.6, minHeight: 90, background: "#fff",
   },
   select: {
     width: "100%", boxSizing: "border-box",
-    padding: "9px 12px", border: "1.5px solid #d1d5db",
-    borderRadius: 7, fontSize: 13, color: "#1a1a2e",
-    background: "#fff", outline: "none",
+    padding: "10px 12px", border: "1.5px solid #d1d5db",
+    borderRadius: 8, fontSize: 13.5, color: "#1a1a2e",
+    background: "#fff", outline: "none", cursor: "pointer", fontFamily: "inherit",
   },
-  inputError: { borderColor: "#ef4444" },
+  inputError: { borderColor: "#ef4444", boxShadow: "0 0 0 3px rgba(239,68,68,0.08)" },
   errText: { fontSize: 11, color: "#ef4444", margin: "4px 0 0" },
   hint: { fontSize: 11, color: "#9ca3af", margin: "4px 0 0" },
   checkRow: { display: "flex", gap: 20, flexWrap: "wrap", marginTop: 4 },

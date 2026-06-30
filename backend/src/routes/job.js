@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
-  createJob, listJobs, getJob, deleteJob,
+  createJob, listJobs, getJob, deleteJob,updateJob,
   getJobApplicants, updateApplicantStatus, getAllApplications,
   publicListJobs, publicGetJob,
   applyToJob, getUserApplications, saveJob, getSavedJobs,
@@ -9,13 +9,17 @@ const {
 } = require('../controllers/jobController');
 const { authenticate, requireRole } = require('../middlewares/auth');
 const companyAuth = require('../middlewares/companyAuth');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
 
 // ── Public: Job search (users) ────────────────────────────────
 router.get('/public',          publicListJobs);
 router.get('/public/:id',      publicGetJob);
 
 // ── User: Apply, tracker, saved ───────────────────────────────
-router.post('/apply/:id',            authenticate, requireRole('user'), applyToJob);
+router.post('/apply/:id', authenticate, requireRole('user'),
+  upload.fields([{ name: 'resume', maxCount: 1 }, { name: 'cover_letter', maxCount: 1 }]),
+  applyToJob);
 router.get('/my-applications',       authenticate, requireRole('user'), getUserApplications);
 router.post('/save/:id',             authenticate, requireRole('user'), saveJob);
 router.get('/saved',                 authenticate, requireRole('user'), getSavedJobs);
@@ -26,6 +30,7 @@ router.get('/',                          companyAuth, listJobs);
 router.get('/applications',              companyAuth, getAllApplications);
 router.get('/:id',                       companyAuth, getJob);
 router.delete('/:id',                    companyAuth, deleteJob);
+router.patch('/:id',                     companyAuth, updateJob);
 router.get('/:id/applicants',            companyAuth, getJobApplicants);
 router.patch('/:jobId/applicants/:applicantId/status', companyAuth, updateApplicantStatus);
 

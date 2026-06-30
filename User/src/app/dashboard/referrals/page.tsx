@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { Share2, Plus, Trash2, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { Share2, Plus, Trash2, ArrowLeft, CheckCircle2, List } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 const WORK_TYPES = ["Remote", "On-site", "Hybrid"];
@@ -40,6 +40,22 @@ const EMPTY: ReferralForm = {
   benefits_highlights: "", brief_job_description: "", why_join: "",
   who_to_contact: "", personal_note: "", tags: "",
 };
+
+// ─────────────────────────────────────────────────────────────────
+// F (FieldGroup) defined OUTSIDE the page component to keep a
+// stable component identity across renders (prevents focus loss).
+// ─────────────────────────────────────────────────────────────────
+function F({
+  label, req, children, error,
+}: { label: string; req?: boolean; children: React.ReactNode; error?: string }) {
+  return (
+    <div style={styles.fieldGroup}>
+      <label style={styles.label}>{label} {req && <span style={styles.req}>*</span>}</label>
+      {children}
+      {error && <p style={styles.errText}>{error}</p>}
+    </div>
+  );
+}
 
 export default function ReferralsPage() {
   const router = useRouter();
@@ -112,6 +128,9 @@ export default function ReferralsPage() {
             <button style={styles.newBtn} onClick={() => { setForm(EMPTY); setTags([]); setSubmitted(false); }}>
               Post Another Referral
             </button>
+            <button style={styles.backBtn2} onClick={() => router.push("/dashboard/my-referrals")}>
+              View My Referrals
+            </button>
             <button style={styles.backBtn2} onClick={() => router.push("/dashboard/my-career")}>
               Back to Jobs
             </button>
@@ -121,20 +140,17 @@ export default function ReferralsPage() {
     );
   }
 
-  const F = ({ label, req, children, error }: { label: string; req?: boolean; children: React.ReactNode; error?: string }) => (
-    <div style={styles.fieldGroup}>
-      <label style={styles.label}>{label} {req && <span style={styles.req}>*</span>}</label>
-      {children}
-      {error && <p style={styles.errText}>{error}</p>}
-    </div>
-  );
-
   return (
     <div style={styles.root}>
       <div style={styles.pageHeader}>
-        <button style={styles.backBtn} onClick={() => router.push("/dashboard/my-career")}>
-          <ArrowLeft size={15} /> Back to Jobs
-        </button>
+        <div style={styles.headerTopRow}>
+          <button style={styles.backBtn} onClick={() => router.push("/dashboard/my-career")}>
+            <ArrowLeft size={15} /> Back to Jobs
+          </button>
+          <button style={styles.myReferralsBtn} onClick={() => router.push("/dashboard/my-referrals")}>
+            <List size={14} /> My Referrals
+          </button>
+        </div>
         <div style={styles.titleRow}>
           <div style={styles.titleIcon}><Share2 size={20} color="#1a56db" /></div>
           <div>
@@ -169,14 +185,14 @@ export default function ReferralsPage() {
             </F>
             <F label="Work Type" req error={errors.work_type}>
               <select title="Work Type" style={{ ...styles.select, ...(errors.work_type ? styles.inputError : {}) }}
-  value             ={form.work_type} onChange={(e) => set("work_type", e.target.value)}>
+                value={form.work_type} onChange={(e) => set("work_type", e.target.value)}>
                 <option value="">Select...</option>
                 {WORK_TYPES.map((w) => <option key={w} value={w}>{w}</option>)}
               </select>
             </F>
             <F label="Employment Type" req error={errors.employment_type}>
               <select title="Employment Type" style={{ ...styles.select, ...(errors.employment_type ? styles.inputError : {}) }}
-  value={form.employment_type} onChange={(e) => set("employment_type", e.target.value)}>
+                value={form.employment_type} onChange={(e) => set("employment_type", e.target.value)}>
                 <option value="">Select...</option>
                 {EMPLOYMENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
@@ -278,8 +294,8 @@ export default function ReferralsPage() {
                   <span key={t} style={styles.tag}>
                     #{t}
                     <button title="Remove tag" aria-label="Remove tag" style={styles.tagRemove} onClick={() => removeTag(t)} type="button">
-  <Trash2 size={10} />
-</button>
+                      <Trash2 size={10} />
+                    </button>
                   </span>
                 ))}
               </div>
@@ -304,10 +320,17 @@ export default function ReferralsPage() {
 const styles: Record<string, React.CSSProperties> = {
   root: { fontFamily: "'Segoe UI', sans-serif" },
   pageHeader: { marginBottom: 24 },
+  headerTopRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
   backBtn: {
     display: "flex", alignItems: "center", gap: 6,
     background: "none", border: "none", cursor: "pointer",
     color: "#6b7280", fontSize: 13, padding: "0 0 12px", fontWeight: 500,
+  },
+  myReferralsBtn: {
+    display: "flex", alignItems: "center", gap: 6,
+    background: "#eff6ff", border: "none", cursor: "pointer",
+    color: "#1a56db", fontSize: 12, fontWeight: 600,
+    padding: "8px 14px", borderRadius: 8,
   },
   titleRow: { display: "flex", alignItems: "flex-start", gap: 12 },
   titleIcon: {
@@ -382,13 +405,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   successCard: {
     background: "#fff", borderRadius: 12, padding: "48px 40px",
-    textAlign: "center", maxWidth: 440, width: "100%",
+    textAlign: "center", maxWidth: 460, width: "100%",
     boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
   },
   successIcon: { marginBottom: 16 },
   successTitle: { fontSize: 22, fontWeight: 700, color: "#1a1a2e", margin: "0 0 10px" },
   successSub: { fontSize: 14, color: "#6b7280", lineHeight: 1.6, margin: "0 0 24px" },
-  successActions: { display: "flex", gap: 10, justifyContent: "center" },
+  successActions: { display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" },
   newBtn: {
     padding: "10px 20px", background: "#1a56db",
     color: "#fff", border: "none", borderRadius: 8,

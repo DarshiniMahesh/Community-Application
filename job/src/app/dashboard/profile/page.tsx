@@ -95,8 +95,11 @@ export default function CompanyProfilePage() {
         router.push("/dashboard");
       } else {
         await api.put("/company/profile", body);
-        setSuccess("Profile updated successfully.");
-        setTimeout(() => setSuccess(""), 3000);
+        setCompanyStatus("pending");
+        setSuccess("Profile updated and sent for re-approval. Refreshing access...");
+        setTimeout(() => {
+          window.location.reload();
+        }, 1200);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to save";
@@ -111,8 +114,10 @@ export default function CompanyProfilePage() {
     try {
       await api.post("/company/reapply", {});
       setCompanyStatus("pending");
-      setSuccess("Reapplication submitted successfully.");
-      setTimeout(() => setSuccess(""), 3000);
+      setSuccess("Reapplication submitted successfully. Refreshing access...");
+      setTimeout(() => {
+        window.location.reload();
+      }, 1200);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to reapply";
       setErrors({ company_name: msg });
