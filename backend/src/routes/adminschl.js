@@ -6,7 +6,8 @@ const {
   getScholarshipById,
   getScholarshipApplicants,
   getApplicantDetails,
-  getApplicantScholarshipHistory, // ← add this import
+  getApplicantScholarshipHistory,
+  getAllApplicants,
   getAllSanghas,
   getScholarshipCategories,
   getScholarshipStates,
@@ -16,7 +17,8 @@ router.get("/scholarships", getAllScholarships);
 router.get("/scholarships/:id", getScholarshipById);
 router.get("/scholarships/:id/applicants", getScholarshipApplicants);
 router.get("/applications/:applicationId/applicant-details", getApplicantDetails);
-router.get("/applications/:applicationId/scholarship-history", getApplicantScholarshipHistory); // ← add this route
+router.get("/applications/:applicationId/scholarship-history", getApplicantScholarshipHistory);
+router.get("/applicants", getAllApplicants);
 router.get("/sanghas", getAllSanghas);
 router.get("/scholarship-categories", getScholarshipCategories);
 router.get("/scholarship-states", getScholarshipStates);

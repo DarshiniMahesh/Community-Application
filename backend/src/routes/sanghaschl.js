@@ -1,4 +1,3 @@
-// Community-Application\backend\src\routes\sanghaschlroutes.js
 const express = require("express");
 const router = express.Router();
 const {
@@ -13,9 +12,14 @@ const {
   updateScholarship,
   deleteScholarship,
   getApplicants,
+  getAllApplicants,
   updateApplicantStatus,
   getApplicantStats,
   getApplicantProfile,
+  // ── NEW ──
+  getScholarshipApplicantsList,
+  getSanghaApplicantDetails,
+  getSanghaApplicantScholarshipHistory,
 } = require("../controllers/sanghaschlcontroller");
 
 const { requireRole } = require("../middlewares/auth");
@@ -32,13 +36,24 @@ router.post("/custom-criteria",                  createCustomCriterion);
 router.put("/custom-criteria/:criterionId",      updateCustomCriterion);
 router.delete("/custom-criteria/:criterionId",   deleteCustomCriterion);
 
+// ── All applicants across every scholarship (sangha-wide) ────
+router.get("/applicants",    getAllApplicants);
+
+// ── NEW: rich applicant list + full detail + history (admin-parity) ──
+// NOTE: these specific paths must be registered BEFORE "/:id" routes below
+router.get("/applications/:applicationId/applicant-details",     getSanghaApplicantDetails);
+router.get("/applications/:applicationId/scholarship-history",   getSanghaApplicantScholarshipHistory);
+
 // ── Scholarships ──────────────────────────────────────────────
 router.get("/",              getScholarships);
 router.post("/",             createScholarship);
 router.put("/:id",           updateScholarship);
 router.delete("/:id",        deleteScholarship);
 
-// ── Beneficiary approval ──────────────────────────────────────
+// ── NEW: rich applicants-list modal for a given scholarship ──
+router.get("/:id/applicants-detail",                     getScholarshipApplicantsList);
+
+// ── Beneficiary approval (existing, unchanged) ─────────────────
 router.get("/:id/applicants/stats",                      getApplicantStats);
 router.get("/:id/applicants/:profileId/profile",         getApplicantProfile);
 router.get("/:id/applicants",                            getApplicants);

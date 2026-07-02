@@ -1,5 +1,12 @@
 // Community-Application\backend\src\controllers\userschlcontroller.js
 const pool = require('../config/db');
+const { createClient } = require('@supabase/supabase-js');
+
+const supabaseStorage = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY,
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
 
 function mapScholarship(row, appStatus, currentApprovals, applications = [], customCriteria = []) {
   const eligibility = [];
@@ -437,6 +444,311 @@ exports.getScholarshipMembers = async (req, res) => {
   } catch (err) {
     console.error('[getScholarshipMembers] ERROR:', err);
     return res.status(500).json({ message: 'Failed to fetch members.', detail: err.message });
+  }
+};
+
+
+// ─── Helpers for member education/bank endpoints ─────────────────────────────
+async function resolveProfileId(userId) {
+  const r = await pool.query(`SELECT id FROM profiles WHERE user_id = $1 LIMIT 1`, [userId]);
+  if (!r.rows.length) return null;
+  return r.rows[0].id;
+}
+
+function toFamilyMemberId(memberId) {
+  return memberId === 'self' ? null : memberId;
+}
+
+// ─── GET /userschl/members/:memberId/education ────────────────────────────────
+exports.getMemberEducation = async (req, res) => {
+  try {
+    const profileId = await resolveProfileId(req.user.id);
+    if (!profileId) return res.status(404).json({ message: 'Profile not found.' });
+
+    const familyMemberId = toFamilyMemberId(req.params.memberId);
+    const r = await pool.query(
+      `SELECT employment_type, pursuing_degree, sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
+              pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
+              degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url
+       FROM member_education_details
+       WHERE profile_id = $1
+         AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
+       LIMIT 1`,
+      [profileId, familyMemberId]
+    );
+
+    if (!r.rows.length) return res.json({ data: null });
+
+    const row = r.rows[0];
+    return res.json({
+      data: {
+        employmentType:      row.employment_type,
+        pursuingDegree:      row.pursuing_degree,
+        sslcSchoolName:      row.sslc_school_name,
+        sslcYear:            row.sslc_year,
+        sslcPercentage:      row.sslc_percentage,
+        sslcMarksCardUrl:    row.sslc_marks_card_url,
+        puCollegeName:       row.pu_college_name,
+        puYear:              row.pu_year,
+        puPercentage:        row.pu_percentage,
+        puMarksCardUrl:      row.pu_marks_card_url,
+        degreeName:          row.degree_name,
+        degreeInstitution:   row.degree_institution,
+        degreeYear:          row.degree_year,
+        degreePercentage:    row.degree_percentage,
+        degreeCertificateUrl: row.degree_certificate_url,
+      },
+    });
+  } catch (err) {
+    console.error('[getMemberEducation] ERROR:', err);
+    return res.status(500).json({ message: 'Failed to fetch education details.', detail: err.message });
+  }
+};
+
+// ─── PUT /userschl/members/:memberId/education ────────────────────────────────
+exports.saveMemberEducation = async (req, res) => {
+  try {
+    const profileId = await resolveProfileId(req.user.id);
+    if (!profileId) return res.status(404).json({ message: 'Profile not found.' });
+
+    const familyMemberId = toFamilyMemberId(req.params.memberId);
+
+    if (familyMemberId) {
+      const memberCheck = await pool.query(
+        `SELECT id FROM family_members WHERE id = $1 AND profile_id = $2 LIMIT 1`,
+        [familyMemberId, profileId]
+      );
+      if (!memberCheck.rows.length) {
+        return res.status(404).json({ message: 'Family member not found.' });
+      }
+    }
+
+    const {
+      employmentType = null, pursuingDegree = null,
+      sslcSchoolName = null, sslcYear = null, sslcPercentage = null, sslcMarksCardUrl = null,
+      puCollegeName = null, puYear = null, puPercentage = null, puMarksCardUrl = null,
+      degreeName = null, degreeInstitution = null, degreeYear = null, degreePercentage = null,
+      degreeCertificateUrl = null,
+    } = req.body;
+
+    const existing = await pool.query(
+      `SELECT id, sslc_marks_card_url, pu_marks_card_url, degree_certificate_url
+       FROM member_education_details
+       WHERE profile_id = $1 AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
+       LIMIT 1`,
+      [profileId, familyMemberId]
+    );
+
+    // Preserve existing file URLs if this save doesn't include a new one
+    // (so a text-field-only save via onBlur doesn't wipe out an uploaded file).
+    const finalSslcUrl   = sslcMarksCardUrl   ?? existing.rows[0]?.sslc_marks_card_url   ?? null;
+    const finalPuUrl     = puMarksCardUrl     ?? existing.rows[0]?.pu_marks_card_url     ?? null;
+    const finalDegreeUrl = degreeCertificateUrl ?? existing.rows[0]?.degree_certificate_url ?? null;
+
+    if (existing.rows.length) {
+      await pool.query(
+        `UPDATE member_education_details SET
+           employment_type = $1, pursuing_degree = $2, sslc_school_name = $3, sslc_year = $4, sslc_percentage = $5, sslc_marks_card_url = $6,
+           pu_college_name = $7, pu_year = $8, pu_percentage = $9, pu_marks_card_url = $10,
+           degree_name = $11, degree_institution = $12, degree_year = $13, degree_percentage = $14, degree_certificate_url = $15,
+           updated_at = NOW()
+         WHERE id = $16`,
+        [employmentType, pursuingDegree, sslcSchoolName, sslcYear, sslcPercentage, finalSslcUrl,
+         puCollegeName, puYear, puPercentage, finalPuUrl,
+         degreeName, degreeInstitution, degreeYear, degreePercentage, finalDegreeUrl,
+         existing.rows[0].id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO member_education_details
+           (profile_id, family_member_id, employment_type, pursuing_degree,
+            sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
+            pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
+            degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+        [profileId, familyMemberId, employmentType, pursuingDegree,
+         sslcSchoolName, sslcYear, sslcPercentage, finalSslcUrl,
+         puCollegeName, puYear, puPercentage, finalPuUrl,
+         degreeName, degreeInstitution, degreeYear, degreePercentage, finalDegreeUrl]
+      );
+    }
+
+    return res.json({ message: 'Education details saved.' });
+  } catch (err) {
+    console.error('[saveMemberEducation] ERROR:', err);
+    return res.status(500).json({ message: 'Failed to save education details.', detail: err.message });
+  }
+};
+
+// ─── POST /userschl/members/:memberId/education/documents/:docType ───────────
+// docType: sslc | pu | degree
+const DOC_TYPE_TO_COLUMN = {
+  sslc:   'sslc_marks_card_url',
+  pu:     'pu_marks_card_url',
+  degree: 'degree_certificate_url',
+};
+
+exports.uploadMemberEducationDocument = async (req, res) => {
+  try {
+    const profileId = await resolveProfileId(req.user.id);
+    if (!profileId) return res.status(404).json({ message: 'Profile not found.' });
+
+    const { docType } = req.params;
+    const column = DOC_TYPE_TO_COLUMN[docType];
+    if (!column) return res.status(400).json({ message: 'Invalid document type. Must be sslc, pu, or degree.' });
+
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded.' });
+
+    const familyMemberId = toFamilyMemberId(req.params.memberId);
+
+    if (familyMemberId) {
+      const memberCheck = await pool.query(
+        `SELECT id FROM family_members WHERE id = $1 AND profile_id = $2 LIMIT 1`,
+        [familyMemberId, profileId]
+      );
+      if (!memberCheck.rows.length) {
+        return res.status(404).json({ message: 'Family member not found.' });
+      }
+    }
+
+    const ext = req.file.originalname.split('.').pop();
+    const memberSegment = familyMemberId || 'self';
+    const filePath = `${profileId}/${memberSegment}/${docType}-${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabaseStorage.storage
+      .from('scholarship-documents')
+      .upload(filePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('[uploadMemberEducationDocument] Supabase upload error:', uploadError.message);
+      return res.status(500).json({ message: 'Failed to upload document.', detail: uploadError.message });
+    }
+
+    const { data: signedUrlData, error: signedUrlError } = await supabaseStorage.storage
+      .from('scholarship-documents')
+      .createSignedUrl(filePath, 60 * 60 * 24 * 365); // 1 year
+
+    if (signedUrlError) {
+      console.error('[uploadMemberEducationDocument] Signed URL error:', signedUrlError.message);
+      return res.status(500).json({ message: 'File uploaded but failed to generate URL.', detail: signedUrlError.message });
+    }
+
+    const fileUrl = signedUrlData.signedUrl;
+
+    // Persist the URL into member_education_details immediately
+    const existing = await pool.query(
+      `SELECT id FROM member_education_details
+       WHERE profile_id = $1 AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
+       LIMIT 1`,
+      [profileId, familyMemberId]
+    );
+
+    if (existing.rows.length) {
+      await pool.query(
+        `UPDATE member_education_details SET ${column} = $1, updated_at = NOW() WHERE id = $2`,
+        [fileUrl, existing.rows[0].id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO member_education_details (profile_id, family_member_id, ${column})
+         VALUES ($1, $2, $3)`,
+        [profileId, familyMemberId, fileUrl]
+      );
+    }
+
+    return res.status(201).json({ data: { fileUrl, docType } });
+  } catch (err) {
+    console.error('[uploadMemberEducationDocument] ERROR:', err);
+    return res.status(500).json({ message: 'Failed to upload document.', detail: err.message });
+  }
+};
+
+// ─── GET /userschl/members/:memberId/bank ──────────────────────────────────────
+exports.getMemberBank = async (req, res) => {
+  try {
+    const profileId = await resolveProfileId(req.user.id);
+    if (!profileId) return res.status(404).json({ message: 'Profile not found.' });
+
+    const familyMemberId = toFamilyMemberId(req.params.memberId);
+    const r = await pool.query(
+      `SELECT account_holder_name, bank_name, account_number, ifsc, branch
+       FROM member_bank_details
+       WHERE profile_id = $1 AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
+       LIMIT 1`,
+      [profileId, familyMemberId]
+    );
+
+    if (!r.rows.length) return res.json({ data: null });
+
+    const row = r.rows[0];
+    return res.json({
+      data: {
+        accountHolderName: row.account_holder_name,
+        bankName:          row.bank_name,
+        accountNumber:     row.account_number,
+        ifsc:               row.ifsc,
+        branch:            row.branch,
+      },
+    });
+  } catch (err) {
+    console.error('[getMemberBank] ERROR:', err);
+    return res.status(500).json({ message: 'Failed to fetch bank details.', detail: err.message });
+  }
+};
+
+// ─── PUT /userschl/members/:memberId/bank ──────────────────────────────────────
+exports.saveMemberBank = async (req, res) => {
+  try {
+    const profileId = await resolveProfileId(req.user.id);
+    if (!profileId) return res.status(404).json({ message: 'Profile not found.' });
+
+    const familyMemberId = toFamilyMemberId(req.params.memberId);
+
+    if (familyMemberId) {
+      const memberCheck = await pool.query(
+        `SELECT id FROM family_members WHERE id = $1 AND profile_id = $2 LIMIT 1`,
+        [familyMemberId, profileId]
+      );
+      if (!memberCheck.rows.length) {
+        return res.status(404).json({ message: 'Family member not found.' });
+      }
+    }
+
+    const {
+      accountHolderName = null, bankName = null, accountNumber = null, ifsc = null, branch = null,
+    } = req.body;
+
+    const existing = await pool.query(
+      `SELECT id FROM member_bank_details
+       WHERE profile_id = $1 AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
+       LIMIT 1`,
+      [profileId, familyMemberId]
+    );
+
+    if (existing.rows.length) {
+      await pool.query(
+        `UPDATE member_bank_details SET
+           account_holder_name = $1, bank_name = $2, account_number = $3, ifsc = $4, branch = $5,
+           updated_at = NOW()
+         WHERE id = $6`,
+        [accountHolderName, bankName, accountNumber, ifsc, branch, existing.rows[0].id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO member_bank_details
+           (profile_id, family_member_id, account_holder_name, bank_name, account_number, ifsc, branch)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [profileId, familyMemberId, accountHolderName, bankName, accountNumber, ifsc, branch]
+      );
+    }
+
+    return res.json({ message: 'Bank details saved.' });
+  } catch (err) {
+    console.error('[saveMemberBank] ERROR:', err);
+    return res.status(500).json({ message: 'Failed to save bank details.', detail: err.message });
   }
 };
 

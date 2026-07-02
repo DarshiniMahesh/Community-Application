@@ -45,11 +45,37 @@ interface Applicant {
     caste: string | null; annualIncome: number | null; educationLevel: string | null; age: number | null;
   };
 }
+interface AllApplicantsItem {
+  applicationId: string;
+  status: string;
+  appliedAt: string;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+  approvalNotes: string | null;
+  familyMemberId: string | null;
+  familyMemberName: string | null;
+  familyMemberRelation: string | null;
+  profileId: string;
+  scholarshipId: string;
+  scholarshipTitle: string;
+  sanghaName: string;
+  user: {
+    id: string; fullName: string; email: string; phone: string;
+    state: string; district: string; profilePhoto: string | null; age: number | null;
+  };
+}
 interface Sangha {
   id: string; name: string; state: string; district: string; logo: string | null;
   totalScholarships: number; activeScholarships: number;
 }
 interface Pagination { total: number; page: number; limit: number; totalPages: number; }
+interface ApplicantsMeta {
+  filteredApplicants: number;
+  filteredScholarships: number;
+  totalApplicants: number;
+  totalScholarships: number;
+  statusCounts: { all: number; approved: number; rejected: number; pending: number };
+}
 interface CategoryMeta { name: string; color: string; }
 
 // Full detail types
@@ -133,7 +159,8 @@ interface ScholarshipHistoryRecord {
 }
 interface ScholarshipHistoryMeta {
   type: "applied" | "benefitted";
-  year: number | null;
+  startDate: string | null;
+  endDate: string | null;
   availableYears: number[];
   currentYear: number;
 }
@@ -258,7 +285,7 @@ function PageBtn({ num, current, onClick }: { num: number; current: number; onCl
   const [hovered, setHovered] = useState(false);
   const active = num === current;
   return (
-    <button onClick={onClick}
+    <button onClick={onClick} aria-label={`Go to page ${num}`} aria-current={active ? "page" : undefined}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       style={{
         width: 32, height: 32, fontSize: 14, fontWeight: 500, borderRadius: 8,
@@ -274,7 +301,7 @@ function PageBtn({ num, current, onClick }: { num: number; current: number; onCl
 function CollapsedSanghaBtn({ sangha, active, onClick }: { sangha: Sangha; active: boolean; onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
   return (
-    <button title={sangha.name} onClick={onClick}
+    <button title={sangha.name} aria-label={`Filter by ${sangha.name}`} onClick={onClick}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       style={{
         width: "100%", display: "flex", justifyContent: "center",
@@ -775,31 +802,31 @@ function ApplicantInfoTab({
 // ─────────────────────────────────────────────────────────────────────────────
 // SCHOLARSHIP HISTORY TAB — shared by "Applied" and "Benefitted" tabs.
 // Fetches /admin/applications/:applicationId/scholarship-history
-// "applied"     -> all statuses, filterable by year, defaults to current year
-// "benefitted"  -> approved only, defaults to showing all years
+// Uses a from/to date range filter instead of a year dropdown.
 // ─────────────────────────────────────────────────────────────────────────────
 function ScholarshipHistoryTab({
   applicationId, type,
 }: {
   applicationId: string; type: "applied" | "benefitted";
 }) {
-  const currentYear = new Date().getFullYear();
   const [records, setRecords] = useState<ScholarshipHistoryRecord[]>([]);
   const [meta, setMeta] = useState<ScholarshipHistoryMeta | null>(null);
-  const [selectedYear, setSelectedYear] = useState<number | "all">(
-    type === "applied" ? currentYear : "all"
-  );
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
 
-  const load = useCallback(async (yearParam: number | "all") => {
+  const load = useCallback(async (sd: string, ed: string) => {
     setLoading(true);
     setError(null);
     try {
+      const params: Record<string, string> = { type };
+      if (sd) params.start_date = sd;
+      if (ed) params.end_date = ed;
       const { data } = await axios.get(
         `${API_BASE}/admin/applications/${applicationId}/scholarship-history`,
-        { params: { type, year: yearParam }, headers: getAuthHeaders() }
+        { params, headers: getAuthHeaders() }
       );
       if (data.success) {
         setRecords(data.data);
@@ -815,56 +842,92 @@ function ScholarshipHistoryTab({
     }
   }, [applicationId, type]);
 
-  // Initial load: applied tab defaults to current year, benefitted defaults to all years
   useEffect(() => {
-    load(type === "applied" ? currentYear : "all");
+    load("", "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applicationId, type]);
 
-  const handleYearChange = (val: string) => {
-    const next: number | "all" = val === "all" ? "all" : Number(val);
-    setSelectedYear(next);
-    load(next);
+  const handleFilter = () => load(startDate, endDate);
+
+  const handleClear = () => {
+    setStartDate("");
+    setEndDate("");
+    load("", "");
   };
 
-  // Build the year options list: years that actually have data, plus the
-  // current year (so the selector always offers it even with zero records yet).
-  const yearOptions = (() => {
-    const years = new Set<number>(meta?.availableYears || []);
-    years.add(currentYear);
-    return Array.from(years).sort((a, b) => b - a);
-  })();
-
+  const hasDateFilter = startDate || endDate;
   const accentColor = type === "applied" ? C.orange500 : C.green600;
 
   return (
     <div style={{ padding: "20px 28px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Year filter row */}
+      {/* Date range filter row */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <div style={{ fontSize: 12, color: C.gray500 }}>
           {type === "applied"
             ? "Showing scholarships this applicant has applied to."
             : "Showing scholarships this applicant has been approved for."}
         </div>
-        <div style={{ position: "relative" }}>
-          <Calendar size={12} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
-          <select
-            value={String(selectedYear)}
-            onChange={e => handleYearChange(e.target.value)}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Calendar size={13} style={{ color: C.gray400 }} />
+            <label htmlFor={`${type}-start-date`} style={{ fontSize: 11, color: C.gray500, fontWeight: 600 }}>From</label>
+            <input
+              id={`${type}-start-date`}
+              type="date"
+              aria-label="Filter start date"
+              value={startDate}
+              max={endDate || undefined}
+              onChange={e => setStartDate(e.target.value)}
+              style={{
+                fontSize: 12, fontWeight: 500, border: `1px solid ${C.gray200}`,
+                borderRadius: 10, padding: "6px 10px", outline: "none",
+                backgroundColor: C.gray50, color: C.gray700, cursor: "pointer",
+                fontFamily: "'DM Sans', sans-serif",
+              }}
+            />
+            <label htmlFor={`${type}-end-date`} style={{ fontSize: 11, color: C.gray500, fontWeight: 600 }}>To</label>
+            <input
+              id={`${type}-end-date`}
+              type="date"
+              aria-label="Filter end date"
+              value={endDate}
+              min={startDate || undefined}
+              onChange={e => setEndDate(e.target.value)}
+              style={{
+                fontSize: 12, fontWeight: 500, border: `1px solid ${C.gray200}`,
+                borderRadius: 10, padding: "6px 10px", outline: "none",
+                backgroundColor: C.gray50, color: C.gray700, cursor: "pointer",
+                fontFamily: "'DM Sans', sans-serif",
+              }}
+            />
+          </div>
+          <button
+            onClick={handleFilter}
+            disabled={!hasDateFilter}
+            aria-label="Apply date range filter"
             style={{
-              WebkitAppearance: "none", appearance: "none",
-              paddingLeft: 30, paddingRight: 28, paddingTop: 7, paddingBottom: 7,
-              fontSize: 12, fontWeight: 600, border: `1px solid ${C.gray200}`, borderRadius: 10,
-              outline: "none", backgroundColor: C.gray50, color: C.gray700, cursor: "pointer",
-              fontFamily: "'DM Sans', sans-serif",
+              padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 10, border: "none",
+              background: hasDateFilter ? accentColor : C.gray200,
+              color: hasDateFilter ? C.white : C.gray400,
+              cursor: hasDateFilter ? "pointer" : "not-allowed",
+              transition: "all 0.15s",
             }}
           >
-            <option value="all">All Years</option>
-            {yearOptions.map(y => (
-              <option key={y} value={y}>{y}{y === currentYear ? " (Current)" : ""}</option>
-            ))}
-          </select>
-          <ChevronDown size={12} style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
+            Apply
+          </button>
+          {hasDateFilter && (
+            <button
+              onClick={handleClear}
+              aria-label="Clear date range filter"
+              style={{
+                padding: "6px 12px", fontSize: 12, fontWeight: 500, borderRadius: 10,
+                border: `1px solid ${C.gray200}`, background: C.white,
+                color: C.gray500, cursor: "pointer",
+              }}
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
@@ -883,8 +946,8 @@ function ScholarshipHistoryTab({
           {type === "applied" ? <ClipboardList size={36} style={{ marginBottom: 8, opacity: 0.3 }} /> : <Award size={36} style={{ marginBottom: 8, opacity: 0.3 }} />}
           <p style={{ fontSize: 13, margin: 0 }}>
             {type === "applied"
-              ? `No applications found${selectedYear !== "all" ? ` for ${selectedYear}` : ""}.`
-              : "No approved scholarships found yet."}
+              ? `No applications found${hasDateFilter ? " for selected date range" : ""}.`
+              : `No approved scholarships found${hasDateFilter ? " for selected date range" : ""}.`}
           </p>
         </div>
       ) : (
@@ -914,7 +977,6 @@ function ScholarshipHistoryTab({
                 </div>
                 <StatusBadge status={rec.status} />
               </div>
-
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 9, fontWeight: 700, color: C.gray400, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3, display: "flex", alignItems: "center", gap: 3 }}>
@@ -937,7 +999,6 @@ function ScholarshipHistoryTab({
                   <div style={{ fontSize: 12, fontWeight: 600, color: C.gray700 }}>{formatDate(rec.scholarship.disbursementDate)}</div>
                 </div>
               </div>
-
               {rec.rejectionReason && (
                 <p style={{ fontSize: 11, color: C.red600, margin: "10px 0 0", fontStyle: "italic" }}>Reason: {rec.rejectionReason}</p>
               )}
@@ -1013,7 +1074,7 @@ function ApplicantDetailModal({
                 {applicantName}
               </h2>
             </div>
-            <button onClick={onClose} style={{ color: "#fed7aa", background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}>
+            <button onClick={onClose} aria-label="Close applicant details" title="Close" style={{ color: "#fed7aa", background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}>
               <X size={22} />
             </button>
           </div>
@@ -1024,8 +1085,7 @@ function ApplicantDetailModal({
               const Icon = tab.icon;
               const active = activeTab === tab.key;
               return (
-                <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-                  style={{
+                <button key={tab.key} onClick={() => setActiveTab(tab.key)} aria-label={tab.label} aria-pressed={active} style={{
                     display: "flex", alignItems: "center", gap: 6,
                     padding: "8px 14px", fontSize: 12.5, fontWeight: 600,
                     borderRadius: 10, border: "none", cursor: "pointer",
@@ -1096,7 +1156,7 @@ function ScholarshipDetailDrawer({
         <div style={{ background: `linear-gradient(160deg, ${accentColor}20, ${accentColor}06)`, borderBottom: `1px solid ${accentColor}30`, flexShrink: 0, position: "relative", overflow: "hidden" }}>
           <div style={{ position: "absolute", top: -40, right: -40, width: 200, height: 200, borderRadius: "50%", background: `${accentColor}0e`, pointerEvents: "none" }} />
           <div style={{ display: "flex", justifyContent: "flex-end", padding: "16px 20px 0" }}>
-            <button onClick={onClose} style={{ width: 34, height: 34, border: "1.5px solid rgba(0,0,0,0.15)", borderRadius: 10, background: "rgba(255,255,255,0.95)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#333", fontSize: 16, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,0.1)", flexShrink: 0 }}>✕</button>
+            <button onClick={onClose} aria-label="Close scholarship details" title="Close" style={{ width: 34, height: 34, border: "1.5px solid rgba(0,0,0,0.15)", borderRadius: 10, background: "rgba(255,255,255,0.95)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#333", fontSize: 16, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,0.1)", flexShrink: 0 }}>✕</button>
           </div>
           <div style={{ padding: "8px 28px 24px" }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
@@ -1280,7 +1340,7 @@ function ApplicantsModal({ scholarship, onClose }: { scholarship: Scholarship; o
                   <StatusBadge status={scholarship.status} />
                 </div>
               </div>
-              <button onClick={onClose} style={{ color: "#fed7aa", background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}>
+              <button onClick={onClose} aria-label="Close applicants list" title="Close" style={{ color: "#fed7aa", background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}>
                 <X size={22} />
               </button>
             </div>
@@ -1304,7 +1364,7 @@ function ApplicantsModal({ scholarship, onClose }: { scholarship: Scholarship; o
           <div style={{ borderBottom: `1px solid ${C.gray100}`, paddingLeft: 24, paddingRight: 24 }}>
             <div style={{ display: "flex", gap: 4, marginBottom: -1 }}>
               {STATUS_TABS.map(tab => (
-                <button key={tab} onClick={() => setActiveTab(tab)} style={{
+                <button key={tab} onClick={() => setActiveTab(tab)} aria-pressed={activeTab === tab} style={{
                   padding: "11px 16px", fontSize: 13, fontWeight: 500, textTransform: "capitalize",
                   borderTop: "none", borderLeft: "none", borderRight: "none",
                   borderBottom: activeTab === tab ? `2px solid ${C.orange500}` : "2px solid transparent",
@@ -1403,9 +1463,9 @@ function ApplicantsModal({ scholarship, onClose }: { scholarship: Scholarship; o
                 Showing {(page - 1) * 15 + 1}–{Math.min(page * 15, pagination.total)} of {pagination.total}
               </p>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button disabled={page === 1} onClick={() => setPage(p => p - 1)} style={{ padding: 6, borderRadius: 8, border: `1px solid ${C.gray200}`, color: C.gray500, background: C.white, cursor: page === 1 ? "not-allowed" : "pointer", opacity: page === 1 ? 0.4 : 1, display: "flex", alignItems: "center" }}><ChevronLeft size={15} /></button>
+                <button disabled={page === 1} onClick={() => setPage(p => p - 1)} aria-label="Previous page" title="Previous page" style={{ padding: 6, borderRadius: 8, border: `1px solid ${C.gray200}`, color: C.gray500, background: C.white, cursor: page === 1 ? "not-allowed" : "pointer", opacity: page === 1 ? 0.4 : 1, display: "flex", alignItems: "center" }}><ChevronLeft size={15} /></button>
                 <span style={{ fontSize: 12, color: C.gray600 }}>{page} / {pagination.totalPages}</span>
-                <button disabled={page === pagination.totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: 6, borderRadius: 8, border: `1px solid ${C.gray200}`, color: C.gray500, background: C.white, cursor: page === pagination.totalPages ? "not-allowed" : "pointer", opacity: page === pagination.totalPages ? 0.4 : 1, display: "flex", alignItems: "center" }}><ChevronRight size={15} /></button>
+                <button disabled={page === pagination.totalPages} onClick={() => setPage(p => p + 1)} aria-label="Next page" title="Next page" style={{ padding: 6, borderRadius: 8, border: `1px solid ${C.gray200}`, color: C.gray500, background: C.white, cursor: page === pagination.totalPages ? "not-allowed" : "pointer", opacity: page === pagination.totalPages ? 0.4 : 1, display: "flex", alignItems: "center" }}><ChevronRight size={15} /></button>
               </div>
             </div>
           )}
@@ -1431,6 +1491,7 @@ function EyeBtn({ onClick }: { onClick: () => void }) {
   return (
     <button
       title="View full details"
+      aria-label="View full applicant details"
       onClick={e => { e.stopPropagation(); onClick(); }}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
@@ -1489,7 +1550,7 @@ function ScholarshipCard({ scholarship, onViewApplicants, onViewDetails }: {
             <p style={{ fontSize: 12, fontWeight: 700, color: C.brick, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{scholarship.sangha.name}</p>
           </div>
           <StatusBadge status={scholarship.status} />
-          <button title="View applicants" onClick={e => { e.stopPropagation(); onViewApplicants(scholarship); }}
+          <button title="View applicants" aria-label={`View applicants for ${scholarship.title}`} onClick={e => { e.stopPropagation(); onViewApplicants(scholarship); }}
             onMouseEnter={() => setEyeHovered(true)} onMouseLeave={() => setEyeHovered(false)}
             style={{ width: 30, height: 30, borderRadius: 8, border: "none", background: eyeHovered ? `${catColor}22` : C.gray50, color: eyeHovered ? catColor : C.gray400, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
             <Eye size={15} />
@@ -1544,7 +1605,7 @@ function ScholarshipCard({ scholarship, onViewApplicants, onViewDetails }: {
 function SanghaItem({ sangha, active, onClick }: { sangha: Sangha; active: boolean; onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
   return (
-    <button onClick={onClick} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{
+    <button onClick={onClick} aria-label={`Filter by ${sangha.name}`} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{
       width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10,
       padding: "9px 12px", borderRadius: 12, border: "none", cursor: "pointer", transition: "all 0.15s",
       backgroundColor: active ? C.orange500 : hovered ? C.orange50 : "transparent",
@@ -1603,6 +1664,16 @@ export default function AdminScholarshipPage() {
   const [stateFilter, setStateFilter] = useState("");
   const [sanghaFilter, setSanghaFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [mainView, setMainView] = useState<"scholarships" | "applicants">("scholarships");
+  const [allApplicants, setAllApplicants] = useState<AllApplicantsItem[]>([]);
+  const [applicantsPagination, setApplicantsPagination] = useState<Pagination | null>(null);
+  const [applicantsMeta, setApplicantsMeta] = useState<ApplicantsMeta | null>(null);
+  const [loadingAllApplicants, setLoadingAllApplicants] = useState(false);
+  const [applicantsPage, setApplicantsPage] = useState(1);
+  const [applicantsStatusFilter, setApplicantsStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const LIMIT = 12;
 
@@ -1616,6 +1687,7 @@ export default function AdminScholarshipPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [applicantsTarget, setApplicantsTarget] = useState<Scholarship | null>(null);
+  const [allApplicantsDetail, setAllApplicantsDetail] = useState<AllApplicantsItem | null>(null);
   const [detailTarget, setDetailTarget] = useState<Scholarship | null>(null);
   const [scholarshipDetail, setScholarshipDetail] = useState<ScholarshipDetailExtra | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1649,18 +1721,46 @@ export default function AdminScholarshipPage() {
     loadMeta();
   }, []);
 
+  const fetchAllApplicants = useCallback(async () => {
+    setLoadingAllApplicants(true);
+    try {
+      const { data } = await axios.get(`${API_BASE}/admin/applicants`, {
+        params: {
+          year: yearFilter,
+          start_date: startDate,
+          end_date: endDate,
+          status: applicantsStatusFilter,
+          sangha_id: sanghaFilter,
+          page: applicantsPage,
+          limit: 20,
+        },
+        headers: getAuthHeaders(),
+      });
+      if (data.success) {
+        setAllApplicants(data.data);
+        setApplicantsPagination(data.pagination);
+        setApplicantsMeta(data.meta ?? null);
+      }
+    } catch { /* silently handled */ }
+    finally { setLoadingAllApplicants(false); }
+  }, [yearFilter, startDate, endDate, applicantsStatusFilter, sanghaFilter, applicantsPage]);
+
+  useEffect(() => {
+    if (mainView === "applicants") fetchAllApplicants();
+  }, [mainView, fetchAllApplicants]);
+
   const fetchScholarships = useCallback(async () => {
     setLoadingScholarships(true);
     setError(null);
     try {
       const { data } = await axios.get(`${API_BASE}/admin/scholarships`, {
-        params: { search: debouncedSearch, category: categoryFilter, state: stateFilter, sangha_id: sanghaFilter, status: statusFilter, page, limit: LIMIT },
+        params: { search: debouncedSearch, category: categoryFilter, state: stateFilter, sangha_id: sanghaFilter, status: statusFilter, year: yearFilter, page, limit: LIMIT },
         headers: getAuthHeaders(),
       });
       if (data.success) { setScholarships(data.data); setPagination(data.pagination); }
     } catch { setError("Failed to load scholarships. Please try again."); }
     finally { setLoadingScholarships(false); }
-  }, [debouncedSearch, categoryFilter, stateFilter, sanghaFilter, statusFilter, page]);
+  }, [debouncedSearch, categoryFilter, stateFilter, sanghaFilter, statusFilter, yearFilter, page]);
 
   useEffect(() => { fetchScholarships(); }, [fetchScholarships]);
 
@@ -1687,7 +1787,26 @@ export default function AdminScholarshipPage() {
   }, [detailTarget]);
 
   const applyFilter = (setter: (v: string) => void, value: string) => { setter(value); setPage(1); };
-  const hasFilters = search || categoryFilter || stateFilter || sanghaFilter || statusFilter;
+
+  const handleYearChange = (v: string) => {
+    setYearFilter(v); setStartDate(""); setEndDate(""); setPage(1); setApplicantsPage(1);
+  };
+  const handleStartDateChange = (v: string) => {
+    setStartDate(v); setYearFilter(""); setPage(1); setApplicantsPage(1);
+  };
+  const handleEndDateChange = (v: string) => {
+    setEndDate(v); setYearFilter(""); setPage(1); setApplicantsPage(1);
+  };
+  const handleApplicantsStatusChange = (v: string) => {
+    setApplicantsStatusFilter(v); setApplicantsPage(1);
+  };
+  const clearAllFilters = () => {
+    setSearch(""); setCategoryFilter(""); setStateFilter(""); setSanghaFilter("");
+    setStatusFilter(""); setYearFilter(""); setStartDate(""); setEndDate("");
+    setApplicantsStatusFilter(""); setPage(1); setApplicantsPage(1);
+  };
+
+  const hasFilters = search || categoryFilter || stateFilter || sanghaFilter || statusFilter || yearFilter || startDate || endDate || applicantsStatusFilter;
   const gridCols = windowWidth >= 1280 ? 3 : windowWidth >= 640 ? 2 : 1;
   const filteredSanghas = sidebarSearch ? sanghas.filter(sg => sg.name.toLowerCase().includes(sidebarSearch.toLowerCase())) : sanghas;
 
@@ -1715,50 +1834,97 @@ export default function AdminScholarshipPage() {
             </div>
           </div>
           <div style={{ flex: 1 }} />
-          <HoverBtn onClick={fetchScholarships} title="Refresh"
+          <HoverBtn onClick={fetchScholarships} title="Refresh" aria-label="Refresh page"
             baseStyle={{ padding: 8, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: C.black, display: "flex", alignItems: "center" }}
             hoverStyle={{ color: C.orange500, backgroundColor: C.orange50 }}
           >Refresh page</HoverBtn>
         </div>
 
+        {/* ── View toggle ── */}
+        <div style={{ padding: "0 24px 8px", display: "flex", alignItems: "center", gap: 8 }}>
+          {(["scholarships", "applicants"] as const).map(v => (
+            <button key={v} onClick={() => setMainView(v)}
+              style={{
+                padding: "6px 18px", fontSize: 13, fontWeight: 600, borderRadius: 10, border: "none",
+                background: mainView === v ? C.orange500 : C.gray100,
+                color: mainView === v ? C.white : C.gray600,
+                cursor: "pointer", textTransform: "capitalize", transition: "all 0.15s",
+              }}
+            >
+              {v === "scholarships" ? "Scholarships" : "Applicants"}
+            </button>
+          ))}
+        </div>
+
         <div style={{ padding: "0 24px 14px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-          <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
+          <div style={{ position: "relative", minWidth: 160, maxWidth: 280, flex: "0 1 280px" }}>
             <Search size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
             <input value={search} onChange={e => setSearch(e.target.value)} onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)}
               placeholder="Search scholarships, sanghas…"
+              aria-label="Search scholarships and sanghas"
               style={{ width: "100%", boxSizing: "border-box", paddingLeft: 36, paddingRight: 16, paddingTop: 8, paddingBottom: 8, fontSize: 13, borderRadius: 12, outline: "none", border: searchFocused ? `1px solid ${C.orange400}` : `1px solid ${C.gray200}`, boxShadow: searchFocused ? "0 0 0 3px rgba(253,186,116,0.35)" : "none", backgroundColor: C.gray50, color: C.gray700 }}
             />
           </div>
 
+          {mainView === "scholarships" && (
+            <>
+              <div style={{ position: "relative" }}>
+                <Filter size={12} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
+                <select value={categoryFilter} onChange={e => applyFilter(setCategoryFilter, e.target.value)} aria-label="Filter by category" style={selectStyle}>
+                  <option value="">All Categories</option>
+                  {categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                </select>
+                <ChevronDown size={12} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
+              </div>
+
+              <div style={{ position: "relative" }}>
+                <MapPin size={12} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
+                <select value={stateFilter} onChange={e => applyFilter(setStateFilter, e.target.value)} aria-label="Filter by state" style={selectStyle}>
+                  <option value="">All States</option>
+                  {states.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <ChevronDown size={12} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
+              </div>
+
+              <div style={{ position: "relative" }}>
+                <select value={statusFilter} onChange={e => applyFilter(setStatusFilter, e.target.value)} aria-label="Filter by status" style={{ ...selectStyle, paddingLeft: 12 }}>
+                  <option value="">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="closed">Closed</option>
+                </select>
+                <ChevronDown size={12} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
+              </div>
+            </>
+          )}
+
           <div style={{ position: "relative" }}>
-            <Filter size={12} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
-            <select value={categoryFilter} onChange={e => applyFilter(setCategoryFilter, e.target.value)} style={selectStyle}>
-              <option value="">All Categories</option>
-              {categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+            <Calendar size={12} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
+            <select value={yearFilter} onChange={e => handleYearChange(e.target.value)} aria-label="Filter by year" style={{ ...selectStyle, paddingLeft: 28 }}>
+              <option value="">All Years</option>
+              {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                <option key={y} value={String(y)}>{y}</option>
+              ))}
             </select>
             <ChevronDown size={12} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
           </div>
 
-          <div style={{ position: "relative" }}>
-            <MapPin size={12} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
-            <select value={stateFilter} onChange={e => applyFilter(setStateFilter, e.target.value)} style={selectStyle}>
-              <option value="">All States</option>
-              {states.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <ChevronDown size={12} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
-          </div>
-
-          <div style={{ position: "relative" }}>
-            <select value={statusFilter} onChange={e => applyFilter(setStatusFilter, e.target.value)} style={{ ...selectStyle, paddingLeft: 12 }}>
-              <option value="">All Status</option>
-              <option value="active">Active</option>
-              <option value="closed">Closed</option>
-            </select>
-            <ChevronDown size={12} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 11, color: C.gray500, fontWeight: 600, whiteSpace: "nowrap" }}>From</span>
+            <input type="date" value={startDate} max={endDate || undefined}
+              onChange={e => handleStartDateChange(e.target.value)}
+              aria-label="Filter start date"
+              style={{ fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 10, padding: "7px 10px", outline: "none", backgroundColor: C.gray50, color: C.gray700, fontFamily: "'DM Sans', sans-serif" }}
+            />
+            <span style={{ fontSize: 11, color: C.gray500, fontWeight: 600, whiteSpace: "nowrap" }}>To</span>
+            <input type="date" value={endDate} min={startDate || undefined}
+              onChange={e => handleEndDateChange(e.target.value)}
+              aria-label="Filter end date"
+              style={{ fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 10, padding: "7px 10px", outline: "none", backgroundColor: C.gray50, color: C.gray700, fontFamily: "'DM Sans', sans-serif" }}
+            />
           </div>
 
           {hasFilters && (
-            <button onClick={() => { setSearch(""); setCategoryFilter(""); setStateFilter(""); setSanghaFilter(""); setStatusFilter(""); setPage(1); }}
+            <button onClick={clearAllFilters}
               style={{ fontSize: 12, color: C.orange600, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2 }}>
               Clear filters
             </button>
@@ -1775,7 +1941,7 @@ export default function AdminScholarshipPage() {
                 <p style={{ fontSize: 11, color: C.gray400, margin: 0 }}>{sanghas.length} total</p>
               </div>
             )}
-            <HoverBtn onClick={() => setSidebarOpen(o => !o)}
+            <HoverBtn onClick={() => setSidebarOpen(o => !o)} aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"} title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
               baseStyle={{ padding: 6, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: C.gray400, marginLeft: "auto", display: "flex", alignItems: "center" }}
               hoverStyle={{ color: C.orange500, backgroundColor: C.orange50 }}
             >
@@ -1789,10 +1955,11 @@ export default function AdminScholarshipPage() {
                 <Search size={12} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
                 <input value={sidebarSearch} onChange={e => setSidebarSearch(e.target.value)} onFocus={() => setSidebarSearchFocused(true)} onBlur={() => setSidebarSearchFocused(false)}
                   placeholder="Search sanghas…"
+                  aria-label="Search sanghas"
                   style={{ width: "100%", boxSizing: "border-box", paddingLeft: 28, paddingRight: sidebarSearch ? 28 : 10, paddingTop: 6, paddingBottom: 6, fontSize: 12, borderRadius: 9, outline: "none", border: sidebarSearchFocused ? `1px solid ${C.orange400}` : `1px solid ${C.gray200}`, boxShadow: sidebarSearchFocused ? "0 0 0 2px rgba(253,186,116,0.3)" : "none", backgroundColor: C.gray50, color: C.gray700, transition: "border-color 0.15s, box-shadow 0.15s" }}
                 />
                 {sidebarSearch && (
-                  <button onClick={() => setSidebarSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.gray400, display: "flex", alignItems: "center", padding: 0 }}>
+                  <button onClick={() => setSidebarSearch("")} aria-label="Clear sangha search" title="Clear search" style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.gray400, display: "flex", alignItems: "center", padding: 0 }}>
                     <X size={11} />
                   </button>
                 )}
@@ -1827,63 +1994,201 @@ export default function AdminScholarshipPage() {
         </aside>
 
         <main style={{ flex: 1, overflowY: "auto", padding: 24 }}>
-          {error && (
+          {error && mainView === "scholarships" && (
             <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8, backgroundColor: C.red50, border: "1px solid #fecaca", color: C.red600, borderRadius: 12, padding: "12px 16px", fontSize: 13 }}>
               <AlertCircle size={15} />{error}
               <button onClick={fetchScholarships} style={{ marginLeft: "auto", fontSize: 12, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", color: C.red600 }}>Retry</button>
             </div>
           )}
 
-          {loadingScholarships ? (
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(${gridCols}, 1fr)`, gap: 20 }}>
-              {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
-            </div>
-          ) : scholarships.length === 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 288, color: C.gray400 }}>
-              <GraduationCap size={52} style={{ marginBottom: 12, opacity: 0.2 }} />
-              <p style={{ fontSize: 16, fontWeight: 600, color: C.gray500, margin: "0 0 4px", fontFamily: "'Lora', serif" }}>No scholarships found</p>
-              <p style={{ fontSize: 13, margin: 0 }}>Try adjusting your search or filters.</p>
-            </div>
-          ) : (
+          {mainView === "applicants" ? (
             <>
-              <p style={{ fontSize: 12, color: C.gray400, marginBottom: 16 }}>
-                Showing <span style={{ fontWeight: 600, color: C.gray600 }}>{(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, pagination?.total ?? 0)}</span> of <span style={{ fontWeight: 600, color: C.gray600 }}>{pagination?.total ?? 0}</span> scholarships
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(${gridCols}, 1fr)`, gap: 20 }}>
-                {scholarships.map((s, i) => (
-                  <div key={s.id} className="a-fade-up" style={{ animationDelay: `${i * 0.06}s` }}>
-                    <ScholarshipCard scholarship={s} onViewApplicants={setApplicantsTarget} onViewDetails={handleViewDetails} />
-                  </div>
-                ))}
+              <div style={{ display: "flex", gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.gray100}` }}>
+                {(["all", "approved", "rejected", "pending"] as const).map(tab => {
+                  const active = (applicantsStatusFilter || "all") === tab;
+                  const count = applicantsMeta?.statusCounts?.[tab] ?? 0;
+                  return (
+                    <button
+  key={tab}
+  onClick={() => handleApplicantsStatusChange(tab === "all" ? "" : tab)}
+  aria-pressed={active}
+  style={{
+                        padding: "9px 16px", fontSize: 13, fontWeight: 600, textTransform: "capitalize",
+                        border: "none", background: "none", cursor: "pointer",
+                        borderBottom: active ? `2px solid ${C.orange500}` : "2px solid transparent",
+                        color: active ? C.orange600 : C.gray500,
+                        display: "flex", alignItems: "center", gap: 6, marginBottom: -1,
+                      }}
+                    >
+                      {tab}
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 9999,
+                        background: active ? C.orange100 : C.gray100,
+                        color: active ? C.orange700 : C.gray500,
+                      }}>{count}</span>
+                    </button>
+                  );
+                })}
               </div>
 
-              {pagination && pagination.totalPages > 1 && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 32 }}>
-                  <HoverBtn disabled={page === 1} onClick={() => setPage(p => p - 1)}
+              <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+                <p style={{ fontSize: 12, color: C.gray400, margin: 0 }}>
+                  {loadingAllApplicants ? "Loading…" : (
+                    <>
+                      Showing <span style={{ fontWeight: 600, color: C.gray600 }}>{allApplicants.length}</span> of{" "}
+                      <span style={{ fontWeight: 600, color: C.gray600 }}>{applicantsPagination?.total ?? 0}</span> applicants
+                      {applicantsMeta && (
+                        <> across <span style={{ fontWeight: 600, color: C.gray600 }}>{applicantsMeta.filteredScholarships}</span> scholarship{applicantsMeta.filteredScholarships !== 1 ? "s" : ""}</>
+                      )}
+                    </>
+                  )}
+                  {(yearFilter || startDate || endDate || applicantsStatusFilter || sanghaFilter) && (
+                    <span style={{ marginLeft: 8, color: C.orange600, fontWeight: 600 }}>
+                      {yearFilter ? `· Year ${yearFilter}` : ""}
+                      {startDate ? ` · From ${formatDate(startDate)}` : ""}
+                      {endDate ? ` · To ${formatDate(endDate)}` : ""}
+                      {applicantsStatusFilter ? ` · ${applicantsStatusFilter}` : ""}
+                    </span>
+                  )}
+                </p>
+
+                {applicantsMeta && (
+                  hasFilters ? (
+                    <span style={{ fontSize: 11, color: C.gray400, padding: "3px 10px", borderRadius: 9999, background: C.gray100 }}>
+                      Overall: {applicantsMeta.totalApplicants} applicants · {applicantsMeta.totalScholarships} scholarships
+                    </span>
+                  ) : null
+                )}
+              </div>
+
+              {loadingAllApplicants ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 240, gap: 10, color: C.orange500 }}>
+                  <Loader2 size={22} className="a-spin" />
+                  <span style={{ fontSize: 14 }}>Loading applicants…</span>
+                </div>
+              ) : allApplicants.length === 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 240, color: C.gray400 }}>
+                  <Users size={48} style={{ marginBottom: 12, opacity: 0.2 }} />
+                  <p style={{ fontSize: 15, fontWeight: 600, color: C.gray500, margin: "0 0 4px", fontFamily: "'Lora', serif" }}>No applicants found</p>
+                  <p style={{ fontSize: 13, margin: 0 }}>Try adjusting your year or date range filter.</p>
+                </div>
+              ) : (
+                <div style={{ background: C.white, borderRadius: 16, border: `1px solid ${C.gray100}`, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                  {allApplicants.map((app, idx) => {
+                    const isFM = !!app.familyMemberId;
+                    const displayName = isFM && app.familyMemberName ? app.familyMemberName : app.user.fullName;
+                    const initials = displayName?.charAt(0).toUpperCase() ?? "?";
+                    const { bg, color, border, label } = statusCfg(app.status);
+                    return (
+                      <div key={app.applicationId} style={{
+                        padding: "14px 20px",
+                        borderTop: idx === 0 ? "none" : `1px solid ${C.gray50}`,
+                        display: "flex", alignItems: "center", gap: 14,
+                      }}>
+                        <div style={{ width: 40, height: 40, borderRadius: "50%", backgroundColor: isFM ? C.blue100 : C.orange100, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+                          {app.user.profilePhoto && !isFM
+                            ? <img src={app.user.profilePhoto} alt={displayName} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            : <span style={{ color: isFM ? C.blue600 : C.orange600, fontWeight: 700, fontSize: 14 }}>{initials}</span>}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontWeight: 700, color: C.gray800, fontSize: 14, fontFamily: "'Lora', serif" }}>{displayName}</span>
+                            {isFM && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 9999, background: C.blue100, color: C.blue700, border: "1px solid #bfdbfe" }}>Family Member</span>}
+                            <span style={{ display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 9999, fontSize: 11, fontWeight: 600, border: `1px solid ${border}`, backgroundColor: bg, color }}>{label}</span>
+                          </div>
+
+                          {/* ── Scholarship applied for ── */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}>
+                            <GraduationCap size={12} style={{ color: C.orange500, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12.5, color: C.orange600, fontWeight: 700 }}>{app.scholarshipTitle}</span>
+                            <span style={{ fontSize: 12, color: C.gray400 }}>· {app.sanghaName}</span>
+                          </div>
+
+                          <div style={{ fontSize: 12, color: C.gray500, marginTop: 3 }}>
+                            {app.user.email} · {app.user.phone}
+                          </div>
+                          <div style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
+                            Applied {new Date(app.appliedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                            {(app.user.district || app.user.state) && ` · ${[app.user.district, app.user.state].filter(Boolean).join(", ")}`}
+                          </div>
+                        </div>
+                        <EyeBtn onClick={() => setAllApplicantsDetail(app)} />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {applicantsPagination && applicantsPagination.totalPages > 1 && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 24 }}>
+                  <HoverBtn disabled={applicantsPage === 1} onClick={() => setApplicantsPage(p => p - 1)}
                     baseStyle={{ display: "flex", alignItems: "center", gap: 5, padding: "8px 16px", fontSize: 13, fontWeight: 500, border: `1px solid ${C.gray200}`, borderRadius: 12, color: C.gray600, background: C.white, cursor: "pointer" }}
                     hoverStyle={{ borderColor: C.orange400, color: C.orange600 }}
                     disabledStyle={{ opacity: 0.4, cursor: "not-allowed" }}
                   ><ChevronLeft size={14} /> Previous</HoverBtn>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                    {Array.from({ length: pagination.totalPages }, (_, i) => i + 1)
-                      .filter(p => p === 1 || p === pagination.totalPages || Math.abs(p - page) <= 1)
-                      .reduce<(number | "…")[]>((acc, p, idx, arr) => {
-                        if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
-                        acc.push(p); return acc;
-                      }, [])
-                      .map((p, i) => p === "…"
-                        ? <span key={`e-${i}`} style={{ padding: "0 6px", color: C.gray400, fontSize: 14 }}>…</span>
-                        : <PageBtn key={p} num={p as number} current={page} onClick={() => setPage(p as number)} />
-                      )}
-                  </div>
-
-                  <HoverBtn disabled={page === pagination.totalPages} onClick={() => setPage(p => p + 1)}
+                  <span style={{ fontSize: 12, color: C.gray600 }}>{applicantsPage} / {applicantsPagination.totalPages}</span>
+                  <HoverBtn disabled={applicantsPage === applicantsPagination.totalPages} onClick={() => setApplicantsPage(p => p + 1)}
                     baseStyle={{ display: "flex", alignItems: "center", gap: 5, padding: "8px 16px", fontSize: 13, fontWeight: 500, border: `1px solid ${C.gray200}`, borderRadius: 12, color: C.gray600, background: C.white, cursor: "pointer" }}
                     hoverStyle={{ borderColor: C.orange400, color: C.orange600 }}
                     disabledStyle={{ opacity: 0.4, cursor: "not-allowed" }}
                   >Next <ChevronRight size={14} /></HoverBtn>
                 </div>
+              )}
+            </>
+          ) : (
+            <>
+              {loadingScholarships ? (
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${gridCols}, 1fr)`, gap: 20 }}>
+                  {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+                </div>
+              ) : scholarships.length === 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 288, color: C.gray400 }}>
+                  <GraduationCap size={52} style={{ marginBottom: 12, opacity: 0.2 }} />
+                  <p style={{ fontSize: 16, fontWeight: 600, color: C.gray500, margin: "0 0 4px", fontFamily: "'Lora', serif" }}>No scholarships found</p>
+                  <p style={{ fontSize: 13, margin: 0 }}>Try adjusting your search or filters.</p>
+                </div>
+              ) : (
+                <>
+                  <p style={{ fontSize: 12, color: C.gray400, marginBottom: 16 }}>
+                    Showing <span style={{ fontWeight: 600, color: C.gray600 }}>{(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, pagination?.total ?? 0)}</span> of <span style={{ fontWeight: 600, color: C.gray600 }}>{pagination?.total ?? 0}</span> scholarships
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: `repeat(${gridCols}, 1fr)`, gap: 20 }}>
+                    {scholarships.map((s, i) => (
+                      <div key={s.id} className="a-fade-up" style={{ animationDelay: `${i * 0.06}s` }}>
+                        <ScholarshipCard scholarship={s} onViewApplicants={setApplicantsTarget} onViewDetails={handleViewDetails} />
+                      </div>
+                    ))}
+                  </div>
+
+                  {pagination && pagination.totalPages > 1 && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 32 }}>
+                      <HoverBtn disabled={page === 1} onClick={() => setPage(p => p - 1)}
+                        baseStyle={{ display: "flex", alignItems: "center", gap: 5, padding: "8px 16px", fontSize: 13, fontWeight: 500, border: `1px solid ${C.gray200}`, borderRadius: 12, color: C.gray600, background: C.white, cursor: "pointer" }}
+                        hoverStyle={{ borderColor: C.orange400, color: C.orange600 }}
+                        disabledStyle={{ opacity: 0.4, cursor: "not-allowed" }}
+                      ><ChevronLeft size={14} /> Previous</HoverBtn>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                        {Array.from({ length: pagination.totalPages }, (_, i) => i + 1)
+                          .filter(p => p === 1 || p === pagination.totalPages || Math.abs(p - page) <= 1)
+                          .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+                            if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
+                            acc.push(p); return acc;
+                          }, [])
+                          .map((p, i) => p === "…"
+                            ? <span key={`e-${i}`} style={{ padding: "0 6px", color: C.gray400, fontSize: 14 }}>…</span>
+                            : <PageBtn key={p} num={p as number} current={page} onClick={() => setPage(p as number)} />
+                          )}
+                      </div>
+
+                      <HoverBtn disabled={page === pagination.totalPages} onClick={() => setPage(p => p + 1)}
+                        baseStyle={{ display: "flex", alignItems: "center", gap: 5, padding: "8px 16px", fontSize: 13, fontWeight: 500, border: `1px solid ${C.gray200}`, borderRadius: 12, color: C.gray600, background: C.white, cursor: "pointer" }}
+                        hoverStyle={{ borderColor: C.orange400, color: C.orange600 }}
+                        disabledStyle={{ opacity: 0.4, cursor: "not-allowed" }}
+                      >Next <ChevronRight size={14} /></HoverBtn>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
@@ -1899,6 +2204,19 @@ export default function AdminScholarshipPage() {
 
       {applicantsTarget && (
         <ApplicantsModal scholarship={applicantsTarget} onClose={() => setApplicantsTarget(null)} />
+      )}
+
+      {allApplicantsDetail && (
+        <ApplicantDetailModal
+          applicationId={allApplicantsDetail.applicationId}
+          applicantName={
+            allApplicantsDetail.familyMemberId && allApplicantsDetail.familyMemberName
+              ? `${allApplicantsDetail.familyMemberName} (${allApplicantsDetail.familyMemberRelation})`
+              : allApplicantsDetail.user.fullName
+          }
+          isFamilyMember={!!allApplicantsDetail.familyMemberId}
+          onClose={() => setAllApplicantsDetail(null)}
+        />
       )}
     </div>
   );

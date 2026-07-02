@@ -1,4 +1,4 @@
-// Community-Application\backend\src\controllers\sanghaschlcontroller.js
+// Community-Application\backend\src\controllers\sanghaschlcontroller.j s
 const pool = require("../config/db");
 
 async function getSanghaId(sanghaAuthId) {
@@ -623,6 +623,186 @@ async function deleteScholarship(req, res) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// ALL APPLICANTS — across every scholarship owned by this sangha
+// ════════════════════════════════════════════════════════════════════════════════
+
+async function getAllApplicants(req, res) {
+  try {
+    const sanghaId = await getSanghaId(req.user.id);
+    const {
+      year = "",
+      start_date = "",
+      end_date = "",
+      status = "",
+      page = 1,
+      limit = 20,
+    } = req.query;
+
+    const offset = (Number(page) - 1) * Number(limit);
+
+    // Base conditions (sangha + year/date) — used for status tab counts,
+    // so counts stay stable when switching tabs
+    const baseConditions = ["s.sangha_id = $1"];
+    const baseParams = [sanghaId];
+
+    if (year) {
+      baseParams.push(Number(year));
+      baseConditions.push(`EXTRACT(YEAR FROM sa.applied_at)::int = $${baseParams.length}`);
+    }
+    if (start_date) {
+      baseParams.push(start_date);
+      baseConditions.push(`sa.applied_at >= $${baseParams.length}::date`);
+    }
+    if (end_date) {
+      baseParams.push(end_date);
+      baseConditions.push(`sa.applied_at < ($${baseParams.length}::date + interval '1 day')`);
+    }
+    const baseWhereClause = `WHERE ${baseConditions.join(" AND ")}`;
+
+    // Full conditions (base + status) — used for the actual list
+    const conditions = [...baseConditions];
+    const params = [...baseParams];
+    if (status && status !== "all") {
+      params.push(status);
+      conditions.push(`sa.status = $${params.length}`);
+    }
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM scholarship_applications sa
+      JOIN scholarships s ON s.id = sa.scholarship_id
+      ${whereClause}
+    `;
+
+    const filteredScholarshipCountQuery = `
+      SELECT COUNT(DISTINCT sa.scholarship_id) AS cnt
+      FROM scholarship_applications sa
+      JOIN scholarships s ON s.id = sa.scholarship_id
+      ${whereClause}
+    `;
+
+    const statusCountsQuery = `
+      SELECT sa.status, COUNT(*) AS cnt
+      FROM scholarship_applications sa
+      JOIN scholarships s ON s.id = sa.scholarship_id
+      ${baseWhereClause}
+      GROUP BY sa.status
+    `;
+
+    const grandTotalsQuery = `
+      SELECT
+        COUNT(*)                          AS total_applicants,
+        COUNT(DISTINCT sa.scholarship_id) AS total_scholarships
+      FROM scholarship_applications sa
+      JOIN scholarships s ON s.id = sa.scholarship_id
+      WHERE s.sangha_id = $1
+    `;
+
+    const dataParams = [...params];
+    dataParams.push(Number(limit));
+    dataParams.push(offset);
+
+    const dataQuery = `
+      SELECT
+        sa.id                                            AS application_id,
+        sa.status,
+        sa.applied_at,
+        sa.reviewed_at,
+        sa.review_comment,
+        sa.family_member_id,
+        s.id                                              AS scholarship_id,
+        s.name                                            AS scholarship_title,
+        p.id                                               AS profile_id,
+        TRIM(CONCAT_WS(' ',
+          pd.first_name, NULLIF(pd.middle_name, ''), pd.last_name
+        ))                                                AS full_name,
+        u.email,
+        u.phone,
+        DATE_PART('year', AGE(pd.date_of_birth))::int    AS age,
+        a.city, a.district, a.state,
+        fm.name                                           AS fm_name,
+        fm.relation                                       AS fm_relation
+      FROM scholarship_applications sa
+      JOIN scholarships          s  ON s.id  = sa.scholarship_id
+      JOIN profiles               p  ON p.id  = sa.profile_id
+      JOIN users                  u  ON u.id  = p.user_id
+      LEFT JOIN personal_details  pd ON pd.profile_id = p.id
+      LEFT JOIN addresses         a  ON a.profile_id  = p.id AND a.address_type = 'current'
+      LEFT JOIN family_members    fm ON fm.id = sa.family_member_id
+      ${whereClause}
+      ORDER BY sa.applied_at DESC
+      LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}
+    `;
+
+    const [countResult, filteredSchlCountResult, statusCountsResult, grandTotalsResult, dataResult] = await Promise.all([
+      pool.query(countQuery, params),
+      pool.query(filteredScholarshipCountQuery, params),
+      pool.query(statusCountsQuery, baseParams),
+      pool.query(grandTotalsQuery, [sanghaId]),
+      pool.query(dataQuery, dataParams),
+    ]);
+
+    const total = Number(countResult.rows[0]?.total || 0);
+
+    const statusCounts = { approved: 0, rejected: 0, pending: 0 };
+    let allCount = 0;
+    statusCountsResult.rows.forEach((r) => {
+      const cnt = Number(r.cnt || 0);
+      allCount += cnt;
+      if (r.status && Object.prototype.hasOwnProperty.call(statusCounts, r.status)) {
+        statusCounts[r.status] = cnt;
+      }
+    });
+
+    const applicants = dataResult.rows.map((row) => ({
+      applicationId: row.application_id,
+      status: row.status,
+      appliedAt: row.applied_at,
+      reviewedAt: row.reviewed_at,
+      rejectionReason: row.status === "rejected" ? row.review_comment : null,
+      approvalNotes: row.status === "approved" ? row.review_comment : null,
+      familyMemberId: row.family_member_id || null,
+      familyMemberName: row.fm_name || null,
+      familyMemberRelation: row.fm_relation || null,
+      profileId: row.profile_id,
+      scholarshipId: row.scholarship_id,
+      scholarshipTitle: row.scholarship_title,
+      user: {
+        fullName: row.full_name,
+        email: row.email,
+        phone: row.phone,
+        age: row.age,
+        city: row.city,
+        district: row.district,
+        state: row.state,
+      },
+    }));
+
+    res.json({
+      success: true,
+      data: applicants,
+      pagination: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / Number(limit)),
+      },
+      meta: {
+        filteredApplicants: total,
+        filteredScholarships: Number(filteredSchlCountResult.rows[0]?.cnt || 0),
+        totalApplicants: Number(grandTotalsResult.rows[0]?.total_applicants || 0),
+        totalScholarships: Number(grandTotalsResult.rows[0]?.total_scholarships || 0),
+        statusCounts: { all: allCount, ...statusCounts },
+      },
+    });
+  } catch (err) {
+    console.error("getAllApplicants error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // BENEFICIARY APPROVAL
 // ════════════════════════════════════════════════════════════════════════════════
 
@@ -888,6 +1068,645 @@ async function getApplicantProfile(req, res) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+// APPLICANTS PER SCHOLARSHIP (sangha-scoped) — mirrors admin's getScholarshipApplicants
+// ════════════════════════════════════════════════════════════════════════════════
+
+async function getScholarshipApplicantsList(req, res) {
+  try {
+    const sanghaId = await getSanghaId(req.user.id);
+    const { id } = req.params;
+    const { status = "all", page = 1, limit = 20 } = req.query;
+    const offset = (Number(page) - 1) * Number(limit);
+
+    const schlCheck = await pool.query(
+      `SELECT s.id, s.name AS title
+       FROM scholarships s
+       WHERE s.id = $1 AND s.sangha_id = $2`,
+      [id, sanghaId]
+    );
+    if (!schlCheck.rows.length) {
+      return res.status(404).json({ success: false, message: "Scholarship not found" });
+    }
+
+    const params = [id];
+    const conditions = ["sa.scholarship_id = $1"];
+
+    if (status && status !== "all") {
+      params.push(status);
+      conditions.push(`sa.status = $${params.length}`);
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const countQuery = `SELECT COUNT(*) AS total FROM scholarship_applications sa ${whereClause}`;
+
+    params.push(Number(limit));
+    params.push(offset);
+
+    const dataQuery = `
+      SELECT
+        sa.id                  AS application_id,
+        sa.status,
+        sa.applied_at,
+        sa.reviewed_at,
+        sa.review_comment,
+        sa.family_member_id,
+        u.id                   AS user_id,
+        u.email,
+        u.phone,
+        TRIM(CONCAT_WS(' ', pd.first_name, NULLIF(pd.middle_name, ''), pd.last_name)) AS full_name,
+        p.photo_url            AS profile_photo,
+        p.id                   AS profile_id,
+        adr.state              AS user_state,
+        adr.district           AS user_district,
+        DATE_PART('year', AGE(pd.date_of_birth))::int AS age,
+        fm.name                AS family_member_name,
+        fm.relation            AS family_member_relation
+      FROM scholarship_applications sa
+      JOIN profiles p          ON p.id       = sa.profile_id
+      JOIN users u             ON u.id       = p.user_id
+      LEFT JOIN personal_details pd ON pd.profile_id = p.id
+      LEFT JOIN family_members fm   ON fm.id = sa.family_member_id
+      LEFT JOIN LATERAL (
+        SELECT state, district
+        FROM addresses
+        WHERE profile_id = p.id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) adr ON true
+      ${whereClause}
+      ORDER BY sa.applied_at DESC
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+    `;
+
+    const [countResult, dataResult] = await Promise.all([
+      pool.query(countQuery, params.slice(0, params.length - 2)),
+      pool.query(dataQuery, params),
+    ]);
+
+    const total = Number(countResult.rows[0]?.total || 0);
+
+    const applicants = dataResult.rows.map((row) => ({
+      applicationId: row.application_id,
+      status: row.status,
+      appliedAt: row.applied_at,
+      reviewedAt: row.reviewed_at,
+      rejectionReason: row.status === "rejected" ? row.review_comment : null,
+      approvalNotes: row.status === "approved" ? row.review_comment : null,
+      familyMemberId: row.family_member_id || null,
+      familyMemberName: row.family_member_name || null,
+      familyMemberRelation: row.family_member_relation || null,
+      profileId: row.profile_id,
+      user: {
+        id: row.user_id,
+        fullName: row.full_name,
+        email: row.email,
+        phone: row.phone,
+        state: row.user_state,
+        district: row.user_district,
+        profilePhoto: row.profile_photo,
+        age: row.age,
+      },
+    }));
+
+    return res.status(200).json({
+      success: true,
+      scholarship: { id: schlCheck.rows[0].id, title: schlCheck.rows[0].title },
+      data: applicants,
+      pagination: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / Number(limit)),
+      },
+    });
+  } catch (err) {
+    console.error("getScholarshipApplicantsList error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// APPLICANT FULL DETAILS (sangha-scoped) — mirrors admin's getApplicantDetails,
+// PLUS education documents (member_education_details) and bank details
+// (member_bank_details), which admin's version does not have.
+// ════════════════════════════════════════════════════════════════════════════════
+
+async function getSanghaApplicantDetails(req, res) {
+  try {
+    const sanghaId = await getSanghaId(req.user.id);
+    const { applicationId } = req.params;
+
+    // 1. Fetch application + verify it belongs to a scholarship owned by this sangha
+    const appResult = await pool.query(
+      `SELECT sa.profile_id, sa.family_member_id, sa.status, sa.applied_at, sa.reviewed_at, sa.review_comment,
+              s.sangha_id
+       FROM scholarship_applications sa
+       JOIN scholarships s ON s.id = sa.scholarship_id
+       WHERE sa.id = $1`,
+      [applicationId]
+    );
+    if (!appResult.rows.length) {
+      return res.status(404).json({ success: false, message: "Application not found" });
+    }
+    const app = appResult.rows[0];
+    if (app.sangha_id !== sanghaId) {
+      return res.status(403).json({ success: false, message: "This application does not belong to your sangha" });
+    }
+
+    const profileId = app.profile_id;
+    const familyMemberId = app.family_member_id;
+    const isFamilyMember = !!familyMemberId;
+
+    // 2. Base user info
+    const userResult = await pool.query(
+      `SELECT
+         u.id AS user_id, u.email, u.phone,
+         p.id AS profile_id, p.photo_url, p.status AS profile_status,
+         pd.first_name, pd.middle_name, pd.last_name, pd.gender,
+         pd.date_of_birth, pd.fathers_name, pd.mothers_name,
+         pd.mothers_maiden_name, pd.wife_name, pd.wife_maiden_name,
+         pd.husbands_name, pd.surname_in_use, pd.surname_as_per_gotra,
+         pd.has_disability, pd.marital_status
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN personal_details pd ON pd.profile_id = p.id
+       WHERE p.id = $1`,
+      [profileId]
+    );
+    if (!userResult.rows.length) {
+      return res.status(404).json({ success: false, message: "Profile not found" });
+    }
+    const userRow = userResult.rows[0];
+
+    // ── Helper: fetch education documents + bank details (NEW — sangha-only addition) ──
+    async function fetchEducationAndBank(fmId) {
+      const [eduRes, bankRes] = await Promise.all([
+        pool.query(
+          `SELECT employment_type, pursuing_degree,
+                  sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
+                  pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
+                  degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url
+           FROM member_education_details
+           WHERE profile_id = $1 AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
+           LIMIT 1`,
+          [profileId, fmId]
+        ),
+        pool.query(
+          `SELECT account_holder_name, bank_name, account_number, ifsc, branch
+           FROM member_bank_details
+           WHERE profile_id = $1 AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
+           LIMIT 1`,
+          [profileId, fmId]
+        ),
+      ]);
+
+      const e = eduRes.rows[0] || null;
+      const b = bankRes.rows[0] || null;
+
+      return {
+        documents: e ? {
+          employmentType: e.employment_type,
+          pursuingDegree: e.pursuing_degree,
+          sslcSchoolName: e.sslc_school_name,
+          sslcYear: e.sslc_year,
+          sslcPercentage: e.sslc_percentage,
+          sslcMarksCardUrl: e.sslc_marks_card_url,
+          puCollegeName: e.pu_college_name,
+          puYear: e.pu_year,
+          puPercentage: e.pu_percentage,
+          puMarksCardUrl: e.pu_marks_card_url,
+          degreeName: e.degree_name,
+          degreeInstitution: e.degree_institution,
+          degreeYear: e.degree_year,
+          degreePercentage: e.degree_percentage,
+          degreeCertificateUrl: e.degree_certificate_url,
+        } : null,
+        bankDetails: b ? {
+          accountHolderName: b.account_holder_name,
+          bankName: b.bank_name,
+          accountNumber: b.account_number,
+          ifsc: b.ifsc,
+          branch: b.branch,
+        } : null,
+      };
+    }
+
+    // ── FAMILY MEMBER APPLICANT ──────────────────────────────────────────────
+    if (isFamilyMember) {
+      const fmResult = await pool.query(
+        `SELECT fm.id, fm.name, fm.relation, fm.age, fm.dob, fm.gender,
+                fm.disability, fm.status, fm.photo_url
+         FROM family_members fm
+         WHERE fm.id = $1 AND fm.profile_id = $2`,
+        [familyMemberId, profileId]
+      );
+      if (!fmResult.rows.length) {
+        return res.status(404).json({ success: false, message: "Family member not found" });
+      }
+      const fm = fmResult.rows[0];
+
+      const fmEduResult = await pool.query(
+        `SELECT me.id, me.highest_education, me.brief_profile, me.profession_type,
+                me.profession_other, me.self_employed_type, me.self_employed_other,
+                me.industry, me.is_currently_studying, me.is_currently_working
+         FROM member_education me
+         WHERE me.profile_id = $1 AND me.member_name = $2 AND me.member_relation = $3
+         LIMIT 1`,
+        [profileId, fm.name, fm.relation]
+      );
+      const fmEdu = fmEduResult.rows[0] || null;
+
+      let fmDegrees = [];
+      if (fmEdu) {
+        const degResult = await pool.query(
+          `SELECT degree_name, degree_type, university, start_date, end_date, certificate
+           FROM member_educations WHERE member_education_id = $1 ORDER BY sort_order`,
+          [fmEdu.id]
+        );
+        fmDegrees = degResult.rows;
+        const langResult = await pool.query(
+          `SELECT language, language_other FROM member_languages WHERE member_education_id = $1`,
+          [fmEdu.id]
+        );
+        fmEdu.languages = langResult.rows;
+      }
+
+      const fmInsResult = await pool.query(
+        `SELECT health_coverage, life_coverage, term_coverage, konkani_card_coverage
+         FROM member_insurance
+         WHERE profile_id = $1 AND member_name = $2 AND member_relation = $3
+         LIMIT 1`,
+        [profileId, fm.name, fm.relation]
+      );
+      const fmIns = fmInsResult.rows[0] || null;
+
+      const fmDocResult = await pool.query(
+        `SELECT aadhaar_coverage, pan_coverage, voter_id_coverage, land_doc_coverage, dl_coverage
+         FROM member_documents
+         WHERE profile_id = $1 AND member_name = $2 AND member_relation = $3
+         LIMIT 1`,
+        [profileId, fm.name, fm.relation]
+      );
+      const fmDoc = fmDocResult.rows[0] || null;
+
+      const { documents: eduDocuments, bankDetails } = await fetchEducationAndBank(familyMemberId);
+
+      return res.status(200).json({
+        success: true,
+        applicantType: "family_member",
+        data: {
+          name: fm.name,
+          relation: fm.relation,
+          age: fm.age,
+          dob: fm.dob,
+          gender: fm.gender,
+          disability: fm.disability,
+          status: fm.status,
+          photoUrl: fm.photo_url,
+          education: fmEdu ? {
+            highestEducation: fmEdu.highest_education,
+            briefProfile: fmEdu.brief_profile,
+            professionType: fmEdu.profession_type,
+            professionOther: fmEdu.profession_other,
+            selfEmployedType: fmEdu.self_employed_type,
+            selfEmployedOther: fmEdu.self_employed_other,
+            industry: fmEdu.industry,
+            isCurrentlyStudying: fmEdu.is_currently_studying,
+            isCurrentlyWorking: fmEdu.is_currently_working,
+            degrees: fmDegrees,
+            languages: fmEdu.languages || [],
+          } : null,
+          insurance: fmIns ? {
+            healthCoverage: fmIns.health_coverage,
+            lifeCoverage: fmIns.life_coverage,
+            termCoverage: fmIns.term_coverage,
+            konkaniCardCoverage: fmIns.konkani_card_coverage,
+          } : null,
+          identityDocuments: fmDoc ? {
+            aadhaarCoverage: fmDoc.aadhaar_coverage,
+            panCoverage: fmDoc.pan_coverage,
+            voterIdCoverage: fmDoc.voter_id_coverage,
+            landDocCoverage: fmDoc.land_doc_coverage,
+            dlCoverage: fmDoc.dl_coverage,
+          } : null,
+          // ── NEW: education certificates + bank details ──
+          documents: eduDocuments,
+          bankDetails,
+        },
+      });
+    }
+
+    // ── USER (SELF) APPLICANT ────────────────────────────────────────────────
+    const relResult = await pool.query(
+      `SELECT gotra, pravara, kuladevata, kuladevata_other, surname_in_use,
+              surname_as_per_gotra, priest_name, priest_location,
+              upanama_general, upanama_proper, demi_gods, demi_god_other,
+              ancestral_challenge, ancestral_challenge_notes
+       FROM religious_details WHERE profile_id = $1`,
+      [profileId]
+    );
+    const rel = relResult.rows[0] || null;
+
+    const addrResult = await pool.query(
+      `SELECT address_type, flat_no, building, street, landmark, area,
+              city, taluk, district, state, pincode, country
+       FROM addresses WHERE profile_id = $1 ORDER BY created_at ASC`,
+      [profileId]
+    );
+    const addresses = addrResult.rows;
+
+    const ecoResult = await pool.query(
+      `SELECT self_income, family_income,
+              inv_fixed_deposits, inv_mutual_funds_sip, inv_shares_demat, inv_others,
+              fac_rented_house, fac_own_house, fac_agricultural_land, fac_two_wheeler, fac_car
+       FROM economic_details WHERE profile_id = $1`,
+      [profileId]
+    );
+    const eco = ecoResult.rows[0] || null;
+
+    const eduResult = await pool.query(
+      `SELECT me.id, me.highest_education, me.brief_profile, me.profession_type,
+              me.profession_other, me.self_employed_type, me.self_employed_other,
+              me.industry, me.is_currently_studying, me.is_currently_working
+       FROM member_education me
+       WHERE me.profile_id = $1 AND (me.member_relation = 'Self' OR me.sort_order = 0)
+       ORDER BY me.sort_order ASC
+       LIMIT 1`,
+      [profileId]
+    );
+    const edu = eduResult.rows[0] || null;
+
+    let degrees = [];
+    let languages = [];
+    if (edu) {
+      const degResult = await pool.query(
+        `SELECT degree_name, degree_type, university, start_date, end_date, certificate
+         FROM member_educations WHERE member_education_id = $1 ORDER BY sort_order`,
+        [edu.id]
+      );
+      degrees = degResult.rows;
+      const langResult = await pool.query(
+        `SELECT language, language_other FROM member_languages WHERE member_education_id = $1`,
+        [edu.id]
+      );
+      languages = langResult.rows;
+    }
+
+    const userName = [userRow.first_name, userRow.last_name].filter(Boolean).join(" ");
+    const insResult = await pool.query(
+      `SELECT health_coverage, life_coverage, term_coverage, konkani_card_coverage
+       FROM member_insurance
+       WHERE profile_id = $1 AND (member_relation = 'Self' OR member_name = $2)
+       ORDER BY sort_order ASC LIMIT 1`,
+      [profileId, userName]
+    );
+    const ins = insResult.rows[0] || null;
+
+    const docResult = await pool.query(
+      `SELECT aadhaar_coverage, pan_coverage, voter_id_coverage, land_doc_coverage, dl_coverage
+       FROM member_documents
+       WHERE profile_id = $1 AND (member_relation = 'Self' OR member_name = $2)
+       ORDER BY sort_order ASC LIMIT 1`,
+      [profileId, userName]
+    );
+    const doc = docResult.rows[0] || null;
+
+    const sanghaResult = await pool.query(
+      `SELECT ms.sangha_name, ms.role, ms.tenure, ms.status
+       FROM member_sanghas ms
+       WHERE ms.profile_id = $1`,
+      [profileId]
+    );
+    const sanghas = sanghaResult.rows;
+
+    const { documents: eduDocuments, bankDetails } = await fetchEducationAndBank(null);
+
+    return res.status(200).json({
+      success: true,
+      applicantType: "self",
+      data: {
+        personal: {
+          firstName: userRow.first_name,
+          middleName: userRow.middle_name,
+          lastName: userRow.last_name,
+          fullName: [userRow.first_name, userRow.middle_name, userRow.last_name].filter(Boolean).join(" "),
+          gender: userRow.gender,
+          dateOfBirth: userRow.date_of_birth,
+          maritalStatus: userRow.marital_status,
+          fathersName: userRow.fathers_name,
+          mothersName: userRow.mothers_name,
+          mothersMaidenName: userRow.mothers_maiden_name,
+          wifeName: userRow.wife_name,
+          wifeMaidenName: userRow.wife_maiden_name,
+          husbandsName: userRow.husbands_name,
+          surnameInUse: userRow.surname_in_use,
+          surnameAsPerGotra: userRow.surname_as_per_gotra,
+          hasDisability: userRow.has_disability,
+          photoUrl: userRow.photo_url,
+        },
+        contact: { email: userRow.email, phone: userRow.phone },
+        religious: rel ? {
+          gotra: rel.gotra,
+          pravara: rel.pravara,
+          kuladevata: rel.kuladevata_other || rel.kuladevata,
+          surnameInUse: rel.surname_in_use,
+          surnameAsPerGotra: rel.surname_as_per_gotra,
+          priestName: rel.priest_name,
+          priestLocation: rel.priest_location,
+          upanamaGeneral: rel.upanama_general,
+          upanamaProper: rel.upanama_proper,
+          demiGods: Array.isArray(rel.demi_gods) ? rel.demi_gods : [],
+          demiGodOther: rel.demi_god_other,
+          ancestralChallenge: rel.ancestral_challenge,
+          ancestralChallengeNotes: rel.ancestral_challenge_notes,
+        } : null,
+        addresses: addresses.map(a => ({
+          type: a.address_type, flatNo: a.flat_no, building: a.building, street: a.street,
+          landmark: a.landmark, area: a.area, city: a.city, taluk: a.taluk,
+          district: a.district, state: a.state, pincode: a.pincode, country: a.country,
+        })),
+        education: edu ? {
+          highestEducation: edu.highest_education,
+          briefProfile: edu.brief_profile,
+          professionType: edu.profession_type,
+          professionOther: edu.profession_other,
+          selfEmployedType: edu.self_employed_type,
+          selfEmployedOther: edu.self_employed_other,
+          industry: edu.industry,
+          isCurrentlyStudying: edu.is_currently_studying,
+          isCurrentlyWorking: edu.is_currently_working,
+          degrees,
+          languages,
+        } : null,
+        economic: eco ? {
+          selfIncome: eco.self_income,
+          familyIncome: eco.family_income,
+          facilities: {
+            rentedHouse: eco.fac_rented_house,
+            ownHouse: eco.fac_own_house,
+            agriculturalLand: eco.fac_agricultural_land,
+            twoWheeler: eco.fac_two_wheeler,
+            car: eco.fac_car,
+          },
+          investments: {
+            fixedDeposits: eco.inv_fixed_deposits,
+            mutualFunds: eco.inv_mutual_funds_sip,
+            sharesDemat: eco.inv_shares_demat,
+            others: eco.inv_others,
+          },
+        } : null,
+        insurance: ins ? {
+          healthCoverage: ins.health_coverage,
+          lifeCoverage: ins.life_coverage,
+          termCoverage: ins.term_coverage,
+          konkaniCardCoverage: ins.konkani_card_coverage,
+        } : null,
+        identityDocuments: doc ? {
+          aadhaarCoverage: doc.aadhaar_coverage,
+          panCoverage: doc.pan_coverage,
+          voterIdCoverage: doc.voter_id_coverage,
+          landDocCoverage: doc.land_doc_coverage,
+          dlCoverage: doc.dl_coverage,
+        } : null,
+        sanghas,
+        // ── NEW: education certificates + bank details ──
+        documents: eduDocuments,
+        bankDetails,
+      },
+    });
+  } catch (err) {
+    console.error("getSanghaApplicantDetails error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// SCHOLARSHIP HISTORY (Applied / Benefitted tabs) — sangha-scoped
+// mirrors admin's getApplicantScholarshipHistory
+// ════════════════════════════════════════════════════════════════════════════════
+
+async function getSanghaApplicantScholarshipHistory(req, res) {
+  try {
+    const sanghaId = await getSanghaId(req.user.id);
+    const { applicationId } = req.params;
+    const { type = "applied", start_date, end_date } = req.query;
+
+    const appResult = await pool.query(
+      `SELECT sa.profile_id, sa.family_member_id, s.sangha_id
+       FROM scholarship_applications sa
+       JOIN scholarships s ON s.id = sa.scholarship_id
+       WHERE sa.id = $1`,
+      [applicationId]
+    );
+    if (!appResult.rows.length) {
+      return res.status(404).json({ success: false, message: "Application not found" });
+    }
+    const { profile_id: profileId, family_member_id: familyMemberId, sangha_id: ownerSanghaId } = appResult.rows[0];
+    if (ownerSanghaId !== sanghaId) {
+      return res.status(403).json({ success: false, message: "This application does not belong to your sangha" });
+    }
+
+    const identityCondition = familyMemberId
+      ? "sa.profile_id = $1 AND sa.family_member_id = $2"
+      : "sa.profile_id = $1 AND sa.family_member_id IS NULL";
+    const identityParams = familyMemberId ? [profileId, familyMemberId] : [profileId];
+
+    const yearsResult = await pool.query(
+      `SELECT DISTINCT EXTRACT(YEAR FROM sa.applied_at)::int AS yr
+       FROM scholarship_applications sa
+       WHERE ${identityCondition}
+       ORDER BY yr DESC`,
+      identityParams
+    );
+    const availableYears = yearsResult.rows.map(r => r.yr);
+    const currentYear = new Date().getFullYear();
+
+    const conditions = [identityCondition];
+    const params = [...identityParams];
+
+    if (type === "benefitted") {
+      conditions.push("sa.status = 'approved'");
+    }
+    if (start_date) {
+      params.push(start_date);
+      conditions.push(`sa.applied_at >= $${params.length}::date`);
+    }
+    if (end_date) {
+      params.push(end_date);
+      conditions.push(`sa.applied_at < ($${params.length}::date + interval '1 day')`);
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const dataQuery = `
+      SELECT
+        sa.id                AS application_id,
+        sa.status,
+        sa.applied_at,
+        sa.reviewed_at,
+        sa.review_comment,
+        s.id                 AS scholarship_id,
+        s.name               AS scholarship_title,
+        s.base_amount        AS amount,
+        s.disbursement_date  AS disbursement_date,
+        s.application_end    AS deadline,
+        s.status             AS scholarship_status,
+        sg.id                AS sangha_id,
+        sg.sangha_name       AS sangha_name,
+        sg.state             AS sangha_state,
+        sg.district          AS sangha_district,
+        sg.logo_url          AS sangha_logo,
+        st.amount            AS tier_amount
+      FROM scholarship_applications sa
+      JOIN scholarships s   ON s.id  = sa.scholarship_id
+      JOIN sanghas sg       ON sg.id = s.sangha_id
+      LEFT JOIN LATERAL (
+        SELECT amount FROM scholarship_tiers
+        WHERE scholarship_id = s.id ORDER BY sort_order ASC LIMIT 1
+      ) st ON true
+      ${whereClause}
+      ORDER BY sa.applied_at DESC
+    `;
+
+    const dataResult = await pool.query(dataQuery, params);
+
+    const records = dataResult.rows.map(row => ({
+      applicationId: row.application_id,
+      status: row.status,
+      appliedAt: row.applied_at,
+      reviewedAt: row.reviewed_at,
+      rejectionReason: row.status === "rejected" ? row.review_comment : null,
+      approvalNotes: row.status === "approved" ? row.review_comment : null,
+      scholarship: {
+        id: row.scholarship_id,
+        title: row.scholarship_title,
+        amount: row.amount != null ? row.amount : row.tier_amount,
+        disbursementDate: row.disbursement_date || row.deadline || null,
+        deadline: row.deadline,
+        status: row.scholarship_status,
+      },
+      sangha: {
+        id: row.sangha_id,
+        name: row.sangha_name,
+        state: row.sangha_state,
+        district: row.sangha_district,
+        logo: row.sangha_logo,
+      },
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: records,
+      meta: { type, startDate: start_date || null, endDate: end_date || null, availableYears, currentYear },
+    });
+  } catch (err) {
+    console.error("getSanghaApplicantScholarshipHistory error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 module.exports = {
   getCategories,
   createCategory,
@@ -900,7 +1719,12 @@ module.exports = {
   updateScholarship,
   deleteScholarship,
   getApplicants,
+  getAllApplicants,
   updateApplicantStatus,
   getApplicantStats,
   getApplicantProfile,
+  // ── NEW ──
+  getScholarshipApplicantsList,
+  getSanghaApplicantDetails,
+  getSanghaApplicantScholarshipHistory,
 };

@@ -1,4 +1,4 @@
-// Community-Application\sangha\src\app\sangha\scholarships\page.tsx
+// Community-Application\sangha\src\app\sangha\scholarships\page.ts x
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 
@@ -78,7 +78,85 @@ interface ApplicantGroup {
   age: number; gender: string; city: string; state: string; family_income: string;
   applications: ApplicantRow[];
 }
+interface AllApplicantRow {
+  applicationId: string; status: string; appliedAt: string; reviewedAt: string | null;
+  rejectionReason: string | null; approvalNotes: string | null;
+  familyMemberId: string | null; familyMemberName: string | null; familyMemberRelation: string | null;
+  profileId: string; scholarshipId: string; scholarshipTitle: string;
+  user: { fullName: string; email: string; phone: string; age: number | null; city: string | null; district: string | null; state: string | null };
+}
+interface AllApplicantsMeta {
+  filteredApplicants: number; filteredScholarships: number;
+  totalApplicants: number; totalScholarships: number;
+  statusCounts: { all: number; approved: number; rejected: number; pending: number };
+}
+// ─── Rich Applicant Detail Types (mirrors admin, + education docs/bank) ────────
+interface RichApplicant {
+  applicationId: string;
+  status: string;
+  appliedAt: string;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+  approvalNotes: string | null;
+  familyMemberId: string | null;
+  familyMemberName: string | null;
+  familyMemberRelation: string | null;
+  profileId: string;
+  user: {
+    id?: string; fullName: string; email: string; phone: string;
+    state: string | null; district: string | null; profilePhoto: string | null; age: number | null;
+  };
+}
+interface RichApplicantsPagination { total: number; page: number; limit: number; totalPages: number; }
 
+interface EducationDocuments {
+  employmentType: string | null;
+  pursuingDegree: boolean | null;
+  sslcSchoolName: string | null; sslcYear: string | null; sslcPercentage: string | null; sslcMarksCardUrl: string | null;
+  puCollegeName: string | null; puYear: string | null; puPercentage: string | null; puMarksCardUrl: string | null;
+  degreeName: string | null; degreeInstitution: string | null; degreeYear: string | null; degreePercentage: string | null; degreeCertificateUrl: string | null;
+}
+interface BankDetailsFull {
+  accountHolderName: string | null; bankName: string | null; accountNumber: string | null; ifsc: string | null; branch: string | null;
+}
+interface DegreeItem { degree_name: string; degree_type: string; university: string; start_date: string; end_date: string; certificate: string; }
+interface EducationBlock {
+  highestEducation: string | null; briefProfile: string | null; professionType: string | null;
+  isCurrentlyStudying: boolean | null; isCurrentlyWorking: boolean | null;
+  degrees: DegreeItem[]; languages: { language: string; language_other?: string }[];
+}
+interface InsuranceBlock { healthCoverage: any; lifeCoverage: any; termCoverage: any; konkaniCardCoverage: any; }
+interface IdentityDocumentsBlock { aadhaarCoverage: string | null; panCoverage: string | null; voterIdCoverage: string | null; landDocCoverage: string | null; dlCoverage: string | null; }
+interface AddressBlock { type: string; flatNo: string; building: string; street: string; landmark: string; area: string; city: string; taluk: string; district: string; state: string; pincode: string; country: string; }
+
+interface FullApplicantDetail {
+  applicantType: "self" | "family_member";
+  data: {
+    // family_member fields
+    name?: string; relation?: string; age?: number | null; dob?: string | null; gender?: string | null; disability?: string | null; status?: string | null;
+    // self fields
+    personal?: { fullName: string; gender: string | null; dateOfBirth: string | null; maritalStatus: string | null; fathersName: string | null; mothersName: string | null; hasDisability: string | null; };
+    contact?: { email: string; phone: string };
+    addresses?: AddressBlock[];
+    // shared
+    education: EducationBlock | null;
+    insurance: InsuranceBlock | null;
+    identityDocuments: IdentityDocumentsBlock | null;
+    economic?: { selfIncome: string | null; familyIncome: string | null } | null;
+    sanghas?: { sangha_name: string; role: string; tenure: string; status: string }[];
+    // ── NEW additions ──
+    documents: EducationDocuments | null;
+    bankDetails: BankDetailsFull | null;
+  };
+}
+
+interface ScholarshipHistoryRecord {
+  applicationId: string; status: string; appliedAt: string; reviewedAt: string | null;
+  rejectionReason: string | null; approvalNotes: string | null;
+  scholarship: { id: string; title: string; amount: number | null; disbursementDate: string | null; deadline: string | null; status: string; };
+  sangha: { id: string; name: string; state: string; district: string; logo: string | null; };
+}
+interface ScholarshipHistoryMeta { type: "applied" | "benefitted"; startDate: string | null; endDate: string | null; availableYears: number[]; currentYear: number; }
 // ─── API helpers ──────────────────────────────────────────────────────────────
 function getAuthHeaders(): Record<string, string> {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -1024,7 +1102,428 @@ function ScholarshipForm({ scholarship,onChange,onSave,onCancel,saving,categorie
 
 // ─── Inline Beneficiaries Panel ───────────────────────────────────────────────
 interface LastSlotPending { applicationId: string; scholarshipName: string; maxApprovals: number; }
+// ─── File Chip: a single downloadable/viewable document link ─────────────────
+function DocFileChip({ label, url }: { label: string; url: string | null | undefined }) {
+  if (!url) {
+    return (
+      <div style={{ display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderRadius:10,border:"1px dashed var(--color-border-secondary)",background:"var(--color-background-secondary)" }}>
+        <i className="ti ti-file-off" style={{ fontSize:14,color:"var(--color-text-tertiary)" }} />
+        <span style={{ fontSize:12,color:"var(--color-text-tertiary)",flex:1 }}>{label}</span>
+        <span style={{ fontSize:11,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>Not uploaded</span>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderRadius:10,border:"0.5px solid rgba(15,110,86,0.3)",background:"rgba(15,110,86,0.05)" }}>
+      <i className="ti ti-file-check" style={{ fontSize:14,color:"var(--color-text-success)" }} />
+      <span style={{ fontSize:12,color:"var(--color-text-primary)",flex:1,fontWeight:500 }}>{label}</span>
+      <a href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize:11,color:"#534AB7",fontWeight:600,textDecoration:"none",display:"flex",alignItems:"center",gap:4 }}>
+        <i className="ti ti-eye" style={{ fontSize:12 }} /> View
+      </a>
+      <a href={url} download target="_blank" rel="noopener noreferrer" style={{ fontSize:11,color:"var(--color-text-success)",fontWeight:600,textDecoration:"none",display:"flex",alignItems:"center",gap:4 }}>
+        <i className="ti ti-download" style={{ fontSize:12 }} /> Download
+      </a>
+    </div>
+  );
+}
 
+// ─── Scholarship History Tab (Applied / Benefitted) ────────────────────────────
+function SanghaScholarshipHistoryTab({ applicationId, type }: { applicationId: string; type: "applied" | "benefitted" }) {
+  const [records, setRecords] = useState<ScholarshipHistoryRecord[]>([]);
+  const [meta, setMeta] = useState<ScholarshipHistoryMeta | null>(null);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (sd: string, ed: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ type });
+      if (sd) params.set("start_date", sd);
+      if (ed) params.set("end_date", ed);
+      const res = await fetch(`${API_BASE}/api/sangha/scholarships/applications/${applicationId}/scholarship-history?${params.toString()}`, { headers: getAuthHeaders() });
+      const json = await res.json();
+      if (json.success) { setRecords(json.data); setMeta(json.meta); }
+      else setError("Failed to load scholarship history.");
+    } catch {
+      setError("Failed to load scholarship history.");
+    } finally {
+      setLoading(false);
+    }
+  }, [applicationId, type]);
+
+  useEffect(() => { load("", ""); }, [load]);
+
+  const accentColor = type === "applied" ? "#534AB7" : "#0F6E56";
+
+  return (
+    <div style={{ padding:"18px 22px 24px",display:"flex",flexDirection:"column",gap:14 }}>
+      <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+        <span style={{ fontSize:11,color:"var(--color-text-tertiary)",fontWeight:600 }}>From</span>
+        <input type="date" value={startDate} max={endDate||undefined} onChange={(e)=>setStartDate(e.target.value)} style={{ fontSize:12,padding:"6px 10px",borderRadius:9,border:"0.5px solid var(--color-border-tertiary)" }} />
+        <span style={{ fontSize:11,color:"var(--color-text-tertiary)",fontWeight:600 }}>To</span>
+        <input type="date" value={endDate} min={startDate||undefined} onChange={(e)=>setEndDate(e.target.value)} style={{ fontSize:12,padding:"6px 10px",borderRadius:9,border:"0.5px solid var(--color-border-tertiary)" }} />
+        <button onClick={()=>load(startDate,endDate)} disabled={!startDate&&!endDate} style={{ padding:"6px 14px",fontSize:12,fontWeight:600,borderRadius:9,border:"none",background:accentColor,color:"#fff",cursor:(!startDate&&!endDate)?"not-allowed":"pointer",opacity:(!startDate&&!endDate)?0.5:1 }}>Apply</button>
+        {(startDate||endDate) && <button onClick={()=>{setStartDate("");setEndDate("");load("","");}} style={{ padding:"6px 12px",fontSize:12,borderRadius:9,border:"0.5px solid var(--color-border-tertiary)",background:"none",cursor:"pointer",color:"var(--color-text-secondary)" }}>Clear</button>}
+      </div>
+
+      {loading ? (
+        <div style={{ display:"flex",alignItems:"center",justifyContent:"center",height:150,gap:10,color:accentColor }}>
+          <i className="ti ti-loader-2 ti-spin" style={{ fontSize:20 }} /><span style={{ fontSize:13 }}>Loading…</span>
+        </div>
+      ) : error ? (
+        <div style={{ textAlign:"center",color:"var(--color-text-danger)",padding:"1rem",fontSize:13 }}>{error}</div>
+      ) : records.length === 0 ? (
+        <div style={{ textAlign:"center",color:"var(--color-text-tertiary)",padding:"2rem",fontSize:13 }}>
+          No {type === "applied" ? "applications" : "approved scholarships"} found.
+        </div>
+      ) : (
+        <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+          {records.map((rec) => (
+            <div key={rec.applicationId} style={{ padding:"12px 14px",borderRadius:12,border:"0.5px solid var(--color-border-tertiary)",background:"var(--color-background-primary)" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",gap:10,marginBottom:8 }}>
+                <div style={{ fontSize:13,fontWeight:700,color:"var(--color-text-primary)" }}>{rec.scholarship.title}</div>
+                <span style={{ fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:100,background:rec.status==="approved"?"rgba(15,110,86,0.1)":rec.status==="rejected"?"rgba(192,57,43,0.08)":"var(--color-background-secondary)",color:rec.status==="approved"?"var(--color-text-success)":rec.status==="rejected"?"var(--color-text-danger)":"var(--color-text-secondary)" }}>{rec.status}</span>
+              </div>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,fontSize:11,color:"var(--color-text-secondary)" }}>
+                <div>Applied: {new Date(rec.appliedAt).toLocaleDateString("en-IN")}</div>
+                <div>Amount: {rec.scholarship.amount!=null?`₹${Number(rec.scholarship.amount).toLocaleString("en-IN")}`:"—"}</div>
+                <div>Disbursement: {rec.scholarship.disbursementDate?new Date(rec.scholarship.disbursementDate).toLocaleDateString("en-IN"):"—"}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Full Applicant Detail Modal (Info / Applied / Benefitted) ────────────────
+function SanghaApplicantDetailModal({ applicationId, applicantName, isFamilyMember, onClose }: {
+  applicationId: string; applicantName: string; isFamilyMember: boolean; onClose: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<"info"|"applied"|"benefitted">("info");
+  const [detail, setDetail] = useState<FullApplicantDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_BASE}/api/sangha/scholarships/applications/${applicationId}/applicant-details`, { headers: getAuthHeaders() });
+        const json = await res.json();
+        if (json.success) setDetail(json);
+        else setError("Failed to load applicant details.");
+      } catch {
+        setError("Failed to load applicant details.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [applicationId]);
+
+  const isSelf = detail?.applicantType === "self";
+  const d = detail?.data;
+
+  return (
+    <div style={{ position:"fixed",inset:0,zIndex:2500,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
+      <div onClick={onClose} style={{ position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",backdropFilter:"blur(6px)",animation:"fadeIn 0.2s ease" }} />
+      <div style={{ position:"relative",background:"var(--color-background-primary,#fff)",borderRadius:20,width:"100%",maxWidth:760,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 30px 80px rgba(0,0,0,0.32)",animation:"slideUp 0.28s cubic-bezier(0.16,1,0.3,1) both",fontFamily:"'DM Sans',sans-serif" }}>
+        <div style={{ background:"linear-gradient(135deg,#534AB7,#7B72D9)",padding:"20px 24px",flexShrink:0 }}>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
+            <div>
+              <p style={{ color:"rgba(255,255,255,0.75)",fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",margin:"0 0 4px" }}>
+                {isFamilyMember ? "Family Member Applicant" : "User Applicant"}
+              </p>
+              <h2 style={{ color:"#fff",fontSize:20,fontWeight:700,margin:0,fontFamily:"'DM Serif Display',serif" }}>{applicantName}</h2>
+            </div>
+            <button onClick={onClose} style={{ color:"rgba(255,255,255,0.85)",background:"none",border:"none",cursor:"pointer",padding:4 }}><i className="ti ti-x" style={{ fontSize:20 }} /></button>
+          </div>
+          <div style={{ display:"flex",gap:4,marginTop:16 }}>
+            {[{key:"info",label:"Info",icon:"ti-user"},{key:"applied",label:"Applied Scholarships",icon:"ti-clipboard-list"},{key:"benefitted",label:"Benefitted Scholarships",icon:"ti-award"}].map((t) => (
+              <button key={t.key} onClick={()=>setActiveTab(t.key as any)} style={{ display:"flex",alignItems:"center",gap:6,padding:"8px 14px",fontSize:12.5,fontWeight:600,borderRadius:10,border:"none",cursor:"pointer",background:activeTab===t.key?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.14)",color:activeTab===t.key?"#534AB7":"rgba(255,255,255,0.85)" }}>
+                <i className={`ti ${t.icon}`} style={{ fontSize:13 }} /> {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ flex:1,overflowY:"auto",background:"var(--color-background-secondary,#fafafa)" }}>
+          {activeTab === "info" && (
+            loading ? (
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:240,gap:12 }}>
+                <i className="ti ti-loader-2 ti-spin" style={{ fontSize:28,color:"#534AB7" }} />
+                <span style={{ fontSize:13,color:"var(--color-text-tertiary)" }}>Loading applicant details…</span>
+              </div>
+            ) : error ? (
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:240,gap:10,color:"var(--color-text-danger)" }}>
+                <i className="ti ti-alert-circle" style={{ fontSize:26 }} /><span style={{ fontSize:13 }}>{error}</span>
+              </div>
+            ) : d ? (
+              <div style={{ padding:"22px 24px",display:"flex",flexDirection:"column",gap:20 }}>
+
+                {/* Basic Info */}
+                <div>
+                  <SubSectionHeader label="Basic Information" />
+                  <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12 }}>
+                    {isSelf ? (
+                      <>
+                        <ProfileField label="Full name" value={d.personal?.fullName} />
+                        <ProfileField label="Gender" value={d.personal?.gender} />
+                        <ProfileField label="Date of birth" value={d.personal?.dateOfBirth ? new Date(d.personal.dateOfBirth).toLocaleDateString("en-IN") : null} />
+                        <ProfileField label="Marital status" value={d.personal?.maritalStatus} />
+                        <ProfileField label="Father's name" value={d.personal?.fathersName} />
+                        <ProfileField label="Mother's name" value={d.personal?.mothersName} />
+                        <ProfileField label="Email" value={d.contact?.email} />
+                        <ProfileField label="Phone" value={d.contact?.phone} />
+                      </>
+                    ) : (
+                      <>
+                        <ProfileField label="Name" value={d.name} />
+                        <ProfileField label="Relation" value={d.relation} />
+                        <ProfileField label="Gender" value={d.gender} />
+                        <ProfileField label="Date of birth" value={d.dob ? new Date(d.dob).toLocaleDateString("en-IN") : null} />
+                        {d.age != null && <ProfileField label="Age" value={`${d.age} years`} />}
+                        <ProfileField label="Disability" value={d.disability === "yes" ? "Yes" : d.disability === "no" ? "No" : null} />
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Education & Profession */}
+                {d.education && (
+                  <div>
+                    <SubSectionHeader label="Education & Profession" />
+                    <div style={{ display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12,marginBottom:10 }}>
+                      <ProfileField label="Highest education" value={d.education.highestEducation} />
+                      <ProfileField label="Profession" value={d.education.professionType} />
+                      <ProfileField label="Currently studying" value={d.education.isCurrentlyStudying ? "Yes" : "No"} />
+                      <ProfileField label="Currently working" value={d.education.isCurrentlyWorking ? "Yes" : "No"} />
+                    </div>
+                    {d.education.degrees?.filter(dg=>dg.degree_type).length > 0 && (
+                      <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+                        {d.education.degrees.filter(dg=>dg.degree_type).map((dg,i)=>(
+                          <div key={i} style={{ padding:"8px 12px",borderRadius:10,background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)",fontSize:12 }}>
+                            <strong>{dg.degree_type}</strong>{dg.degree_name && ` · ${dg.degree_name}`}{dg.university && ` · ${dg.university}`}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Addresses (self only) */}
+                {isSelf && d.addresses && d.addresses.length > 0 && (
+                  <div>
+                    <SubSectionHeader label="Addresses" />
+                    <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                      {d.addresses.map((a,i)=>(
+                        <div key={i} style={{ padding:"10px 12px",borderRadius:10,background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)",fontSize:12 }}>
+                          <div style={{ fontSize:10,fontWeight:700,color:"#CC5500",textTransform:"uppercase",marginBottom:4 }}>{a.type}</div>
+                          {[a.flatNo,a.building,a.street,a.landmark,a.area,a.city,a.taluk,a.district,a.state,a.pincode,a.country].filter(Boolean).join(", ")}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Economic (self only) */}
+                {isSelf && d.economic && (
+                  <div>
+                    <SubSectionHeader label="Economic Details" />
+                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+                      <ProfileField label="Self income" value={d.economic.selfIncome ? `₹${Number(d.economic.selfIncome).toLocaleString("en-IN")}/yr` : null} />
+                      <ProfileField label="Family income" value={d.economic.familyIncome ? `₹${Number(d.economic.familyIncome).toLocaleString("en-IN")}/yr` : null} />
+                    </div>
+                  </div>
+                )}
+
+                {/* ── NEW: Education Documents ── */}
+                <div>
+                  <SubSectionHeader label="Education Documents" />
+                  {d.documents ? (
+                    <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                      {d.documents.employmentType && (
+                        <div style={{ fontSize:12,color:"var(--color-text-secondary)",marginBottom:2 }}>
+                          Status: <strong>{d.documents.employmentType === "student" ? "Currently studying" : "Employed"}</strong>
+                        </div>
+                      )}
+                      <DocFileChip label={`SSLC Marks Card${d.documents.sslcYear ? ` (${d.documents.sslcYear})` : ""}`} url={d.documents.sslcMarksCardUrl} />
+                      <DocFileChip label={`PU Marks Card${d.documents.puYear ? ` (${d.documents.puYear})` : ""}`} url={d.documents.puMarksCardUrl} />
+                      <DocFileChip label={`Degree Certificate${d.documents.degreeYear ? ` (${d.documents.degreeYear})` : ""}`} url={d.documents.degreeCertificateUrl} />
+                    </div>
+                  ) : (
+                    <div style={{ fontSize:12,color:"var(--color-text-tertiary)",fontStyle:"italic",padding:"10px 12px",borderRadius:10,background:"var(--color-background-primary)",border:"1px dashed var(--color-border-secondary)" }}>
+                      No education documents submitted by the applicant yet.
+                    </div>
+                  )}
+                </div>
+
+                {/* ── NEW: Bank Details ── */}
+                <div>
+                  <SubSectionHeader label="Bank Details" />
+                  {d.bankDetails ? (
+                    <div style={{ display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,padding:"12px 14px",borderRadius:12,background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)" }}>
+                      <ProfileField label="Account holder" value={d.bankDetails.accountHolderName} />
+                      <ProfileField label="Bank name" value={d.bankDetails.bankName} />
+                      <ProfileField label="Account number" value={d.bankDetails.accountNumber} />
+                      <ProfileField label="IFSC code" value={d.bankDetails.ifsc} />
+                      <ProfileField label="Branch" value={d.bankDetails.branch} />
+                    </div>
+                  ) : (
+                    <div style={{ fontSize:12,color:"var(--color-text-tertiary)",fontStyle:"italic",padding:"10px 12px",borderRadius:10,background:"var(--color-background-primary)",border:"1px dashed var(--color-border-secondary)" }}>
+                      No bank details submitted by the applicant yet.
+                    </div>
+                  )}
+                </div>
+
+                {/* Sangha memberships (self only) */}
+                {isSelf && d.sanghas && d.sanghas.length > 0 && (
+                  <div>
+                    <SubSectionHeader label="Sangha Memberships" />
+                    <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+                      {d.sanghas.map((sg,i)=>(
+                        <div key={i} style={{ display:"flex",justifyContent:"space-between",padding:"8px 12px",borderRadius:10,background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)",fontSize:12 }}>
+                          <span>{sg.sangha_name}{sg.role?` · ${sg.role}`:""}</span>
+                          <span style={{ color:"var(--color-text-tertiary)" }}>{sg.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null
+          )}
+          {activeTab === "applied" && <SanghaScholarshipHistoryTab applicationId={applicationId} type="applied" />}
+          {activeTab === "benefitted" && <SanghaScholarshipHistoryTab applicationId={applicationId} type="benefitted" />}
+        </div>
+
+        <div style={{ padding:"14px 24px",borderTop:"0.5px solid var(--color-border-tertiary)",background:"var(--color-background-primary)",flexShrink:0,display:"flex",justifyContent:"flex-end" }}>
+          <button onClick={onClose} style={{ padding:"9px 22px",fontSize:13,fontWeight:600,borderRadius:10,border:"0.5px solid var(--color-border-tertiary)",background:"none",color:"var(--color-text-secondary)",cursor:"pointer" }}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Applicants List Modal (per-scholarship, tabs All/Approved/Rejected/Pending) ─
+function ApplicantsListModal({ scholarship, onClose }: { scholarship: Scholarship; onClose: () => void }) {
+  const [activeTab, setActiveTab] = useState<"all"|"approved"|"rejected"|"pending">("all");
+  const [applicants, setApplicants] = useState<RichApplicant[]>([]);
+  const [pagination, setPagination] = useState<RichApplicantsPagination | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [detailApp, setDetailApp] = useState<RichApplicant | null>(null);
+
+  const fetchApplicants = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ status: activeTab, page: String(page), limit: "15" });
+      const res = await fetch(`${API_BASE}/api/sangha/scholarships/${scholarship.id}/applicants-detail?${params.toString()}`, { headers: getAuthHeaders() });
+      const json = await res.json();
+      if (json.success) { setApplicants(json.data); setPagination(json.pagination); }
+    } catch { /* silently handled */ }
+    finally { setLoading(false); }
+  }, [scholarship.id, activeTab, page]);
+
+  useEffect(() => { fetchApplicants(); }, [fetchApplicants]);
+  useEffect(() => { setPage(1); }, [activeTab]);
+
+  const getDisplayName = (a: RichApplicant) => a.familyMemberId && a.familyMemberName ? a.familyMemberName : a.user.fullName;
+
+  const tabCounts = useMemo(() => {
+    // best-effort local counts from what's loaded; server pagination.total is authoritative for the active tab
+    return { all: pagination?.total ?? 0 };
+  }, [pagination]);
+
+  return (
+    <>
+      <div style={{ position:"fixed",inset:0,zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
+        <div onClick={onClose} style={{ position:"absolute",inset:0,background:"rgba(0,0,0,0.55)",backdropFilter:"blur(6px)",animation:"fadeIn 0.2s ease" }} />
+        <div style={{ position:"relative",background:"var(--color-background-primary,#fff)",borderRadius:20,width:"100%",maxWidth:900,maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 25px 60px rgba(0,0,0,0.28)",animation:"slideUp 0.28s cubic-bezier(0.16,1,0.3,1) both",fontFamily:"'DM Sans',sans-serif" }}>
+          <div style={{ background:"linear-gradient(135deg,#534AB7,#7B72D9)",padding:"20px 24px" }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
+              <div>
+                <p style={{ color:"rgba(255,255,255,0.75)",fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",margin:"0 0 4px" }}>Applicants</p>
+                <h2 style={{ color:"#fff",fontSize:20,fontWeight:700,margin:0,fontFamily:"'DM Serif Display',serif" }}>{scholarship.name}</h2>
+              </div>
+              <button onClick={onClose} style={{ color:"rgba(255,255,255,0.85)",background:"none",border:"none",cursor:"pointer",padding:4 }}><i className="ti ti-x" style={{ fontSize:20 }} /></button>
+            </div>
+          </div>
+
+          <div style={{ borderBottom:"0.5px solid var(--color-border-tertiary)",padding:"0 24px" }}>
+            <div style={{ display:"flex",gap:4,marginBottom:-1 }}>
+              {(["all","approved","rejected","pending"] as const).map((tab) => (
+                <button key={tab} onClick={()=>setActiveTab(tab)} style={{ padding:"11px 16px",fontSize:13,fontWeight:500,textTransform:"capitalize",border:"none",borderBottom:activeTab===tab?"2px solid #534AB7":"2px solid transparent",color:activeTab===tab?"#534AB7":"var(--color-text-secondary)",background:"none",cursor:"pointer" }}>{tab}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ flex:1,overflowY:"auto" }}>
+            {loading ? (
+              <div style={{ display:"flex",alignItems:"center",justifyContent:"center",height:192,gap:10,color:"#534AB7" }}>
+                <i className="ti ti-loader-2 ti-spin" style={{ fontSize:22 }} /><span style={{ fontSize:14 }}>Loading applicants…</span>
+              </div>
+            ) : applicants.length === 0 ? (
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:192,color:"var(--color-text-tertiary)" }}>
+                <i className="ti ti-users" style={{ fontSize:36,opacity:0.3,marginBottom:8 }} />
+                <p style={{ fontSize:14,margin:0 }}>No applicants found for this filter.</p>
+              </div>
+            ) : (
+              applicants.map((app, idx) => {
+                const isFM = !!app.familyMemberId;
+                const displayName = getDisplayName(app);
+                return (
+                  <div key={app.applicationId} style={{ padding:"14px 24px",borderTop:idx===0?"none":"0.5px solid var(--color-background-secondary)",display:"flex",alignItems:"center",gap:14 }}>
+                    <Avatar name={displayName||"?"} size={40} />
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+                        <span style={{ fontWeight:700,color:"var(--color-text-primary)",fontSize:14 }}>{displayName}</span>
+                        {isFM && <span style={{ fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:100,background:"rgba(24,95,165,0.1)",color:"#185FA5" }}>Family Member</span>}
+                        <span style={{ fontSize:11,fontWeight:700,padding:"2px 9px",borderRadius:100,background:app.status==="approved"?"rgba(15,110,86,0.1)":app.status==="rejected"?"rgba(192,57,43,0.08)":"var(--color-background-secondary)",color:app.status==="approved"?"var(--color-text-success)":app.status==="rejected"?"var(--color-text-danger)":"var(--color-text-secondary)" }}>{app.status}</span>
+                      </div>
+                      <div style={{ fontSize:12,color:"var(--color-text-tertiary)",marginTop:3 }}>
+                        {isFM ? `${app.familyMemberRelation} of ${app.user.fullName}` : app.user.email} · {app.user.phone}
+                        {(app.user.district||app.user.state) && ` · ${[app.user.district,app.user.state].filter(Boolean).join(", ")}`}
+                      </div>
+                      <div style={{ fontSize:11,color:"var(--color-text-tertiary)",marginTop:2 }}>Applied {new Date(app.appliedAt).toLocaleDateString("en-IN")}</div>
+                    </div>
+                    <button onClick={()=>setDetailApp(app)} style={{ width:34,height:34,borderRadius:9,border:"none",background:"var(--color-background-secondary)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--color-text-secondary)" }}>
+                      <i className="ti ti-eye" style={{ fontSize:16 }} />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {pagination && pagination.totalPages > 1 && (
+            <div style={{ borderTop:"0.5px solid var(--color-border-tertiary)",padding:"12px 24px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+              <span style={{ fontSize:12,color:"var(--color-text-tertiary)" }}>Page {page} / {pagination.totalPages}</span>
+              <div style={{ display:"flex",gap:8 }}>
+                <button disabled={page===1} onClick={()=>setPage(p=>p-1)} style={{ padding:"5px 12px",borderRadius:8,border:"0.5px solid var(--color-border-tertiary)",background:"none",cursor:page===1?"not-allowed":"pointer",opacity:page===1?0.4:1 }}>Prev</button>
+                <button disabled={page===pagination.totalPages} onClick={()=>setPage(p=>p+1)} style={{ padding:"5px 12px",borderRadius:8,border:"0.5px solid var(--color-border-tertiary)",background:"none",cursor:page===pagination.totalPages?"not-allowed":"pointer",opacity:page===pagination.totalPages?0.4:1 }}>Next</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {detailApp && (
+        <SanghaApplicantDetailModal
+          applicationId={detailApp.applicationId}
+          applicantName={getDisplayName(detailApp)}
+          isFamilyMember={!!detailApp.familyMemberId}
+          onClose={()=>setDetailApp(null)}
+        />
+      )}
+    </>
+  );
+}
 function BeneficiariesPanel({ scholarship, onClose, pushToast, onCountChange, onScholarshipAutoClose }: {
   scholarship: Scholarship; onClose: () => void; pushToast: (type: Toast["type"], msg: string) => void;
   onCountChange: (delta: number) => void; onScholarshipAutoClose: () => void;
@@ -1359,8 +1858,8 @@ function FilterSidebar({ categories, selectedCategoryIds, onCategoryToggle, sele
 }
 
 // ─── Scholarship Card ─────────────────────────────────────────────────────────
-function ScholarshipCard({ scholarship,onEdit,onDelete,onClose:onCloseScholarship,onBeneficiaries,deleting,closing,index,categories,showBeneficiaries,pushToast,approvedCount,onApprovedCountChange,onScholarshipAutoClose }: {
-  scholarship:Scholarship; onEdit:()=>void; onDelete:()=>void; onClose:()=>void; onBeneficiaries:()=>void;
+function ScholarshipCard({ scholarship,onEdit,onDelete,onClose:onCloseScholarship,onBeneficiaries,onViewApplicants,deleting,closing,index,categories,showBeneficiaries,pushToast,approvedCount,onApprovedCountChange,onScholarshipAutoClose }: {
+  scholarship:Scholarship; onEdit:()=>void; onDelete:()=>void; onClose:()=>void; onBeneficiaries:()=>void; onViewApplicants:()=>void;
   deleting:boolean; closing:boolean; index:number; categories:ScholarshipCategory[]; showBeneficiaries:boolean;
   pushToast:(type:Toast["type"],msg:string)=>void; approvedCount:number;
   onApprovedCountChange:(id:string,delta:number)=>void; onScholarshipAutoClose:(id:string)=>void;
@@ -1419,15 +1918,19 @@ function ScholarshipCard({ scholarship,onEdit,onDelete,onClose:onCloseScholarshi
         )}
         <div style={{ display:"flex",gap:8,alignItems:"center" }}>
           {isActive&&(
-            <>
-              <button onClick={onBeneficiaries} className="action-btn" style={{ padding:"7px 16px",fontSize:12,border:`1px solid ${showBeneficiaries?"#534AB7":"rgba(83,74,183,0.3)"}`,borderRadius:100,background:showBeneficiaries?"linear-gradient(135deg,#534AB7,#7B72D9)":"rgba(83,74,183,0.06)",color:showBeneficiaries?"#fff":"#534AB7",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s" }}>
-                <i className="ti ti-users-check" style={{ fontSize:13 }} /> Beneficiaries {showBeneficiaries?"▲":"→"}
-              </button>
-              <button onClick={onCloseScholarship} disabled={closing} className="action-btn" style={{ padding:"7px 16px",fontSize:12,border:"1px solid rgba(100,116,139,0.3)",borderRadius:100,background:"rgba(100,116,139,0.06)",color:"#64748b",cursor:closing?"not-allowed":"pointer",fontWeight:500,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:5 }}>
-                {closing?<i className="ti ti-loader-2 ti-spin" style={{ fontSize:12 }} />:<i className="ti ti-lock" style={{ fontSize:12 }} />} Close
-              </button>
-            </>
-          )}
+  <>
+    <button onClick={onBeneficiaries} className="action-btn" style={{ padding:"7px 16px",fontSize:12,border:`1px solid ${showBeneficiaries?"#534AB7":"rgba(83,74,183,0.3)"}`,borderRadius:100,background:showBeneficiaries?"linear-gradient(135deg,#534AB7,#7B72D9)":"rgba(83,74,183,0.06)",color:showBeneficiaries?"#fff":"#534AB7",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s" }}>
+      <i className="ti ti-users-check" style={{ fontSize:13 }} /> Beneficiaries {showBeneficiaries?"▲":"→"}
+    </button>
+    {/* ── NEW: View Applicants (read-only rich modal, like admin) ── */}
+    <button onClick={onViewApplicants} className="action-btn" style={{ padding:"7px 16px",fontSize:12,border:"1px solid rgba(24,95,165,0.3)",borderRadius:100,background:"rgba(24,95,165,0.06)",color:"#185FA5",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6 }}>
+      <i className="ti ti-eye" style={{ fontSize:13 }} /> View Applicants
+    </button>
+    <button onClick={onCloseScholarship} disabled={closing} className="action-btn" style={{ padding:"7px 16px",fontSize:12,border:"1px solid rgba(100,116,139,0.3)",borderRadius:100,background:"rgba(100,116,139,0.06)",color:"#64748b",cursor:closing?"not-allowed":"pointer",fontWeight:500,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:5 }}>
+      {closing?<i className="ti ti-loader-2 ti-spin" style={{ fontSize:12 }} />:<i className="ti ti-lock" style={{ fontSize:12 }} />} Close
+    </button>
+  </>
+)}
           {(isClosed||isDraft)&&(
             <>
               <button onClick={onEdit} disabled={deleting} className="action-btn" style={{ padding:"7px 16px",fontSize:12,border:"1px solid var(--color-border-secondary)",borderRadius:100,background:"none",cursor:"pointer",color:"var(--color-text-secondary)",display:"flex",alignItems:"center",gap:5,fontFamily:"'DM Sans',sans-serif" }}>
@@ -1447,6 +1950,138 @@ function ScholarshipCard({ scholarship,onEdit,onDelete,onClose:onCloseScholarshi
     </div>
   );
 }
+
+
+function AllApplicantsView({
+  applicants, meta, loading,
+  statusFilter, onStatusFilterChange,
+  yearFilter, onYearFilterChange,
+  startDate, onStartDateChange,
+  endDate, onEndDateChange,
+  onViewProfile,
+}: {
+  applicants: AllApplicantRow[];
+  meta: AllApplicantsMeta | null;
+  loading: boolean;
+  statusFilter: string; onStatusFilterChange: (v: string) => void;
+  yearFilter: string; onYearFilterChange: (v: string) => void;
+  startDate: string; onStartDateChange: (v: string) => void;
+  endDate: string; onEndDateChange: (v: string) => void;
+  onViewProfile: (row: AllApplicantRow) => void;
+}) {
+  const statusMeta = (s: string) => {
+    if (s === "approved") return { bg:"rgba(15,110,86,0.1)",color:"var(--color-text-success)",border:"rgba(15,110,86,0.25)",label:"Approved",icon:"ti-circle-check" };
+    if (s === "rejected") return { bg:"rgba(192,57,43,0.08)",color:"var(--color-text-danger)",border:"rgba(192,57,43,0.2)",label:"Rejected",icon:"ti-circle-x" };
+    return { bg:"var(--color-background-secondary)",color:"var(--color-text-secondary)",border:"var(--color-border-tertiary)",label:"Pending",icon:"ti-clock" };
+  };
+
+  const handleYearChange = (v: string) => { onYearFilterChange(v); onStartDateChange(""); onEndDateChange(""); };
+  const handleDateChange = (which: "start"|"end", v: string) => {
+    if (which === "start") onStartDateChange(v); else onEndDateChange(v);
+    onYearFilterChange("");
+  };
+
+  return (
+    <div style={{ animation:"fadeIn 0.25s ease" }}>
+      <div style={{ display:"flex",gap:4,marginBottom:14,borderBottom:"0.5px solid var(--color-border-tertiary)" }}>
+        {(["all","approved","rejected","pending"] as const).map((tab) => {
+          const active = (statusFilter || "all") === tab;
+          const count = meta?.statusCounts?.[tab] ?? 0;
+          return (
+            <button key={tab} onClick={()=>onStatusFilterChange(tab==="all"?"":tab)} style={{
+              padding:"9px 16px",fontSize:13,fontWeight:600,textTransform:"capitalize",
+              border:"none",background:"none",cursor:"pointer",
+              borderBottom:active?"2px solid #534AB7":"2px solid transparent",
+              color:active?"#534AB7":"var(--color-text-secondary)",
+              display:"flex",alignItems:"center",gap:6,marginBottom:-1,
+              fontFamily:"'DM Sans',sans-serif",
+            }}>
+              {tab}
+              <span style={{ fontSize:11,fontWeight:700,padding:"1px 7px",borderRadius:100,background:active?"rgba(83,74,183,0.15)":"var(--color-background-secondary)",color:active?"#534AB7":"var(--color-text-tertiary)" }}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display:"flex",flexWrap:"wrap",alignItems:"center",gap:10,marginBottom:16 }}>
+        <select value={yearFilter} onChange={(e)=>handleYearChange(e.target.value)} style={{ fontSize:13,padding:"7px 10px",borderRadius:9,border:"0.5px solid var(--color-border-tertiary)",background:"var(--color-background-secondary)" }}>
+          <option value="">All Years</option>
+          {Array.from({length:6},(_,i)=>new Date().getFullYear()-i).map((y)=>(<option key={y} value={String(y)}>{y}</option>))}
+        </select>
+        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+          <span style={{ fontSize:11,color:"var(--color-text-tertiary)",fontWeight:600 }}>From</span>
+          <input type="date" value={startDate} max={endDate||undefined} onChange={(e)=>handleDateChange("start",e.target.value)} style={{ fontSize:12,padding:"6px 10px",borderRadius:9,border:"0.5px solid var(--color-border-tertiary)",background:"var(--color-background-secondary)" }} />
+          <span style={{ fontSize:11,color:"var(--color-text-tertiary)",fontWeight:600 }}>To</span>
+          <input type="date" value={endDate} min={startDate||undefined} onChange={(e)=>handleDateChange("end",e.target.value)} style={{ fontSize:12,padding:"6px 10px",borderRadius:9,border:"0.5px solid var(--color-border-tertiary)",background:"var(--color-background-secondary)" }} />
+        </div>
+        {(yearFilter||startDate||endDate)&&(
+          <button onClick={()=>{onYearFilterChange("");onStartDateChange("");onEndDateChange("");}} style={{ fontSize:12,color:"var(--color-text-danger)",background:"none",border:"none",cursor:"pointer" }}>Clear dates</button>
+        )}
+      </div>
+
+      <div style={{ display:"flex",flexWrap:"wrap",alignItems:"center",gap:8,marginBottom:14 }}>
+        <p style={{ fontSize:12,color:"var(--color-text-tertiary)",margin:0 }}>
+          {loading?"Loading…":(
+            <>Showing <strong style={{ color:"var(--color-text-secondary)" }}>{applicants.length}</strong> applicant{applicants.length!==1?"s":""}
+              {meta && <> across <strong style={{ color:"var(--color-text-secondary)" }}>{meta.filteredScholarships}</strong> scholarship{meta.filteredScholarships!==1?"s":""}</>}
+            </>
+          )}
+        </p>
+        {meta && (yearFilter||startDate||endDate||statusFilter) && (
+          <span style={{ fontSize:11,color:"var(--color-text-tertiary)",padding:"3px 10px",borderRadius:100,background:"var(--color-background-secondary)" }}>
+            Overall: {meta.totalApplicants} applicants · {meta.totalScholarships} scholarships
+          </span>
+        )}
+      </div>
+
+      {loading ? (
+        <div style={{ display:"flex",alignItems:"center",justifyContent:"center",height:200,gap:10,color:"#534AB7" }}>
+          <i className="ti ti-loader-2 ti-spin" style={{ fontSize:22 }} />
+          <span style={{ fontSize:14 }}>Loading applicants…</span>
+        </div>
+      ) : applicants.length === 0 ? (
+        <div style={{ padding:"3rem",textAlign:"center",color:"var(--color-text-tertiary)",border:"1px dashed var(--color-border-secondary)",borderRadius:16 }}>
+          <i className="ti ti-inbox" style={{ fontSize:30,opacity:0.35,display:"block",marginBottom:10 }} />
+          <p style={{ margin:0,fontSize:13 }}>No applicants found for this filter.</p>
+        </div>
+      ) : (
+        <div style={{ background:"var(--color-background-primary)",borderRadius:16,border:"0.5px solid var(--color-border-tertiary)",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+          {applicants.map((row, idx) => {
+            const isFM = !!row.familyMemberId;
+            const displayName = isFM && row.familyMemberName ? row.familyMemberName : row.user.fullName;
+            const sm = statusMeta(row.status);
+            return (
+              <div key={row.applicationId} style={{ padding:"14px 18px",borderTop:idx===0?"none":"0.5px solid var(--color-border-tertiary)",display:"flex",alignItems:"center",gap:14 }}>
+                <Avatar name={displayName||"?"} size={38} />
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+                    <span style={{ fontSize:13,fontWeight:700,color:"var(--color-text-primary)" }}>{displayName}</span>
+                    {isFM && <span style={{ fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:100,background:"rgba(83,74,183,0.1)",color:"#534AB7" }}>{row.familyMemberRelation||"Family"}</span>}
+                    <span style={{ fontSize:11,fontWeight:600,padding:"2px 9px",borderRadius:100,background:sm.bg,color:sm.color,border:`0.5px solid ${sm.border}`,display:"inline-flex",alignItems:"center",gap:3 }}><i className={`ti ${sm.icon}`} style={{ fontSize:9 }} />{sm.label}</span>
+                  </div>
+                  <div style={{ fontSize:12,color:"#534AB7",fontWeight:600,marginTop:3,display:"flex",alignItems:"center",gap:5 }}>
+                    <i className="ti ti-award" style={{ fontSize:11 }} />{row.scholarshipTitle}
+                  </div>
+                  <div style={{ fontSize:11,color:"var(--color-text-tertiary)",marginTop:3 }}>
+                    {row.user.email} · {row.user.phone}
+                    {(row.user.district||row.user.state) && ` · ${[row.user.district,row.user.state].filter(Boolean).join(", ")}`}
+                  </div>
+                  <div style={{ fontSize:10,color:"var(--color-text-tertiary)",marginTop:2 }}>
+                    Applied {new Date(row.appliedAt).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+                  </div>
+                </div>
+                <button onClick={()=>onViewProfile(row)} style={{ width:34,height:34,border:"0.5px solid var(--color-border-tertiary)",borderRadius:9,background:"var(--color-background-secondary)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--color-text-secondary)",flexShrink:0 }}>
+                  <i className="ti ti-eye" style={{ fontSize:15 }} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function ScholarshipPage() {
@@ -1471,6 +2106,17 @@ export default function ScholarshipPage() {
   const [selectedEligibilities, setSelectedEligibilities] = useState<EligibilityKey[]>([]);
   const [selectedAgeRange, setSelectedAgeRange] = useState<string>("");
   const [approvedCounts, setApprovedCounts] = useState<Record<string, number>>({});
+
+  const [mainView, setMainView] = useState<"scholarships" | "applicants">("scholarships");
+  const [allApplicants, setAllApplicants] = useState<AllApplicantRow[]>([]);
+  const [allApplicantsMeta, setAllApplicantsMeta] = useState<AllApplicantsMeta | null>(null);
+  const [loadingAllApplicants, setLoadingAllApplicants] = useState(false);
+  const [applicantsStatusFilter, setApplicantsStatusFilter] = useState("");
+  const [applicantsYearFilter, setApplicantsYearFilter] = useState("");
+  const [applicantsStartDate, setApplicantsStartDate] = useState("");
+  const [applicantsEndDate, setApplicantsEndDate] = useState("");
+  const [viewingAllApplicantProfile, setViewingAllApplicantProfile] = useState<{ scholarshipId:string; profileId:string; applicantName:string; familyMemberName?:string|null; familyMemberRelation?:string|null } | null>(null);
+  const [applicantsListTarget, setApplicantsListTarget] = useState<Scholarship | null>(null);
 
   const fetchAll = useCallback(async () => {
     setPageLoading(true);
@@ -1500,6 +2146,33 @@ export default function ScholarshipPage() {
   }, [pushToast]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const fetchAllApplicants = useCallback(async () => {
+    setLoadingAllApplicants(true);
+    try {
+      const params = new URLSearchParams();
+      if (applicantsYearFilter) params.set("year", applicantsYearFilter);
+      if (applicantsStartDate) params.set("start_date", applicantsStartDate);
+      if (applicantsEndDate) params.set("end_date", applicantsEndDate);
+      if (applicantsStatusFilter) params.set("status", applicantsStatusFilter);
+      params.set("page", "1");
+      params.set("limit", "100");
+      const res = await fetch(`${API_BASE}/api/sangha/scholarships/applicants?${params.toString()}`, { headers: getAuthHeaders() });
+      const json = await res.json();
+      if (json.success) {
+        setAllApplicants(json.data);
+        setAllApplicantsMeta(json.meta ?? null);
+      }
+    } catch (err) {
+      pushToast("error", (err as Error).message || "Failed to load applicants");
+    } finally {
+      setLoadingAllApplicants(false);
+    }
+  }, [applicantsYearFilter, applicantsStartDate, applicantsEndDate, applicantsStatusFilter, pushToast]);
+
+  useEffect(() => {
+    if (mainView === "applicants") fetchAllApplicants();
+  }, [mainView, fetchAllApplicants]);
 
   const startCreate = () => { setEditing(emptyScholarship()); setIsCreating(true); };
   const handleCancel = () => { setEditing(null); setIsCreating(false); };
@@ -1685,9 +2358,23 @@ export default function ScholarshipPage() {
               </div>
             </div>
             {!editing && (
-              <button onClick={startCreate} className="action-btn" style={{ padding:"9px 20px",fontSize:13,fontWeight:600,border:"0.5px solid rgba(255,255,255,0.35)",borderRadius:12,background:"rgba(255,255,255,0.18)",color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",gap:7,backdropFilter:"blur(8px)",flexShrink:0,fontFamily:"'DM Sans',sans-serif" }}>
-                <i className="ti ti-plus" style={{ fontSize:15 }} /> New scholarship
-              </button>
+              <div style={{ display:"flex",alignItems:"center",gap:8,flexShrink:0 }}>
+                <div style={{ display:"flex",gap:4,background:"rgba(255,255,255,0.14)",borderRadius:11,padding:3,border:"0.5px solid rgba(255,255,255,0.25)" }}>
+                  {(["scholarships","applicants"] as const).map((v) => (
+                    <button key={v} onClick={()=>setMainView(v)} style={{
+                      padding:"6px 14px",fontSize:12,fontWeight:600,borderRadius:8,border:"none",cursor:"pointer",
+                      background:mainView===v?"#fff":"transparent",
+                      color:mainView===v?"#534AB7":"rgba(255,255,255,0.85)",
+                      textTransform:"capitalize",transition:"all 0.15s",fontFamily:"'DM Sans',sans-serif",
+                    }}>{v==="scholarships"?"Scholarships":"All Applicants"}</button>
+                  ))}
+                </div>
+                {mainView==="scholarships" && (
+                  <button onClick={startCreate} className="action-btn" style={{ padding:"9px 20px",fontSize:13,fontWeight:600,border:"0.5px solid rgba(255,255,255,0.35)",borderRadius:12,background:"rgba(255,255,255,0.18)",color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",gap:7,backdropFilter:"blur(8px)",flexShrink:0,fontFamily:"'DM Sans',sans-serif" }}>
+                    <i className="ti ti-plus" style={{ fontSize:15 }} /> New scholarship
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -1702,7 +2389,28 @@ export default function ScholarshipPage() {
 
         {!editing && (
           <>
-            {pageLoading ? (
+            {mainView === "applicants" ? (
+              <AllApplicantsView
+                applicants={allApplicants}
+                meta={allApplicantsMeta}
+                loading={loadingAllApplicants}
+                statusFilter={applicantsStatusFilter}
+                onStatusFilterChange={setApplicantsStatusFilter}
+                yearFilter={applicantsYearFilter}
+                onYearFilterChange={setApplicantsYearFilter}
+                startDate={applicantsStartDate}
+                onStartDateChange={setApplicantsStartDate}
+                endDate={applicantsEndDate}
+                onEndDateChange={setApplicantsEndDate}
+                onViewProfile={(row) => setViewingAllApplicantProfile({
+                  scholarshipId: row.scholarshipId,
+                  profileId: row.profileId,
+                  applicantName: row.user.fullName,
+                  familyMemberName: row.familyMemberName,
+                  familyMemberRelation: row.familyMemberRelation,
+                })}
+              />
+            ) : pageLoading ? (
               <div style={{ padding:"4rem 2rem",textAlign:"center",color:"var(--color-text-tertiary)",display:"flex",flexDirection:"column",alignItems:"center",gap:14 }}>
                 <i className="ti ti-loader-2 ti-spin" style={{ fontSize:28,color:"#534AB7" }} />
                 <p style={{ fontSize:14,margin:0 }}>Loading scholarships…</p>
@@ -1774,21 +2482,22 @@ export default function ScholarshipPage() {
                       <>
                         {(searchQuery||totalActiveFilters>0)&&<p style={{ fontSize:12,color:"var(--color-text-tertiary)",margin:"0 0 12px",fontWeight:500 }}>{filteredScholarships.length} result{filteredScholarships.length!==1?"s":""}</p>}
                         {filteredScholarships.map((s, i) => (
-                          <ScholarshipCard
-                            key={s.id} scholarship={s} index={i} categories={categories}
-                            onEdit={()=>handleEdit(s)}
-                            onDelete={()=>handleDelete(s.id)}
-                            onClose={()=>handleCloseScholarship(s.id)}
-                            onBeneficiaries={()=>toggleBeneficiaries(s.id)}
-                            deleting={deletingId===s.id}
-                            closing={closingId===s.id}
-                            showBeneficiaries={openBeneficiariesId===s.id}
-                            pushToast={pushToast}
-                            approvedCount={approvedCounts[s.id]??0}
-                            onApprovedCountChange={handleApprovedCountChange}
-                            onScholarshipAutoClose={handleScholarshipAutoClose}
-                          />
-                        ))}
+  <ScholarshipCard
+    key={s.id} scholarship={s} index={i} categories={categories}
+    onEdit={()=>handleEdit(s)}
+    onDelete={()=>handleDelete(s.id)}
+    onClose={()=>handleCloseScholarship(s.id)}
+    onBeneficiaries={()=>toggleBeneficiaries(s.id)}
+    onViewApplicants={()=>setApplicantsListTarget(s)}
+    deleting={deletingId===s.id}
+    closing={closingId===s.id}
+    showBeneficiaries={openBeneficiariesId===s.id}
+    pushToast={pushToast}
+    approvedCount={approvedCounts[s.id]??0}
+    onApprovedCountChange={handleApprovedCountChange}
+    onScholarshipAutoClose={handleScholarshipAutoClose}
+  />
+))}
                       </>
                     )}
                   </div>
@@ -1810,6 +2519,19 @@ export default function ScholarshipPage() {
           saving={false}
         />
       )}
+      {viewingAllApplicantProfile && (
+        <ProfileViewerModal
+          scholarshipId={viewingAllApplicantProfile.scholarshipId}
+          profileId={viewingAllApplicantProfile.profileId}
+          applicantName={viewingAllApplicantProfile.applicantName}
+          familyMemberName={viewingAllApplicantProfile.familyMemberName}
+          familyMemberRelation={viewingAllApplicantProfile.familyMemberRelation}
+          onClose={()=>setViewingAllApplicantProfile(null)}
+        />
+      )}
+      {applicantsListTarget && (
+  <ApplicantsListModal scholarship={applicantsListTarget} onClose={()=>setApplicantsListTarget(null)} />
+)}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </>
   );

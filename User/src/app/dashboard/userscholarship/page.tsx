@@ -104,6 +104,97 @@ interface FamilyMember {
   applicationStatus: ApplicationStatus;
 }
 
+// ─── Education / Bank types + helpers ──────────────────────────────────────────
+
+interface EducationDetails {
+  employmentType: "student" | "employed" | null;
+  pursuingDegree?: boolean;
+  sslcSchoolName?: string;
+  sslcYear?: string;
+  sslcPercentage?: string;
+  sslcMarksCardUrl?: string;
+  puCollegeName?: string;
+  puYear?: string;
+  puPercentage?: string;
+  puMarksCardUrl?: string;
+  degreeName?: string;
+  degreeInstitution?: string;
+  degreeYear?: string;
+  degreePercentage?: string;
+  degreeCertificateUrl?: string;
+}
+
+interface BankDetails {
+  accountHolderName?: string;
+  bankName?: string;
+  accountNumber?: string;
+  ifsc?: string;
+  branch?: string;
+}
+
+const REQUIRED_EDUCATION_FIELDS: Record<"student" | "employed", (keyof EducationDetails)[]> = {
+  student:  ["sslcSchoolName", "sslcYear", "sslcPercentage", "sslcMarksCardUrl", "puCollegeName", "puYear", "puPercentage", "puMarksCardUrl"],
+  employed: ["degreeName", "degreeInstitution", "degreeYear", "degreePercentage", "degreeCertificateUrl"],
+};
+
+const EDUCATION_FIELD_LABELS: Record<keyof EducationDetails, string> = {
+  employmentType: "Employment type",
+  pursuingDegree: "Currently pursuing degree",
+  sslcSchoolName: "SSLC school name",
+  sslcYear: "SSLC year of passing",
+  sslcPercentage: "SSLC percentage",
+  sslcMarksCardUrl: "SSLC marks card upload",
+  puCollegeName: "PU college name",
+  puYear: "PU year of passing",
+  puPercentage: "PU percentage",
+  puMarksCardUrl: "PU marks card upload",
+  degreeName: "Degree name",
+  degreeInstitution: "Degree institution",
+  degreeYear: "Degree year of passing",
+  degreePercentage: "Degree percentage",
+  degreeCertificateUrl: "Degree certificate upload",
+};
+
+function getMissingEducationFields(edu: EducationDetails | undefined): string[] {
+  if (!edu?.employmentType) return ["Employment type"];
+  let required = REQUIRED_EDUCATION_FIELDS[edu.employmentType];
+  if (edu.employmentType === "student" && edu.pursuingDegree) {
+    required = [...required, "degreeName", "degreeInstitution", "degreeYear", "degreePercentage", "degreeCertificateUrl"];
+  }
+  return required
+    .filter(f => !edu[f] || String(edu[f]).trim() === "")
+    .map(f => EDUCATION_FIELD_LABELS[f]);
+}
+
+const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+
+function getBankWarnings(bank: BankDetails | undefined): string[] {
+  if (!bank) return [];
+  const warnings: string[] = [];
+  if (bank.ifsc && !IFSC_REGEX.test(bank.ifsc.toUpperCase()))
+    warnings.push("IFSC code format looks incorrect (e.g. SBIN0001234).");
+  if (bank.accountNumber && !/^\d{6,20}$/.test(bank.accountNumber))
+    warnings.push("Account number should be 6–20 digits.");
+  return warnings;
+}
+
+async function uploadEducationDocument(memberId: string, docType: "sslc" | "pu" | "degree", file: File): Promise<string> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/userschl/members/${memberId}/education/documents/${docType}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? "File upload failed");
+  }
+  const json = await res.json();
+  return json.data.fileUrl;
+}
+
 // ─── Filter constants ─────────────────────────────────────────────────────────
 const STATUS_FILTERS = ["All", "Open", "Closing Soon", "Closed"];
 
@@ -247,6 +338,73 @@ function QuotaBar({ current, max }: { current: number; max: number }) {
   );
 }
 
+function TextField({
+  label, value, onChange, onBlur, required,
+}: {
+  label: string;
+  value?: string;
+  onChange: (v: string) => void;
+  onBlur: () => void;
+  required?: boolean;
+}) {
+  const isEmpty = required && (!value || value.trim() === "");
+  return (
+    <div style={{ flex:1 }}>
+      <label style={{ fontSize:12,fontWeight:600,color:"#666",marginBottom:5,display:"block" }}>
+        {label}{required && <span style={{ color:"#C0392B" }}> *</span>}
+      </label>
+      <input
+        type="text"
+        aria-label={label}
+        value={value ?? ""}
+        onChange={e => onChange(e.target.value)}
+        onBlur={onBlur}
+        style={{ width:"100%",padding:"10px 12px",fontSize:13,borderRadius:10,border:`1px solid ${isEmpty?"rgba(192,57,43,0.35)":"#ebebf0"}` }}
+      />
+    </div>
+  );
+}
+
+// ─── File Upload Field ─────────────────────────────────────────────────────────
+
+function FileUploadField({
+  label, memberId, docType, value, uploadingKey, onUpload, required,
+}: {
+  label: string;
+  memberId: string;
+  docType: "sslc" | "pu" | "degree";
+  value?: string;
+  uploadingKey: string | null;
+  onUpload: (memberId: string, docType: "sslc" | "pu" | "degree", file: File) => void;
+  required?: boolean;
+}) {
+  const key = `${memberId}:${docType}`;
+  const isUploading = uploadingKey === key;
+  const isMissing = required && !value;
+  return (
+    <div>
+      <label style={{ fontSize:12,fontWeight:600,color:"#666",marginBottom:5,display:"block" }}>
+        {label}{required && <span style={{ color:"#C0392B" }}> *</span>}
+      </label>
+      <div style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,border:`1px solid ${isMissing?"rgba(192,57,43,0.35)":"#ebebf0"}` }}>
+        <input
+          type="file"
+          aria-label={label}
+          accept=".pdf,.jpg,.jpeg,.png"
+          onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(memberId, docType, f); }}
+          style={{ fontSize:12,flex:1 }}
+        />
+        {isUploading && <span style={{ fontSize:11,color:"#534AB7",flexShrink:0 }}>Uploading…</span>}
+        {!isUploading && value && (
+          <a href={value} target="_blank" rel="noopener noreferrer" style={{ fontSize:11,color:"#0F6E56",flexShrink:0,textDecoration:"none",fontWeight:600 }}>
+            ✓ View uploaded
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Member Application Status Badge ─────────────────────────────────────────
 
 function MemberStatusBadge({ status }: { status: ApplicationStatus }) {
@@ -277,8 +435,14 @@ function ApplyModal({
   onClose: () => void;
   onSubmit: (applications: { memberId: string; checkedCriteria: string[] }[]) => Promise<void>;
   submitting: boolean;
-}) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+}) 
+{
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [educationStates, setEducationStates] = useState<Record<string, EducationDetails>>({});
+  const [bankStates, setBankStates] = useState<Record<string, BankDetails>>({});
+  const [loadedMemberData, setLoadedMemberData] = useState<Set<string>>(new Set());
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [membersError, setMembersError] = useState<string | null>(null);
@@ -313,6 +477,38 @@ function ApplyModal({
       .catch(err => { setMembersError(err.message); setLoadingMembers(false); });
   }, [scholarship.id]);
 
+  const selectableMembers = useMemo(
+  () => members.filter(m => m.applicationStatus === "not_applied"),
+  [members]
+);
+const selectedList = useMemo(
+  () => selectableMembers.filter(m => selectedIds.has(m.id)),
+  [selectableMembers, selectedIds]
+);
+const currentMember = selectedList[viewingMemberIdx];
+  // Auto-load previously saved education/bank details for the member currently
+  // being viewed in Step 3 (education) or Step 4 (bank), once per member.
+  useEffect(() => {
+    if (step !== 3 && step !== 4) return;
+    const m = selectedList[viewingMemberIdx];
+    if (!m || loadedMemberData.has(m.id)) return;
+
+    (async () => {
+      try {
+        const [edu, bank] = await Promise.all([
+          apiFetch<EducationDetails | null>(`/userschl/members/${m.id}/education`),
+          apiFetch<BankDetails | null>(`/userschl/members/${m.id}/bank`),
+        ]);
+        setEducationStates(prev => ({ ...prev, [m.id]: edu ?? { employmentType: null } }));
+        setBankStates(prev => ({ ...prev, [m.id]: bank ?? {} }));
+        setLoadedMemberData(prev => new Set(prev).add(m.id));
+      } catch {
+        setLoadedMemberData(prev => new Set(prev).add(m.id));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, viewingMemberIdx, selectedList, loadedMemberData]);
+
   const toggleMember = (id: string) => {
     setSelectedIds(prev => {
       const n = new Set(prev);
@@ -329,9 +525,6 @@ function ApplyModal({
     });
   };
 
-  const selectableMembers = members.filter(m => m.applicationStatus === "not_applied");
-  const selectedList = selectableMembers.filter(m => selectedIds.has(m.id));
-  const currentMember = selectedList[viewingMemberIdx];
   const currentChecked = criteriaStates[currentMember?.id ?? ""] ?? new Set<string>();
   const allChecked = allCriteriaLabels.length === 0 || currentChecked.size === allCriteriaLabels.length;
   const canGoNextMember = viewingMemberIdx < selectedList.length - 1;
@@ -339,7 +532,69 @@ function ApplyModal({
 
   const handleStep2Next = () => {
     if (canGoNextMember) setViewingMemberIdx(v => v + 1);
-    else setStep(3);
+    else { setStep(3); setViewingMemberIdx(0); }
+  };
+
+  const updateEducation = (memberId: string, patch: Partial<EducationDetails>) => {
+    setEducationStates(prev => {
+      const existing = prev[memberId] ?? { employmentType: null };
+      return { ...prev, [memberId]: { ...existing, ...patch } };
+    });
+  };
+
+  const updateBank = (memberId: string, patch: Partial<BankDetails>) => {
+    setBankStates(prev => ({ ...prev, [memberId]: { ...prev[memberId], ...patch } }));
+  };
+
+  const handleDocUpload = async (memberId: string, docType: "sslc" | "pu" | "degree", file: File) => {
+    const key = `${memberId}:${docType}`;
+    setUploadingKey(key);
+    try {
+      const url = await uploadEducationDocument(memberId, docType, file);
+      const field = docType === "sslc" ? "sslcMarksCardUrl" : docType === "pu" ? "puMarksCardUrl" : "degreeCertificateUrl";
+      updateEducation(memberId, { [field]: url } as Partial<EducationDetails>);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setUploadingKey(null);
+    }
+  };
+
+  const saveEducation = async (memberId: string) => {
+    setSavingKey(`edu:${memberId}`);
+    try {
+      await apiFetch(`/userschl/members/${memberId}/education`, {
+        method: "PUT",
+        body: JSON.stringify(educationStates[memberId] ?? {}),
+      });
+    } catch { /* non-blocking; will retry on next save */ }
+    setSavingKey(null);
+  };
+
+  const saveBank = async (memberId: string) => {
+    setSavingKey(`bank:${memberId}`);
+    try {
+      await apiFetch(`/userschl/members/${memberId}/bank`, {
+        method: "PUT",
+        body: JSON.stringify(bankStates[memberId] ?? {}),
+      });
+    } catch { /* non-blocking */ }
+    setSavingKey(null);
+  };
+
+  const currentEducationMissing = getMissingEducationFields(educationStates[currentMember?.id ?? ""]);
+  const currentBankWarnings = getBankWarnings(bankStates[currentMember?.id ?? ""]);
+
+  const handleStep3Next = async () => {
+    if (currentMember) await saveEducation(currentMember.id);
+    if (canGoNextMember) setViewingMemberIdx(v => v + 1);
+    else { setStep(4); setViewingMemberIdx(0); }
+  };
+
+  const handleStep4Next = async () => {
+    if (currentMember) await saveBank(currentMember.id);
+    if (canGoNextMember) setViewingMemberIdx(v => v + 1);
+    else setStep(5);
   };
 
   const handleSubmit = async () => {
@@ -361,16 +616,16 @@ function ApplyModal({
             <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10 }}>
               <div style={{ flex:1,minWidth:0 }}>
                 <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:10 }}>
-                  {[1,2,3].map(s => (
+                  {[1,2,3,4,5].map(s => (
                     <div key={s} style={{ display:"flex",alignItems:"center",gap:6 }}>
                       <div style={{ width:22,height:22,borderRadius:"50%",background:step>s?"#534AB7":step===s?color:"#e8e8ee",color:step>=s?"#fff":"#aaa",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.2s" }}>
                         {step>s?"✓":s}
                       </div>
-                      {s < 3 && <div style={{ width:24,height:2,borderRadius:1,background:step>s?"#534AB7":"#e8e8ee",transition:"background 0.2s" }} />}
+                      {s < 5 && <div style={{ width:16,height:2,borderRadius:1,background:step>s?"#534AB7":"#e8e8ee",transition:"background 0.2s" }} />}
                     </div>
                   ))}
                   <span style={{ fontSize:11,color:"#999",marginLeft:4,fontWeight:600 }}>
-                    {step===1?"Select members":step===2?"Confirm eligibility":"Review & submit"}
+                    {step===1?"Select members":step===2?"Confirm eligibility":step===3?"Education details":step===4?"Bank details":"Review & submit"}
                   </span>
                 </div>
                 <h3 style={{ fontSize:16,fontWeight:700,color:"#1a1a2e",margin:0,lineHeight:1.3,fontFamily:"'Lora',serif" }}>{scholarship.name} scholarship</h3>
@@ -534,7 +789,148 @@ function ApplyModal({
               </div>
             )}
 
-            {step === 3 && (
+            
+            {step === 3 && currentMember && (
+              <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+                {selectedList.length > 1 && (
+                  <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                    {selectedList.map((m, idx) => {
+                      const missing = getMissingEducationFields(educationStates[m.id]);
+                      return (
+                        <button key={m.id} onClick={() => setViewingMemberIdx(idx)}
+                          style={{ padding:"5px 12px",fontSize:12,borderRadius:100,border:`1px solid ${viewingMemberIdx===idx?color:"#ebebf0"}`,background:viewingMemberIdx===idx?`${color}12`:"#fff",color:viewingMemberIdx===idx?color:"#666",fontWeight:viewingMemberIdx===idx?700:400,cursor:"pointer",display:"flex",alignItems:"center",gap:5 }}>
+                          {missing.length===0 && <span style={{ color:"#0F6E56",fontSize:11 }}>✓</span>}
+                          {m.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <p style={{ fontSize:13,color:"#666",margin:0,lineHeight:1.6 }}>
+                  Education details for <strong style={{ color:"#1a1a2e" }}>{currentMember.name}</strong>
+                  <span style={{ color:"#aaa" }}> — saved automatically and reused for future scholarship applications.</span>
+                </p>
+
+                <div style={{ display:"flex",gap:10 }}>
+                  {(["student","employed"] as const).map(opt => {
+                    const active = educationStates[currentMember.id]?.employmentType === opt;
+                    return (
+                      <button key={opt} onClick={() => updateEducation(currentMember.id, { employmentType: opt })}
+                        style={{ flex:1,padding:"10px",borderRadius:10,border:`1.5px solid ${active?color:"#ebebf0"}`,background:active?`${color}10`:"#fff",color:active?color:"#666",fontWeight:600,fontSize:13,cursor:"pointer" }}>
+                        {opt === "student" ? "Currently studying" : "Employed"}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {educationStates[currentMember.id]?.employmentType === "student" && (
+                  <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                    <div className="drawer-section-label">SSLC details</div>
+                    <TextField label="School name" required value={educationStates[currentMember.id]?.sslcSchoolName} onChange={v => updateEducation(currentMember.id, { sslcSchoolName: v })} onBlur={() => saveEducation(currentMember.id)} />
+                    <div style={{ display:"flex",gap:10 }}>
+                      <TextField label="Year of passing" required value={educationStates[currentMember.id]?.sslcYear} onChange={v => updateEducation(currentMember.id, { sslcYear: v })} onBlur={() => saveEducation(currentMember.id)} />
+                      <TextField label="Percentage" required value={educationStates[currentMember.id]?.sslcPercentage} onChange={v => updateEducation(currentMember.id, { sslcPercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
+                    </div>
+                    <FileUploadField label="SSLC marks card" required memberId={currentMember.id} docType="sslc"
+                      value={educationStates[currentMember.id]?.sslcMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+
+                    <div className="drawer-section-label" style={{ marginTop:6 }}>PU details</div>
+                    <TextField label="College name" required value={educationStates[currentMember.id]?.puCollegeName} onChange={v => updateEducation(currentMember.id, { puCollegeName: v })} onBlur={() => saveEducation(currentMember.id)} />
+                    <div style={{ display:"flex",gap:10 }}>
+                      <TextField label="Year of passing" required value={educationStates[currentMember.id]?.puYear} onChange={v => updateEducation(currentMember.id, { puYear: v })} onBlur={() => saveEducation(currentMember.id)} />
+                      <TextField label="Percentage" required value={educationStates[currentMember.id]?.puPercentage} onChange={v => updateEducation(currentMember.id, { puPercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
+                    </div>
+                    <FileUploadField label="PU marks card" required memberId={currentMember.id} docType="pu"
+                      value={educationStates[currentMember.id]?.puMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+                      <div style={{ display:"flex",alignItems:"center",gap:8,marginTop:6,cursor:"pointer" }}
+                      onClick={() => updateEducation(currentMember.id, { pursuingDegree: !educationStates[currentMember.id]?.pursuingDegree })}>
+                      <div style={{ width:18,height:18,borderRadius:5,border:educationStates[currentMember.id]?.pursuingDegree?"none":"1.5px solid #ccc",background:educationStates[currentMember.id]?.pursuingDegree?color:"transparent",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:10 }}>
+                        {educationStates[currentMember.id]?.pursuingDegree?"✓":""}
+                      </div>
+                      <span style={{ fontSize:12,fontWeight:600,color:"#666" }}>Currently pursuing a degree</span>
+                    </div>
+
+                    {educationStates[currentMember.id]?.pursuingDegree && (
+                      <>
+                        <div className="drawer-section-label" style={{ marginTop:6 }}>Degree details</div>
+                        <TextField label="Degree name" required value={educationStates[currentMember.id]?.degreeName} onChange={v => updateEducation(currentMember.id, { degreeName: v })} onBlur={() => saveEducation(currentMember.id)} />
+                        <TextField label="Institution" required value={educationStates[currentMember.id]?.degreeInstitution} onChange={v => updateEducation(currentMember.id, { degreeInstitution: v })} onBlur={() => saveEducation(currentMember.id)} />
+                        <div style={{ display:"flex",gap:10 }}>
+                          <TextField label="Year of passing" required value={educationStates[currentMember.id]?.degreeYear} onChange={v => updateEducation(currentMember.id, { degreeYear: v })} onBlur={() => saveEducation(currentMember.id)} />
+                          <TextField label="Percentage" required value={educationStates[currentMember.id]?.degreePercentage} onChange={v => updateEducation(currentMember.id, { degreePercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
+                        </div>
+                        <FileUploadField label="Degree certificate" required memberId={currentMember.id} docType="degree"
+                          value={educationStates[currentMember.id]?.degreeCertificateUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {educationStates[currentMember.id]?.employmentType === "employed" && (
+                  <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                    <div className="drawer-section-label">Highest degree</div>
+                    <TextField label="Degree name" required value={educationStates[currentMember.id]?.degreeName} onChange={v => updateEducation(currentMember.id, { degreeName: v })} onBlur={() => saveEducation(currentMember.id)} />
+                    <TextField label="Institution" required value={educationStates[currentMember.id]?.degreeInstitution} onChange={v => updateEducation(currentMember.id, { degreeInstitution: v })} onBlur={() => saveEducation(currentMember.id)} />
+                    <div style={{ display:"flex",gap:10 }}>
+                      <TextField label="Year of passing" required value={educationStates[currentMember.id]?.degreeYear} onChange={v => updateEducation(currentMember.id, { degreeYear: v })} onBlur={() => saveEducation(currentMember.id)} />
+                      <TextField label="Percentage" required value={educationStates[currentMember.id]?.degreePercentage} onChange={v => updateEducation(currentMember.id, { degreePercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
+                    </div>
+                    <FileUploadField label="Degree certificate" required memberId={currentMember.id} docType="degree"
+                      value={educationStates[currentMember.id]?.degreeCertificateUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+
+                    <div className="drawer-section-label" style={{ marginTop:6 }}>SSLC / PU (if applicable)</div>
+                    <TextField label="SSLC school name" value={educationStates[currentMember.id]?.sslcSchoolName} onChange={v => updateEducation(currentMember.id, { sslcSchoolName: v })} onBlur={() => saveEducation(currentMember.id)} />
+                    <FileUploadField label="SSLC marks card" memberId={currentMember.id} docType="sslc"
+                      value={educationStates[currentMember.id]?.sslcMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+                    <TextField label="PU college name" value={educationStates[currentMember.id]?.puCollegeName} onChange={v => updateEducation(currentMember.id, { puCollegeName: v })} onBlur={() => saveEducation(currentMember.id)} />
+                    <FileUploadField label="PU marks card" memberId={currentMember.id} docType="pu"
+                      value={educationStates[currentMember.id]?.puMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+                  </div>
+                )}
+
+                {savingKey === `edu:${currentMember.id}` && <span style={{ fontSize:11,color:"#999" }}>Saving…</span>}
+
+                {educationStates[currentMember.id]?.employmentType && currentEducationMissing.length > 0 && (
+                  <div style={{ padding:"10px 14px",borderRadius:10,background:"rgba(220,100,0,0.06)",border:"1px solid rgba(220,100,0,0.2)",fontSize:12,color:"#c96000" }}>
+                    ⚠ Missing required fields: {currentEducationMissing.join(", ")}.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {step === 4 && currentMember && (
+              <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+                {selectedList.length > 1 && (
+                  <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                    {selectedList.map((m, idx) => (
+                      <button key={m.id} onClick={() => setViewingMemberIdx(idx)}
+                        style={{ padding:"5px 12px",fontSize:12,borderRadius:100,border:`1px solid ${viewingMemberIdx===idx?color:"#ebebf0"}`,background:viewingMemberIdx===idx?`${color}12`:"#fff",color:viewingMemberIdx===idx?color:"#666",fontWeight:viewingMemberIdx===idx?700:400,cursor:"pointer" }}>
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p style={{ fontSize:13,color:"#666",margin:0,lineHeight:1.6 }}>
+                  Bank details for <strong style={{ color:"#1a1a2e" }}>{currentMember.name}</strong>
+                  <span style={{ color:"#aaa" }}> — optional, saved automatically for future scholarships.</span>
+                </p>
+
+                <TextField label="Account holder name" value={bankStates[currentMember.id]?.accountHolderName} onChange={v => updateBank(currentMember.id, { accountHolderName: v })} onBlur={() => saveBank(currentMember.id)} />
+                <TextField label="Bank name" value={bankStates[currentMember.id]?.bankName} onChange={v => updateBank(currentMember.id, { bankName: v })} onBlur={() => saveBank(currentMember.id)} />
+                <TextField label="Account number" value={bankStates[currentMember.id]?.accountNumber} onChange={v => updateBank(currentMember.id, { accountNumber: v })} onBlur={() => saveBank(currentMember.id)} />
+                <TextField label="IFSC code" value={bankStates[currentMember.id]?.ifsc} onChange={v => updateBank(currentMember.id, { ifsc: v.toUpperCase() })} onBlur={() => saveBank(currentMember.id)} />
+                <TextField label="Branch" value={bankStates[currentMember.id]?.branch} onChange={v => updateBank(currentMember.id, { branch: v })} onBlur={() => saveBank(currentMember.id)} />
+
+                {savingKey === `bank:${currentMember.id}` && <span style={{ fontSize:11,color:"#999" }}>Saving…</span>}
+
+                {currentBankWarnings.length > 0 && (
+                  <div style={{ padding:"10px 14px",borderRadius:10,background:"rgba(220,100,0,0.06)",border:"1px solid rgba(220,100,0,0.2)",fontSize:12,color:"#c96000" }}>
+                    ⚠ {currentBankWarnings.join(" ")}
+                  </div>
+                )}
+              </div>
+            )}
+            {step === 5 && (
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                 <p style={{ fontSize:13,color:"#666",margin:0,lineHeight:1.6 }}>Review your applications before submitting.</p>
                 <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
@@ -571,7 +967,13 @@ function ApplyModal({
           </div>
 
           <div style={{ padding:"16px 24px",borderTop:"1px solid #ebebf0",background:"#fff",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12 }}>
-            <button onClick={() => { if(step===1)onClose(); else if(step===2){setStep(1);setViewingMemberIdx(0);} else setStep(2); }}
+            <button onClick={() => {
+              if (step===1) onClose();
+              else if (step===2) { setStep(1); setViewingMemberIdx(0); }
+              else if (step===3) { setStep(2); setViewingMemberIdx(0); }
+              else if (step===4) { setStep(3); setViewingMemberIdx(0); }
+              else { setStep(4); setViewingMemberIdx(0); }
+            }}
               style={{ padding:"9px 18px",fontSize:13,fontWeight:600,border:"1px solid #e0e0e8",borderRadius:10,background:"none",cursor:"pointer",color:"#666",display:"flex",alignItems:"center",gap:6 }}>
               ← {step===1?"Cancel":"Back"}
             </button>
@@ -585,10 +987,22 @@ function ApplyModal({
               {step===2 && (
                 <button disabled={!allChecked} onClick={handleStep2Next}
                   style={{ padding:"9px 22px",fontSize:13,fontWeight:600,border:"none",borderRadius:10,background:allChecked?`linear-gradient(135deg,${color},${color}cc)`:"#e0e0e8",color:allChecked?"#fff":"#aaa",cursor:allChecked?"pointer":"not-allowed",display:"flex",alignItems:"center",gap:6,boxShadow:allChecked?`0 3px 14px ${color}55`:"none" }}>
-                  {isLastMember?"Review application":`Next — ${selectedList[viewingMemberIdx+1]?.name??"Next"}`} →
+                  {isLastMember?"Next — Education details":`Next — ${selectedList[viewingMemberIdx+1]?.name??"Next"}`} →
                 </button>
               )}
               {step===3 && (
+                <button disabled={currentEducationMissing.length > 0} onClick={handleStep3Next}
+                  style={{ padding:"9px 22px",fontSize:13,fontWeight:600,border:"none",borderRadius:10,background:currentEducationMissing.length===0?`linear-gradient(135deg,${color},${color}cc)`:"#e0e0e8",color:currentEducationMissing.length===0?"#fff":"#aaa",cursor:currentEducationMissing.length===0?"pointer":"not-allowed",display:"flex",alignItems:"center",gap:6,boxShadow:currentEducationMissing.length===0?`0 3px 14px ${color}55`:"none" }}>
+                  {isLastMember?"Next — Bank details":`Next — ${selectedList[viewingMemberIdx+1]?.name??"Next"}`} →
+                </button>
+              )}
+              {step===4 && (
+                <button onClick={handleStep4Next}
+                  style={{ padding:"9px 22px",fontSize:13,fontWeight:600,border:"none",borderRadius:10,background:`linear-gradient(135deg,${color},${color}cc)`,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",gap:6,boxShadow:`0 3px 14px ${color}55` }}>
+                  {isLastMember?"Review application":`Next — ${selectedList[viewingMemberIdx+1]?.name??"Next"}`} →
+                </button>
+              )}
+              {step===5 && (
                 <button onClick={handleSubmit} disabled={submitting} className="apply-btn"
                   style={{ padding:"9px 24px",fontSize:13,fontWeight:600,border:"none",borderRadius:10,background:"linear-gradient(135deg,#534AB7,#7B72D9)",color:"#fff",cursor:submitting?"wait":"pointer",display:"flex",alignItems:"center",gap:6,boxShadow:"0 3px 14px rgba(83,74,183,0.4)" }}>
                   {submitting?"⏳ Submitting…":`✈ Submit ${selectedList.length>1?`${selectedList.length} applications`:"application"}`}
