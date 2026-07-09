@@ -1,4 +1,3 @@
-// Community-Application\backend\src\controllers\sanghaschlcontroller.j s
 const pool = require("../config/db");
 
 async function getSanghaId(sanghaAuthId) {
@@ -1241,11 +1240,16 @@ async function getSanghaApplicantDetails(req, res) {
     const userRow = userResult.rows[0];
 
     // ── Helper: fetch education documents + bank details (NEW — sangha-only addition) ──
+    // sslc_pursued / pu_pursued are read here so the applicant modal can show
+    // "SSLC Pursued: Yes/No" and "PU Pursued: Yes/No" and gate the related
+    // detail fields + documents on that answer, mirroring the user-side apply flow.
     async function fetchEducationAndBank(fmId) {
       const [eduRes, bankRes] = await Promise.all([
         pool.query(
           `SELECT employment_type, pursuing_degree,
+                  sslc_pursued,
                   sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
+                  pu_pursued,
                   pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
                   degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url
            FROM member_education_details
@@ -1269,10 +1273,12 @@ async function getSanghaApplicantDetails(req, res) {
         documents: e ? {
           employmentType: e.employment_type,
           pursuingDegree: e.pursuing_degree,
+          sslcPursued: e.sslc_pursued,
           sslcSchoolName: e.sslc_school_name,
           sslcYear: e.sslc_year,
           sslcPercentage: e.sslc_percentage,
           sslcMarksCardUrl: e.sslc_marks_card_url,
+          puPursued: e.pu_pursued,
           puCollegeName: e.pu_college_name,
           puYear: e.pu_year,
           puPercentage: e.pu_percentage,
@@ -1727,4 +1733,3 @@ module.exports = {
   getScholarshipApplicantsList,
   getSanghaApplicantDetails,
   getSanghaApplicantScholarshipHistory,
-};

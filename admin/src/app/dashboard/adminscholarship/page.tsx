@@ -1,4 +1,3 @@
-//Community-Application\admin\src\app\dashboard\adminscholarship\page.tsx
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
@@ -83,6 +82,17 @@ interface ApplicantDetail {
   applicantType: "self" | "family_member";
   data: SelfDetail | FamilyMemberDetail;
 }
+
+// NEW: SSLC / PU pursued status + certificate details (from member_education_details)
+interface EducationStatusDetail {
+  sslcPursued: boolean | null;
+  puPursued: boolean | null;
+  sslcSchoolName: string | null; sslcYear: string | null; sslcPercentage: string | null; sslcMarksCardUrl: string | null;
+  puCollegeName: string | null; puYear: string | null; puPercentage: string | null; puMarksCardUrl: string | null;
+  degreeName: string | null; degreeInstitution: string | null; degreeYear: string | null; degreePercentage: string | null; degreeCertificateUrl: string | null;
+  employmentType: string | null; pursuingDegree: boolean | null;
+}
+
 interface SelfDetail {
   personal: {
     firstName: string; middleName: string; lastName: string; fullName: string;
@@ -103,6 +113,8 @@ interface SelfDetail {
   economic: EconomicDetail | null;
   insurance: InsuranceDetail | null;
   documents: DocumentDetail | null;
+  // NEW: SSLC / PU pursued status
+  educationStatus: EducationStatusDetail | null;
   sanghas: { sangha_name: string; role: string; tenure: string; status: string; }[];
 }
 interface FamilyMemberDetail {
@@ -111,6 +123,8 @@ interface FamilyMemberDetail {
   education: EducationDetail | null;
   insurance: InsuranceDetail | null;
   documents: DocumentDetail | null;
+  // NEW: SSLC / PU pursued status
+  educationStatus: EducationStatusDetail | null;
 }
 interface AddressItem {
   type: string; flatNo: string; building: string; street: string; landmark: string;
@@ -543,6 +557,23 @@ function ApplicantInfoTab({
             </div>
           )}
 
+          {/* NEW: SSLC / PU Pursued Status */}
+          {fmData.educationStatus && (
+            <div>
+              <SectionTitle>SSLC / PU Status</SectionTitle>
+              <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: C.gray600, fontWeight: 500 }}>SSLC Pursued</span>
+                  <YesNoBadgeEl value={fmData.educationStatus.sslcPursued} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: C.gray600, fontWeight: 500 }}>PU Pursued</span>
+                  <YesNoBadgeEl value={fmData.educationStatus.puPursued} />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Insurance */}
           {fmData.insurance && (
             <div>
@@ -707,6 +738,23 @@ function ApplicantInfoTab({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* NEW: SSLC / PU Pursued Status */}
+          {selfData.educationStatus && (
+            <div>
+              <SectionTitle>SSLC / PU Status</SectionTitle>
+              <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: C.gray600, fontWeight: 500 }}>SSLC Pursued</span>
+                  <YesNoBadgeEl value={selfData.educationStatus.sslcPursued} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: C.gray600, fontWeight: 500 }}>PU Pursued</span>
+                  <YesNoBadgeEl value={selfData.educationStatus.puPursued} />
+                </div>
+              </div>
             </div>
           )}
 

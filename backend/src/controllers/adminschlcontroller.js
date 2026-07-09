@@ -1,3 +1,4 @@
+//Community-Application\backend\src\controllers\adminschlcontroller.js
 const pool = require("../config/db");
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -466,6 +467,20 @@ async function getApplicantDetails(req, res) {
       );
       const fmDoc = fmDocResult.rows[0] || null;
 
+      // Education documents (SSLC / PU pursued flags + certificate details)
+      const fmEduDocResult = await pool.query(
+        `SELECT sslc_pursued, pu_pursued,
+                sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
+                pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
+                degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url,
+                employment_type, pursuing_degree
+         FROM member_education_details
+         WHERE profile_id = $1 AND family_member_id = $2
+         LIMIT 1`,
+        [profileId, familyMemberId]
+      );
+      const fmEduDoc = fmEduDocResult.rows[0] || null;
+
       return res.status(200).json({
         success: true,
         applicantType: "family_member",
@@ -500,13 +515,33 @@ async function getApplicantDetails(req, res) {
             termCoverage: fmIns.term_coverage,
             konkaniCardCoverage: fmIns.konkani_card_coverage,
           } : null,
-          // Documents
+          // Identity documents (existing)
           documents: fmDoc ? {
             aadhaarCoverage: fmDoc.aadhaar_coverage,
             panCoverage: fmDoc.pan_coverage,
             voterIdCoverage: fmDoc.voter_id_coverage,
             landDocCoverage: fmDoc.land_doc_coverage,
             dlCoverage: fmDoc.dl_coverage,
+          } : null,
+          // NEW: SSLC / PU pursued status + certificate details
+          educationStatus: fmEduDoc ? {
+            sslcPursued: fmEduDoc.sslc_pursued,
+            puPursued: fmEduDoc.pu_pursued,
+            sslcSchoolName: fmEduDoc.sslc_school_name,
+            sslcYear: fmEduDoc.sslc_year,
+            sslcPercentage: fmEduDoc.sslc_percentage,
+            sslcMarksCardUrl: fmEduDoc.sslc_marks_card_url,
+            puCollegeName: fmEduDoc.pu_college_name,
+            puYear: fmEduDoc.pu_year,
+            puPercentage: fmEduDoc.pu_percentage,
+            puMarksCardUrl: fmEduDoc.pu_marks_card_url,
+            degreeName: fmEduDoc.degree_name,
+            degreeInstitution: fmEduDoc.degree_institution,
+            degreeYear: fmEduDoc.degree_year,
+            degreePercentage: fmEduDoc.degree_percentage,
+            degreeCertificateUrl: fmEduDoc.degree_certificate_url,
+            employmentType: fmEduDoc.employment_type,
+            pursuingDegree: fmEduDoc.pursuing_degree,
           } : null,
         },
       });
@@ -593,6 +628,20 @@ async function getApplicantDetails(req, res) {
       [profileId, userName]
     );
     const doc = docResult.rows[0] || null;
+
+    // Education documents (SSLC / PU pursued flags + certificate details) — self
+    const eduDocResult = await pool.query(
+      `SELECT sslc_pursued, pu_pursued,
+              sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
+              pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
+              degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url,
+              employment_type, pursuing_degree
+       FROM member_education_details
+       WHERE profile_id = $1 AND family_member_id IS NULL
+       LIMIT 1`,
+      [profileId]
+    );
+    const eduDoc = eduDocResult.rows[0] || null;
 
     // Fetch sangha memberships
     const sanghaResult = await pool.query(
@@ -702,13 +751,33 @@ async function getApplicantDetails(req, res) {
           termCoverage: ins.term_coverage,
           konkaniCardCoverage: ins.konkani_card_coverage,
         } : null,
-        // Documents
+        // Identity documents (existing)
         documents: doc ? {
           aadhaarCoverage: doc.aadhaar_coverage,
           panCoverage: doc.pan_coverage,
           voterIdCoverage: doc.voter_id_coverage,
           landDocCoverage: doc.land_doc_coverage,
           dlCoverage: doc.dl_coverage,
+        } : null,
+        // NEW: SSLC / PU pursued status + certificate details
+        educationStatus: eduDoc ? {
+          sslcPursued: eduDoc.sslc_pursued,
+          puPursued: eduDoc.pu_pursued,
+          sslcSchoolName: eduDoc.sslc_school_name,
+          sslcYear: eduDoc.sslc_year,
+          sslcPercentage: eduDoc.sslc_percentage,
+          sslcMarksCardUrl: eduDoc.sslc_marks_card_url,
+          puCollegeName: eduDoc.pu_college_name,
+          puYear: eduDoc.pu_year,
+          puPercentage: eduDoc.pu_percentage,
+          puMarksCardUrl: eduDoc.pu_marks_card_url,
+          degreeName: eduDoc.degree_name,
+          degreeInstitution: eduDoc.degree_institution,
+          degreeYear: eduDoc.degree_year,
+          degreePercentage: eduDoc.degree_percentage,
+          degreeCertificateUrl: eduDoc.degree_certificate_url,
+          employmentType: eduDoc.employment_type,
+          pursuingDegree: eduDoc.pursuing_degree,
         } : null,
         // Sangha memberships
         sanghas,
@@ -780,18 +849,18 @@ async function getApplicantScholarshipHistory(req, res) {
         sa.reviewed_at,
         sa.review_comment,
         s.id                 AS scholarship_id,
-        s.name                AS scholarship_title,
-        s.base_amount          AS amount,
-        s.disbursement_date    AS disbursement_date,
-        s.application_end      AS deadline,
-        s.status               AS scholarship_status,
+        s.name               AS scholarship_title,
+        s.base_amount        AS amount,
+        s.disbursement_date  AS disbursement_date,
+        s.application_end    AS deadline,
+        s.status             AS scholarship_status,
         sg.id                AS sangha_id,
-        sg.sangha_name         AS sangha_name,
-        sg.state                AS sangha_state,
-        sg.district            AS sangha_district,
-        sg.logo_url             AS sangha_logo,
-        st.label                AS tier_label,
-        st.amount                AS tier_amount
+        sg.sangha_name       AS sangha_name,
+        sg.state             AS sangha_state,
+        sg.district          AS sangha_district,
+        sg.logo_url          AS sangha_logo,
+        st.label             AS tier_label,
+        st.amount            AS tier_amount
       FROM scholarship_applications sa
       JOIN scholarships s   ON s.id  = sa.scholarship_id
       JOIN sanghas sg       ON sg.id = s.sangha_id

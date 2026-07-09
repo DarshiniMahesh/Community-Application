@@ -106,17 +106,30 @@ interface FamilyMember {
 
 // ─── Education / Bank types + helpers ──────────────────────────────────────────
 
+/**
+ * Education details are now collected independently for SSLC and PU:
+ * - sslcPursued: null (not yet answered) | true (pursued -> show + require SSLC fields) | false (not pursued -> skip)
+ * - puPursued:   null (not yet answered) | true (pursued -> show + require PU fields)   | false (not pursued -> skip)
+ *
+ * `employmentType` / `pursuingDegree` are retained to gate the "highest degree"
+ * section (used for members who are employed or pursuing a degree beyond PU).
+ */
 interface EducationDetails {
   employmentType: "student" | "employed" | null;
   pursuingDegree?: boolean;
+
+  sslcPursued?: boolean | null;
   sslcSchoolName?: string;
   sslcYear?: string;
   sslcPercentage?: string;
   sslcMarksCardUrl?: string;
+
+  puPursued?: boolean | null;
   puCollegeName?: string;
   puYear?: string;
   puPercentage?: string;
   puMarksCardUrl?: string;
+
   degreeName?: string;
   degreeInstitution?: string;
   degreeYear?: string;
@@ -132,18 +145,19 @@ interface BankDetails {
   branch?: string;
 }
 
-const REQUIRED_EDUCATION_FIELDS: Record<"student" | "employed", (keyof EducationDetails)[]> = {
-  student:  ["sslcSchoolName", "sslcYear", "sslcPercentage", "sslcMarksCardUrl", "puCollegeName", "puYear", "puPercentage", "puMarksCardUrl"],
-  employed: ["degreeName", "degreeInstitution", "degreeYear", "degreePercentage", "degreeCertificateUrl"],
-};
+const SSLC_FIELDS: (keyof EducationDetails)[] = ["sslcSchoolName", "sslcYear", "sslcPercentage", "sslcMarksCardUrl"];
+const PU_FIELDS: (keyof EducationDetails)[] = ["puCollegeName", "puYear", "puPercentage", "puMarksCardUrl"];
+const DEGREE_FIELDS: (keyof EducationDetails)[] = ["degreeName", "degreeInstitution", "degreeYear", "degreePercentage", "degreeCertificateUrl"];
 
 const EDUCATION_FIELD_LABELS: Record<keyof EducationDetails, string> = {
   employmentType: "Employment type",
   pursuingDegree: "Currently pursuing degree",
+  sslcPursued: "SSLC pursued",
   sslcSchoolName: "SSLC school name",
   sslcYear: "SSLC year of passing",
   sslcPercentage: "SSLC percentage",
   sslcMarksCardUrl: "SSLC marks card upload",
+  puPursued: "PU pursued",
   puCollegeName: "PU college name",
   puYear: "PU year of passing",
   puPercentage: "PU percentage",
@@ -155,15 +169,43 @@ const EDUCATION_FIELD_LABELS: Record<keyof EducationDetails, string> = {
   degreeCertificateUrl: "Degree certificate upload",
 };
 
+/**
+ * Missing-fields logic:
+ * - If SSLC pursued hasn't been answered yet -> that's the only thing missing (blocks progress).
+ * - If SSLC pursued === true -> all SSLC_FIELDS are required.
+ * - If SSLC pursued === false -> no SSLC fields required.
+ * - Same pattern for PU.
+ * - Degree fields required only if pursuing a degree (employed track) or pursuingDegree is checked (student track).
+ */
 function getMissingEducationFields(edu: EducationDetails | undefined): string[] {
-  if (!edu?.employmentType) return ["Employment type"];
-  let required = REQUIRED_EDUCATION_FIELDS[edu.employmentType];
-  if (edu.employmentType === "student" && edu.pursuingDegree) {
-    required = [...required, "degreeName", "degreeInstitution", "degreeYear", "degreePercentage", "degreeCertificateUrl"];
+  if (!edu) return ["SSLC pursued", "PU pursued"];
+
+  const missing: string[] = [];
+
+  if (edu.sslcPursued === null || edu.sslcPursued === undefined) {
+    missing.push(EDUCATION_FIELD_LABELS.sslcPursued);
+  } else if (edu.sslcPursued === true) {
+    SSLC_FIELDS.forEach(f => {
+      if (!edu[f] || String(edu[f]).trim() === "") missing.push(EDUCATION_FIELD_LABELS[f]);
+    });
   }
-  return required
-    .filter(f => !edu[f] || String(edu[f]).trim() === "")
-    .map(f => EDUCATION_FIELD_LABELS[f]);
+
+  if (edu.puPursued === null || edu.puPursued === undefined) {
+    missing.push(EDUCATION_FIELD_LABELS.puPursued);
+  } else if (edu.puPursued === true) {
+    PU_FIELDS.forEach(f => {
+      if (!edu[f] || String(edu[f]).trim() === "") missing.push(EDUCATION_FIELD_LABELS[f]);
+    });
+  }
+
+  const needsDegree = edu.employmentType === "employed" || (edu.employmentType === "student" && edu.pursuingDegree);
+  if (needsDegree) {
+    DEGREE_FIELDS.forEach(f => {
+      if (!edu[f] || String(edu[f]).trim() === "") missing.push(EDUCATION_FIELD_LABELS[f]);
+    });
+  }
+
+  return missing;
 }
 
 const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
@@ -221,7 +263,7 @@ const GLOBAL_STYLES = `
   .filter-chip { transition:all 0.15s ease; cursor:pointer; white-space:nowrap; }
   .filter-chip:hover { transform:translateY(-1px); }
   .search-input:focus { outline:none; box-shadow:0 0 0 3px rgba(83,74,183,0.18); }
-  .drawer-section-label { font-size:11px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px; }
+  .drawer-section-label { font-size:11px;font-weight:700;color:#000;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px; }
   .member-card { transition:all 0.18s ease; cursor:pointer; }
   .member-card:hover { border-color:#534AB7 !important; }
   .criteria-row { transition:background 0.12s ease; }
@@ -328,8 +370,8 @@ function QuotaBar({ current, max }: { current: number; max: number }) {
   return (
     <div>
       <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:11 }}>
-        <span style={{ color:"#999",fontWeight:500 }}>Slots filled</span>
-        <span style={{ fontWeight:700,color:isFull?"var(--color-text-danger)":"#666" }}>{current}/{max}{isFull&&" — Full"}</span>
+        <span style={{ color:"#000",fontWeight:500 }}>Slots filled</span>
+        <span style={{ fontWeight:700,color:isFull?"var(--color-text-danger)":"#000" }}>{current}/{max}{isFull&&" — Full"}</span>
       </div>
       <div style={{ height:5,borderRadius:3,background:"#f0f0f0",overflow:"hidden" }}>
         <div style={{ height:"100%",width:`${pct}%`,borderRadius:3,background:isFull?"linear-gradient(90deg,#C0392B,#e05a4b)":"linear-gradient(90deg,#534AB7,#7B72D9)",transition:"width 0.6s cubic-bezier(0.16,1,0.3,1)" }} />
@@ -350,7 +392,7 @@ function TextField({
   const isEmpty = required && (!value || value.trim() === "");
   return (
     <div style={{ flex:1 }}>
-      <label style={{ fontSize:12,fontWeight:600,color:"#666",marginBottom:5,display:"block" }}>
+      <label style={{ fontSize:12,fontWeight:600,color:"#000",marginBottom:5,display:"block" }}>
         {label}{required && <span style={{ color:"#C0392B" }}> *</span>}
       </label>
       <input
@@ -359,7 +401,7 @@ function TextField({
         value={value ?? ""}
         onChange={e => onChange(e.target.value)}
         onBlur={onBlur}
-        style={{ width:"100%",padding:"10px 12px",fontSize:13,borderRadius:10,border:`1px solid ${isEmpty?"rgba(192,57,43,0.35)":"#ebebf0"}` }}
+        style={{ width:"100%",padding:"10px 12px",fontSize:13,borderRadius:10,border:`1px solid ${isEmpty?"rgba(192,57,43,0.35)":"#ebebf0"}`,color:"#000" }}
       />
     </div>
   );
@@ -383,7 +425,7 @@ function FileUploadField({
   const isMissing = required && !value;
   return (
     <div>
-      <label style={{ fontSize:12,fontWeight:600,color:"#666",marginBottom:5,display:"block" }}>
+      <label style={{ fontSize:12,fontWeight:600,color:"#000",marginBottom:5,display:"block" }}>
         {label}{required && <span style={{ color:"#C0392B" }}> *</span>}
       </label>
       <div style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,border:`1px solid ${isMissing?"rgba(192,57,43,0.35)":"#ebebf0"}` }}>
@@ -392,7 +434,7 @@ function FileUploadField({
           aria-label={label}
           accept=".pdf,.jpg,.jpeg,.png"
           onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(memberId, docType, f); }}
-          style={{ fontSize:12,flex:1 }}
+          style={{ fontSize:12,flex:1,color:"#000" }}
         />
         {isUploading && <span style={{ fontSize:11,color:"#534AB7",flexShrink:0 }}>Uploading…</span>}
         {!isUploading && value && (
@@ -400,6 +442,35 @@ function FileUploadField({
             ✓ View uploaded
           </a>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Pursued Toggle (SSLC / PU) ───────────────────────────────────────────────
+
+function PursuedToggle({
+  label, value, onChange, color,
+}: {
+  label: string;
+  value: boolean | null | undefined;
+  onChange: (v: boolean) => void;
+  color: string;
+}) {
+  return (
+    <div>
+      <label style={{ fontSize:12,fontWeight:700,color:"#000",marginBottom:6,display:"block" }}>
+        {label}{(value === null || value === undefined) && <span style={{ color:"#C0392B" }}> *</span>}
+      </label>
+      <div style={{ display:"flex",gap:10 }}>
+        <button type="button" onClick={() => onChange(true)}
+          style={{ flex:1,padding:"9px",borderRadius:10,border:`1.5px solid ${value===true?color:"#ebebf0"}`,background:value===true?`${color}10`:"#fff",color:"#000",fontWeight:600,fontSize:13,cursor:"pointer" }}>
+          Pursued
+        </button>
+        <button type="button" onClick={() => onChange(false)}
+          style={{ flex:1,padding:"9px",borderRadius:10,border:`1.5px solid ${value===false?color:"#ebebf0"}`,background:value===false?`${color}10`:"#fff",color:"#000",fontWeight:600,fontSize:13,cursor:"pointer" }}>
+          Not pursued
+        </button>
       </div>
     </div>
   );
@@ -499,7 +570,10 @@ const currentMember = selectedList[viewingMemberIdx];
           apiFetch<EducationDetails | null>(`/userschl/members/${m.id}/education`),
           apiFetch<BankDetails | null>(`/userschl/members/${m.id}/bank`),
         ]);
-        setEducationStates(prev => ({ ...prev, [m.id]: edu ?? { employmentType: null } }));
+        setEducationStates(prev => ({
+          ...prev,
+          [m.id]: edu ?? { employmentType: null, sslcPursued: null, puPursued: null },
+        }));
         setBankStates(prev => ({ ...prev, [m.id]: bank ?? {} }));
         setLoadedMemberData(prev => new Set(prev).add(m.id));
       } catch {
@@ -537,7 +611,7 @@ const currentMember = selectedList[viewingMemberIdx];
 
   const updateEducation = (memberId: string, patch: Partial<EducationDetails>) => {
     setEducationStates(prev => {
-      const existing = prev[memberId] ?? { employmentType: null };
+      const existing = prev[memberId] ?? { employmentType: null, sslcPursued: null, puPursued: null };
       return { ...prev, [memberId]: { ...existing, ...patch } };
     });
   };
@@ -618,27 +692,27 @@ const currentMember = selectedList[viewingMemberIdx];
                 <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:10 }}>
                   {[1,2,3,4,5].map(s => (
                     <div key={s} style={{ display:"flex",alignItems:"center",gap:6 }}>
-                      <div style={{ width:22,height:22,borderRadius:"50%",background:step>s?"#534AB7":step===s?color:"#e8e8ee",color:step>=s?"#fff":"#aaa",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.2s" }}>
+                      <div style={{ width:22,height:22,borderRadius:"50%",background:step>s?"#534AB7":step===s?color:"#e8e8ee",color:step>=s?"#fff":"#000",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.2s" }}>
                         {step>s?"✓":s}
                       </div>
                       {s < 5 && <div style={{ width:16,height:2,borderRadius:1,background:step>s?"#534AB7":"#e8e8ee",transition:"background 0.2s" }} />}
                     </div>
                   ))}
-                  <span style={{ fontSize:11,color:"#999",marginLeft:4,fontWeight:600 }}>
+                  <span style={{ fontSize:11,color:"#000",marginLeft:4,fontWeight:600 }}>
                     {step===1?"Select members":step===2?"Confirm eligibility":step===3?"Education details":step===4?"Bank details":"Review & submit"}
                   </span>
                 </div>
                 <h3 style={{ fontSize:16,fontWeight:700,color:"#1a1a2e",margin:0,lineHeight:1.3,fontFamily:"'Lora',serif" }}>{scholarship.name} scholarship</h3>
                 <div style={{ fontSize:12,color,fontWeight:600,marginTop:2 }}>₹{scholarship.baseAmount.toLocaleString("en-IN")} base award</div>
               </div>
-              <button onClick={onClose} style={{ width:32,height:32,border:"1px solid rgba(0,0,0,0.1)",borderRadius:10,background:"rgba(255,255,255,0.8)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#666",flexShrink:0,fontSize:16 }}>✕</button>
+              <button onClick={onClose} style={{ width:32,height:32,border:"1px solid rgba(0,0,0,0.1)",borderRadius:10,background:"rgba(255,255,255,0.8)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#000",flexShrink:0,fontSize:16 }}>✕</button>
             </div>
           </div>
 
           <div style={{ flex:1,overflowY:"auto",padding:"20px 24px" }}>
             {step === 1 && (
               <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-                <p style={{ fontSize:13,color:"#666",margin:0,lineHeight:1.6 }}>Select who you'd like to apply for. You'll confirm eligibility for each person in the next step.</p>
+                <p style={{ fontSize:13,color:"#000",margin:0,lineHeight:1.6 }}>Select who you'd like to apply for. You'll confirm eligibility for each person in the next step.</p>
                 {!loadingMembers && alreadyAppliedMembers.length > 0 && (
                   <div style={{ padding:"10px 14px",borderRadius:10,background:"rgba(83,74,183,0.05)",border:"1px solid rgba(83,74,183,0.15)",fontSize:12,color:"#534AB7",lineHeight:1.6,display:"flex",alignItems:"flex-start",gap:8 }}>
                     <span style={{ flexShrink:0 }}>ℹ</span>
@@ -670,7 +744,7 @@ const currentMember = selectedList[viewingMemberIdx];
                           {isSelected?"✓":""}
                         </div>
                       )}
-                      <div style={{ width:38,height:38,borderRadius:"50%",flexShrink:0,background:member.id==="self"?`${color}22`:"rgba(100,116,139,0.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:member.id==="self"?color:"#666" }}>
+                      <div style={{ width:38,height:38,borderRadius:"50%",flexShrink:0,background:member.id==="self"?`${color}22`:"rgba(100,116,139,0.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:member.id==="self"?color:"#000" }}>
                         {member.name.charAt(0).toUpperCase()}
                       </div>
                       <div style={{ flex:1,minWidth:0 }}>
@@ -679,7 +753,7 @@ const currentMember = selectedList[viewingMemberIdx];
                           {member.id==="self" && <span style={{ fontSize:10,padding:"1px 6px",borderRadius:4,background:`${color}18`,color,fontWeight:700 }}>You</span>}
                           <MemberStatusBadge status={member.applicationStatus} />
                         </div>
-                        <div style={{ fontSize:12,color:"#888",marginTop:2,display:"flex",gap:8,flexWrap:"wrap" }}>
+                        <div style={{ fontSize:12,color:"#000",marginTop:2,display:"flex",gap:8,flexWrap:"wrap" }}>
                           <span>{member.relation}</span>
                           {member.age!=null&&<span>· Age {member.age}</span>}
                           {member.gender&&<span>· {member.gender}</span>}
@@ -689,7 +763,7 @@ const currentMember = selectedList[viewingMemberIdx];
                   );
                 })}
                 {!loadingMembers && selectableMembers.length===0 && (
-                  <div style={{ textAlign:"center",padding:"2rem",color:"#888",fontSize:13 }}>
+                  <div style={{ textAlign:"center",padding:"2rem",color:"#000",fontSize:13 }}>
                     <div style={{ fontSize:28,marginBottom:8,opacity:0.4 }}>👥</div>
                     All members have already applied for this scholarship.
                   </div>
@@ -706,7 +780,7 @@ const currentMember = selectedList[viewingMemberIdx];
                       const done = allCriteriaLabels.length===0 || memberChecked.size===allCriteriaLabels.length;
                       return (
                         <button key={m.id} onClick={() => setViewingMemberIdx(idx)}
-                          style={{ padding:"5px 12px",fontSize:12,borderRadius:100,border:`1px solid ${viewingMemberIdx===idx?color:"#ebebf0"}`,background:viewingMemberIdx===idx?`${color}12`:"#fff",color:viewingMemberIdx===idx?color:"#666",fontWeight:viewingMemberIdx===idx?700:400,cursor:"pointer",display:"flex",alignItems:"center",gap:5 }}>
+                          style={{ padding:"5px 12px",fontSize:12,borderRadius:100,border:`1px solid ${viewingMemberIdx===idx?color:"#ebebf0"}`,background:viewingMemberIdx===idx?`${color}12`:"#fff",color:viewingMemberIdx===idx?color:"#000",fontWeight:viewingMemberIdx===idx?700:400,cursor:"pointer",display:"flex",alignItems:"center",gap:5 }}>
                           {done&&<span style={{ color:"#0F6E56",fontSize:11 }}>✓</span>}
                           {m.name}
                         </button>
@@ -720,14 +794,14 @@ const currentMember = selectedList[viewingMemberIdx];
                   </div>
                   <div>
                     <div style={{ fontSize:13,fontWeight:700,color:"#1a1a2e" }}>{currentMember.name}</div>
-                    <div style={{ fontSize:11,color:"#888" }}>{currentMember.relation}{currentMember.age!=null?` · Age ${currentMember.age}`:""}</div>
+                    <div style={{ fontSize:11,color:"#000" }}>{currentMember.relation}{currentMember.age!=null?` · Age ${currentMember.age}`:""}</div>
                   </div>
-                  <div style={{ marginLeft:"auto",fontSize:11,color:"#888" }}>{currentChecked.size}/{allCriteriaLabels.length} confirmed</div>
+                  <div style={{ marginLeft:"auto",fontSize:11,color:"#000" }}>{currentChecked.size}/{allCriteriaLabels.length} confirmed</div>
                 </div>
-                <p style={{ fontSize:13,color:"#666",margin:0,lineHeight:1.6 }}>Confirm that <strong style={{ color:"#1a1a2e" }}>{currentMember.name}</strong> meets each eligibility criterion.</p>
+                <p style={{ fontSize:13,color:"#000",margin:0,lineHeight:1.6 }}>Confirm that <strong style={{ color:"#1a1a2e" }}>{currentMember.name}</strong> meets each eligibility criterion.</p>
 
                 {allCriteriaLabels.length === 0 ? (
-                  <div style={{ padding:"16px",textAlign:"center",color:"#888",fontSize:13,borderRadius:12,background:"#f8f8f8" }}>
+                  <div style={{ padding:"16px",textAlign:"center",color:"#000",fontSize:13,borderRadius:12,background:"#f8f8f8" }}>
                     <div style={{ fontSize:20,marginBottom:6,color:"#0F6E56" }}>✓</div>
                     No specific eligibility criteria for this scholarship.
                   </div>
@@ -744,7 +818,7 @@ const currentMember = selectedList[viewingMemberIdx];
                               <div style={{ width:20,height:20,borderRadius:6,flexShrink:0,border:checked?"none":"1.5px solid #ccc",background:checked?"#0F6E56":"transparent",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",color:"#fff",fontSize:11 }}>
                                 {checked?"✓":""}
                               </div>
-                              <span style={{ fontSize:13,color:checked?"#1a1a2e":"#444",lineHeight:1.5,flex:1 }}>{criterion}</span>
+                              <span style={{ fontSize:13,color:"#1a1a2e",lineHeight:1.5,flex:1 }}>{criterion}</span>
                             </div>
                           );
                         })}
@@ -755,7 +829,7 @@ const currentMember = selectedList[viewingMemberIdx];
                     {customCriteria.length > 0 && (
                       <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
                         {standardCriteria.length > 0 && (
-                          <div style={{ fontSize:10,fontWeight:700,color:"#bbb",textTransform:"uppercase",letterSpacing:"0.1em",margin:"4px 0 2px",paddingLeft:2 }}>
+                          <div style={{ fontSize:10,fontWeight:700,color:"#000",textTransform:"uppercase",letterSpacing:"0.1em",margin:"4px 0 2px",paddingLeft:2 }}>
                             Additional requirements
                           </div>
                         )}
@@ -768,9 +842,9 @@ const currentMember = selectedList[viewingMemberIdx];
                                 {checked?"✓":""}
                               </div>
                               <div style={{ flex:1,minWidth:0 }}>
-                                <span style={{ fontSize:13,color:checked?"#1a1a2e":"#444",lineHeight:1.5,display:"block",fontWeight:500 }}>{cc.label}</span>
+                                <span style={{ fontSize:13,color:"#1a1a2e",lineHeight:1.5,display:"block",fontWeight:500 }}>{cc.label}</span>
                                 {cc.description && (
-                                  <span style={{ fontSize:11,color:"#888",lineHeight:1.55,display:"block",marginTop:3 }}>{cc.description}</span>
+                                  <span style={{ fontSize:11,color:"#000",lineHeight:1.55,display:"block",marginTop:3 }}>{cc.description}</span>
                                 )}
                               </div>
                             </div>
@@ -789,7 +863,7 @@ const currentMember = selectedList[viewingMemberIdx];
               </div>
             )}
 
-            
+            {/* ── STEP 3: Education details (SSLC / PU pursued-gated) ── */}
             {step === 3 && currentMember && (
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                 {selectedList.length > 1 && (
@@ -798,7 +872,7 @@ const currentMember = selectedList[viewingMemberIdx];
                       const missing = getMissingEducationFields(educationStates[m.id]);
                       return (
                         <button key={m.id} onClick={() => setViewingMemberIdx(idx)}
-                          style={{ padding:"5px 12px",fontSize:12,borderRadius:100,border:`1px solid ${viewingMemberIdx===idx?color:"#ebebf0"}`,background:viewingMemberIdx===idx?`${color}12`:"#fff",color:viewingMemberIdx===idx?color:"#666",fontWeight:viewingMemberIdx===idx?700:400,cursor:"pointer",display:"flex",alignItems:"center",gap:5 }}>
+                          style={{ padding:"5px 12px",fontSize:12,borderRadius:100,border:`1px solid ${viewingMemberIdx===idx?color:"#ebebf0"}`,background:viewingMemberIdx===idx?`${color}12`:"#fff",color:viewingMemberIdx===idx?color:"#000",fontWeight:viewingMemberIdx===idx?700:400,cursor:"pointer",display:"flex",alignItems:"center",gap:5 }}>
                           {missing.length===0 && <span style={{ color:"#0F6E56",fontSize:11 }}>✓</span>}
                           {m.name}
                         </button>
@@ -806,53 +880,94 @@ const currentMember = selectedList[viewingMemberIdx];
                     })}
                   </div>
                 )}
-                <p style={{ fontSize:13,color:"#666",margin:0,lineHeight:1.6 }}>
+                <p style={{ fontSize:13,color:"#000",margin:0,lineHeight:1.6 }}>
                   Education details for <strong style={{ color:"#1a1a2e" }}>{currentMember.name}</strong>
-                  <span style={{ color:"#aaa" }}> — saved automatically and reused for future scholarship applications.</span>
+                  <span style={{ color:"#000" }}> — saved automatically and reused for future scholarship applications.</span>
                 </p>
 
+                {/* Employment / student toggle — still gates the "highest degree" section */}
                 <div style={{ display:"flex",gap:10 }}>
                   {(["student","employed"] as const).map(opt => {
                     const active = educationStates[currentMember.id]?.employmentType === opt;
                     return (
                       <button key={opt} onClick={() => updateEducation(currentMember.id, { employmentType: opt })}
-                        style={{ flex:1,padding:"10px",borderRadius:10,border:`1.5px solid ${active?color:"#ebebf0"}`,background:active?`${color}10`:"#fff",color:active?color:"#666",fontWeight:600,fontSize:13,cursor:"pointer" }}>
+                        style={{ flex:1,padding:"10px",borderRadius:10,border:`1.5px solid ${active?color:"#ebebf0"}`,background:active?`${color}10`:"#fff",color:"#000",fontWeight:600,fontSize:13,cursor:"pointer" }}>
                         {opt === "student" ? "Currently studying" : "Employed"}
                       </button>
                     );
                   })}
                 </div>
 
-                {educationStates[currentMember.id]?.employmentType === "student" && (
-                  <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-                    <div className="drawer-section-label">SSLC details</div>
-                    <TextField label="School name" required value={educationStates[currentMember.id]?.sslcSchoolName} onChange={v => updateEducation(currentMember.id, { sslcSchoolName: v })} onBlur={() => saveEducation(currentMember.id)} />
-                    <div style={{ display:"flex",gap:10 }}>
-                      <TextField label="Year of passing" required value={educationStates[currentMember.id]?.sslcYear} onChange={v => updateEducation(currentMember.id, { sslcYear: v })} onBlur={() => saveEducation(currentMember.id)} />
-                      <TextField label="Percentage" required value={educationStates[currentMember.id]?.sslcPercentage} onChange={v => updateEducation(currentMember.id, { sslcPercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
-                    </div>
-                    <FileUploadField label="SSLC marks card" required memberId={currentMember.id} docType="sslc"
-                      value={educationStates[currentMember.id]?.sslcMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+                {educationStates[currentMember.id]?.employmentType && (
+                  <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
 
-                    <div className="drawer-section-label" style={{ marginTop:6 }}>PU details</div>
-                    <TextField label="College name" required value={educationStates[currentMember.id]?.puCollegeName} onChange={v => updateEducation(currentMember.id, { puCollegeName: v })} onBlur={() => saveEducation(currentMember.id)} />
-                    <div style={{ display:"flex",gap:10 }}>
-                      <TextField label="Year of passing" required value={educationStates[currentMember.id]?.puYear} onChange={v => updateEducation(currentMember.id, { puYear: v })} onBlur={() => saveEducation(currentMember.id)} />
-                      <TextField label="Percentage" required value={educationStates[currentMember.id]?.puPercentage} onChange={v => updateEducation(currentMember.id, { puPercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
+                    {/* ── SSLC block ── */}
+                    <div style={{ display:"flex",flexDirection:"column",gap:12,padding:"14px",borderRadius:12,background:"#fafafd",border:"1px solid #ebebf0" }}>
+                      <div className="drawer-section-label" style={{ marginBottom:0 }}>SSLC</div>
+                      <PursuedToggle
+                        label="Has this member pursued SSLC?"
+                        value={educationStates[currentMember.id]?.sslcPursued}
+                        onChange={(v) => updateEducation(currentMember.id, { sslcPursued: v })}
+                        color={color}
+                      />
+                      {educationStates[currentMember.id]?.sslcPursued === true && (
+                        <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                          <TextField label="School name" required value={educationStates[currentMember.id]?.sslcSchoolName} onChange={v => updateEducation(currentMember.id, { sslcSchoolName: v })} onBlur={() => saveEducation(currentMember.id)} />
+                          <div style={{ display:"flex",gap:10 }}>
+                            <TextField label="Year of passing" required value={educationStates[currentMember.id]?.sslcYear} onChange={v => updateEducation(currentMember.id, { sslcYear: v })} onBlur={() => saveEducation(currentMember.id)} />
+                            <TextField label="Percentage" required value={educationStates[currentMember.id]?.sslcPercentage} onChange={v => updateEducation(currentMember.id, { sslcPercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
+                          </div>
+                          <FileUploadField label="SSLC marks card" required memberId={currentMember.id} docType="sslc"
+                            value={educationStates[currentMember.id]?.sslcMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+                        </div>
+                      )}
+                      {educationStates[currentMember.id]?.sslcPursued === false && (
+                        <div style={{ fontSize:12,color:"#000",fontStyle:"italic" }}>Marked as not pursued — no further details needed.</div>
+                      )}
                     </div>
-                    <FileUploadField label="PU marks card" required memberId={currentMember.id} docType="pu"
-                      value={educationStates[currentMember.id]?.puMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
-                      <div style={{ display:"flex",alignItems:"center",gap:8,marginTop:6,cursor:"pointer" }}
-                      onClick={() => updateEducation(currentMember.id, { pursuingDegree: !educationStates[currentMember.id]?.pursuingDegree })}>
-                      <div style={{ width:18,height:18,borderRadius:5,border:educationStates[currentMember.id]?.pursuingDegree?"none":"1.5px solid #ccc",background:educationStates[currentMember.id]?.pursuingDegree?color:"transparent",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:10 }}>
-                        {educationStates[currentMember.id]?.pursuingDegree?"✓":""}
+
+                    {/* ── PU block ── */}
+                    <div style={{ display:"flex",flexDirection:"column",gap:12,padding:"14px",borderRadius:12,background:"#fafafd",border:"1px solid #ebebf0" }}>
+                      <div className="drawer-section-label" style={{ marginBottom:0 }}>PU (Pre-University)</div>
+                      <PursuedToggle
+                        label="Has this member pursued PU?"
+                        value={educationStates[currentMember.id]?.puPursued}
+                        onChange={(v) => updateEducation(currentMember.id, { puPursued: v })}
+                        color={color}
+                      />
+                      {educationStates[currentMember.id]?.puPursued === true && (
+                        <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                          <TextField label="College name" required value={educationStates[currentMember.id]?.puCollegeName} onChange={v => updateEducation(currentMember.id, { puCollegeName: v })} onBlur={() => saveEducation(currentMember.id)} />
+                          <div style={{ display:"flex",gap:10 }}>
+                            <TextField label="Year of passing" required value={educationStates[currentMember.id]?.puYear} onChange={v => updateEducation(currentMember.id, { puYear: v })} onBlur={() => saveEducation(currentMember.id)} />
+                            <TextField label="Percentage" required value={educationStates[currentMember.id]?.puPercentage} onChange={v => updateEducation(currentMember.id, { puPercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
+                          </div>
+                          <FileUploadField label="PU marks card" required memberId={currentMember.id} docType="pu"
+                            value={educationStates[currentMember.id]?.puMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+                        </div>
+                      )}
+                      {educationStates[currentMember.id]?.puPursued === false && (
+                        <div style={{ fontSize:12,color:"#000",fontStyle:"italic" }}>Marked as not pursued — no further details needed.</div>
+                      )}
+                    </div>
+
+                    {/* ── Degree block (student track: only if pursuing a degree beyond PU) ── */}
+                    {educationStates[currentMember.id]?.employmentType === "student" && (
+                      <div style={{ display:"flex",alignItems:"center",gap:8,cursor:"pointer" }}
+                        onClick={() => updateEducation(currentMember.id, { pursuingDegree: !educationStates[currentMember.id]?.pursuingDegree })}>
+                        <div style={{ width:18,height:18,borderRadius:5,border:educationStates[currentMember.id]?.pursuingDegree?"none":"1.5px solid #ccc",background:educationStates[currentMember.id]?.pursuingDegree?color:"transparent",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:10 }}>
+                          {educationStates[currentMember.id]?.pursuingDegree?"✓":""}
+                        </div>
+                        <span style={{ fontSize:12,fontWeight:600,color:"#000" }}>Currently pursuing a degree</span>
                       </div>
-                      <span style={{ fontSize:12,fontWeight:600,color:"#666" }}>Currently pursuing a degree</span>
-                    </div>
+                    )}
 
-                    {educationStates[currentMember.id]?.pursuingDegree && (
-                      <>
-                        <div className="drawer-section-label" style={{ marginTop:6 }}>Degree details</div>
+                    {(educationStates[currentMember.id]?.employmentType === "employed" ||
+                      (educationStates[currentMember.id]?.employmentType === "student" && educationStates[currentMember.id]?.pursuingDegree)) && (
+                      <div style={{ display:"flex",flexDirection:"column",gap:12,padding:"14px",borderRadius:12,background:"#fafafd",border:"1px solid #ebebf0" }}>
+                        <div className="drawer-section-label" style={{ marginBottom:0 }}>
+                          {educationStates[currentMember.id]?.employmentType === "employed" ? "Highest degree" : "Degree details"}
+                        </div>
                         <TextField label="Degree name" required value={educationStates[currentMember.id]?.degreeName} onChange={v => updateEducation(currentMember.id, { degreeName: v })} onBlur={() => saveEducation(currentMember.id)} />
                         <TextField label="Institution" required value={educationStates[currentMember.id]?.degreeInstitution} onChange={v => updateEducation(currentMember.id, { degreeInstitution: v })} onBlur={() => saveEducation(currentMember.id)} />
                         <div style={{ display:"flex",gap:10 }}>
@@ -861,34 +976,12 @@ const currentMember = selectedList[viewingMemberIdx];
                         </div>
                         <FileUploadField label="Degree certificate" required memberId={currentMember.id} docType="degree"
                           value={educationStates[currentMember.id]?.degreeCertificateUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
-                      </>
+                      </div>
                     )}
                   </div>
                 )}
 
-                {educationStates[currentMember.id]?.employmentType === "employed" && (
-                  <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-                    <div className="drawer-section-label">Highest degree</div>
-                    <TextField label="Degree name" required value={educationStates[currentMember.id]?.degreeName} onChange={v => updateEducation(currentMember.id, { degreeName: v })} onBlur={() => saveEducation(currentMember.id)} />
-                    <TextField label="Institution" required value={educationStates[currentMember.id]?.degreeInstitution} onChange={v => updateEducation(currentMember.id, { degreeInstitution: v })} onBlur={() => saveEducation(currentMember.id)} />
-                    <div style={{ display:"flex",gap:10 }}>
-                      <TextField label="Year of passing" required value={educationStates[currentMember.id]?.degreeYear} onChange={v => updateEducation(currentMember.id, { degreeYear: v })} onBlur={() => saveEducation(currentMember.id)} />
-                      <TextField label="Percentage" required value={educationStates[currentMember.id]?.degreePercentage} onChange={v => updateEducation(currentMember.id, { degreePercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
-                    </div>
-                    <FileUploadField label="Degree certificate" required memberId={currentMember.id} docType="degree"
-                      value={educationStates[currentMember.id]?.degreeCertificateUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
-
-                    <div className="drawer-section-label" style={{ marginTop:6 }}>SSLC / PU (if applicable)</div>
-                    <TextField label="SSLC school name" value={educationStates[currentMember.id]?.sslcSchoolName} onChange={v => updateEducation(currentMember.id, { sslcSchoolName: v })} onBlur={() => saveEducation(currentMember.id)} />
-                    <FileUploadField label="SSLC marks card" memberId={currentMember.id} docType="sslc"
-                      value={educationStates[currentMember.id]?.sslcMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
-                    <TextField label="PU college name" value={educationStates[currentMember.id]?.puCollegeName} onChange={v => updateEducation(currentMember.id, { puCollegeName: v })} onBlur={() => saveEducation(currentMember.id)} />
-                    <FileUploadField label="PU marks card" memberId={currentMember.id} docType="pu"
-                      value={educationStates[currentMember.id]?.puMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
-                  </div>
-                )}
-
-                {savingKey === `edu:${currentMember.id}` && <span style={{ fontSize:11,color:"#999" }}>Saving…</span>}
+                {savingKey === `edu:${currentMember.id}` && <span style={{ fontSize:11,color:"#000" }}>Saving…</span>}
 
                 {educationStates[currentMember.id]?.employmentType && currentEducationMissing.length > 0 && (
                   <div style={{ padding:"10px 14px",borderRadius:10,background:"rgba(220,100,0,0.06)",border:"1px solid rgba(220,100,0,0.2)",fontSize:12,color:"#c96000" }}>
@@ -904,15 +997,15 @@ const currentMember = selectedList[viewingMemberIdx];
                   <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
                     {selectedList.map((m, idx) => (
                       <button key={m.id} onClick={() => setViewingMemberIdx(idx)}
-                        style={{ padding:"5px 12px",fontSize:12,borderRadius:100,border:`1px solid ${viewingMemberIdx===idx?color:"#ebebf0"}`,background:viewingMemberIdx===idx?`${color}12`:"#fff",color:viewingMemberIdx===idx?color:"#666",fontWeight:viewingMemberIdx===idx?700:400,cursor:"pointer" }}>
+                        style={{ padding:"5px 12px",fontSize:12,borderRadius:100,border:`1px solid ${viewingMemberIdx===idx?color:"#ebebf0"}`,background:viewingMemberIdx===idx?`${color}12`:"#fff",color:viewingMemberIdx===idx?color:"#000",fontWeight:viewingMemberIdx===idx?700:400,cursor:"pointer" }}>
                         {m.name}
                       </button>
                     ))}
                   </div>
                 )}
-                <p style={{ fontSize:13,color:"#666",margin:0,lineHeight:1.6 }}>
+                <p style={{ fontSize:13,color:"#000",margin:0,lineHeight:1.6 }}>
                   Bank details for <strong style={{ color:"#1a1a2e" }}>{currentMember.name}</strong>
-                  <span style={{ color:"#aaa" }}> — optional, saved automatically for future scholarships.</span>
+                  <span style={{ color:"#000" }}> — optional, saved automatically for future scholarships.</span>
                 </p>
 
                 <TextField label="Account holder name" value={bankStates[currentMember.id]?.accountHolderName} onChange={v => updateBank(currentMember.id, { accountHolderName: v })} onBlur={() => saveBank(currentMember.id)} />
@@ -921,7 +1014,7 @@ const currentMember = selectedList[viewingMemberIdx];
                 <TextField label="IFSC code" value={bankStates[currentMember.id]?.ifsc} onChange={v => updateBank(currentMember.id, { ifsc: v.toUpperCase() })} onBlur={() => saveBank(currentMember.id)} />
                 <TextField label="Branch" value={bankStates[currentMember.id]?.branch} onChange={v => updateBank(currentMember.id, { branch: v })} onBlur={() => saveBank(currentMember.id)} />
 
-                {savingKey === `bank:${currentMember.id}` && <span style={{ fontSize:11,color:"#999" }}>Saving…</span>}
+                {savingKey === `bank:${currentMember.id}` && <span style={{ fontSize:11,color:"#000" }}>Saving…</span>}
 
                 {currentBankWarnings.length > 0 && (
                   <div style={{ padding:"10px 14px",borderRadius:10,background:"rgba(220,100,0,0.06)",border:"1px solid rgba(220,100,0,0.2)",fontSize:12,color:"#c96000" }}>
@@ -932,7 +1025,7 @@ const currentMember = selectedList[viewingMemberIdx];
             )}
             {step === 5 && (
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
-                <p style={{ fontSize:13,color:"#666",margin:0,lineHeight:1.6 }}>Review your applications before submitting.</p>
+                <p style={{ fontSize:13,color:"#000",margin:0,lineHeight:1.6 }}>Review your applications before submitting.</p>
                 <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
                   {selectedList.map(member => {
                     const memberCriteria = Array.from(criteriaStates[member.id] ?? []);
@@ -944,7 +1037,7 @@ const currentMember = selectedList[viewingMemberIdx];
                           </div>
                           <div style={{ flex:1 }}>
                             <div style={{ fontSize:13,fontWeight:700,color:"#1a1a2e" }}>{member.name}</div>
-                            <div style={{ fontSize:11,color:"#888" }}>{member.relation}</div>
+                            <div style={{ fontSize:11,color:"#000" }}>{member.relation}</div>
                           </div>
                           <div style={{ fontSize:11,color:"#0F6E56",fontWeight:600 }}>✓ {memberCriteria.length} criteria</div>
                         </div>
@@ -974,25 +1067,25 @@ const currentMember = selectedList[viewingMemberIdx];
               else if (step===4) { setStep(3); setViewingMemberIdx(0); }
               else { setStep(4); setViewingMemberIdx(0); }
             }}
-              style={{ padding:"9px 18px",fontSize:13,fontWeight:600,border:"1px solid #e0e0e8",borderRadius:10,background:"none",cursor:"pointer",color:"#666",display:"flex",alignItems:"center",gap:6 }}>
+              style={{ padding:"9px 18px",fontSize:13,fontWeight:600,border:"1px solid #e0e0e8",borderRadius:10,background:"none",cursor:"pointer",color:"#000",display:"flex",alignItems:"center",gap:6 }}>
               ← {step===1?"Cancel":"Back"}
             </button>
             <div style={{ display:"flex",gap:8 }}>
               {step===1 && (
                 <button disabled={selectedIds.size===0} onClick={() => { setStep(2); setViewingMemberIdx(0); }}
-                  style={{ padding:"9px 22px",fontSize:13,fontWeight:600,border:"none",borderRadius:10,background:selectedIds.size>0?`linear-gradient(135deg,${color},${color}cc)`:"#e0e0e8",color:selectedIds.size>0?"#fff":"#aaa",cursor:selectedIds.size>0?"pointer":"not-allowed",display:"flex",alignItems:"center",gap:6,boxShadow:selectedIds.size>0?`0 3px 14px ${color}55`:"none" }}>
+                  style={{ padding:"9px 22px",fontSize:13,fontWeight:600,border:"none",borderRadius:10,background:selectedIds.size>0?`linear-gradient(135deg,${color},${color}cc)`:"#e0e0e8",color:selectedIds.size>0?"#fff":"#000",cursor:selectedIds.size>0?"pointer":"not-allowed",display:"flex",alignItems:"center",gap:6,boxShadow:selectedIds.size>0?`0 3px 14px ${color}55`:"none" }}>
                   Next — Confirm eligibility →
                 </button>
               )}
               {step===2 && (
                 <button disabled={!allChecked} onClick={handleStep2Next}
-                  style={{ padding:"9px 22px",fontSize:13,fontWeight:600,border:"none",borderRadius:10,background:allChecked?`linear-gradient(135deg,${color},${color}cc)`:"#e0e0e8",color:allChecked?"#fff":"#aaa",cursor:allChecked?"pointer":"not-allowed",display:"flex",alignItems:"center",gap:6,boxShadow:allChecked?`0 3px 14px ${color}55`:"none" }}>
+                  style={{ padding:"9px 22px",fontSize:13,fontWeight:600,border:"none",borderRadius:10,background:allChecked?`linear-gradient(135deg,${color},${color}cc)`:"#e0e0e8",color:allChecked?"#fff":"#000",cursor:allChecked?"pointer":"not-allowed",display:"flex",alignItems:"center",gap:6,boxShadow:allChecked?`0 3px 14px ${color}55`:"none" }}>
                   {isLastMember?"Next — Education details":`Next — ${selectedList[viewingMemberIdx+1]?.name??"Next"}`} →
                 </button>
               )}
               {step===3 && (
                 <button disabled={currentEducationMissing.length > 0} onClick={handleStep3Next}
-                  style={{ padding:"9px 22px",fontSize:13,fontWeight:600,border:"none",borderRadius:10,background:currentEducationMissing.length===0?`linear-gradient(135deg,${color},${color}cc)`:"#e0e0e8",color:currentEducationMissing.length===0?"#fff":"#aaa",cursor:currentEducationMissing.length===0?"pointer":"not-allowed",display:"flex",alignItems:"center",gap:6,boxShadow:currentEducationMissing.length===0?`0 3px 14px ${color}55`:"none" }}>
+                  style={{ padding:"9px 22px",fontSize:13,fontWeight:600,border:"none",borderRadius:10,background:currentEducationMissing.length===0?`linear-gradient(135deg,${color},${color}cc)`:"#e0e0e8",color:currentEducationMissing.length===0?"#fff":"#000",cursor:currentEducationMissing.length===0?"pointer":"not-allowed",display:"flex",alignItems:"center",gap:6,boxShadow:currentEducationMissing.length===0?`0 3px 14px ${color}55`:"none" }}>
                   {isLastMember?"Next — Bank details":`Next — ${selectedList[viewingMemberIdx+1]?.name??"Next"}`} →
                 </button>
               )}
@@ -1089,7 +1182,7 @@ function ScholarshipDrawer({
         <div style={{ padding:"0",background:`linear-gradient(160deg,${color}18,${color}06)`,borderBottom:`1px solid ${color}30`,flexShrink:0,position:"relative",overflow:"hidden" }}>
           <div style={{ position:"absolute",top:-40,right:-40,width:180,height:180,borderRadius:"50%",background:`${color}10`,pointerEvents:"none" }} />
           <div style={{ display:"flex",justifyContent:"flex-end",padding:"16px 20px 0" }}>
-            <button onClick={onClose} style={{ width:34,height:34,border:"1.5px solid rgba(0,0,0,0.15)",borderRadius:10,background:"rgba(255,255,255,0.95)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#333",fontSize:16,fontWeight:700,boxShadow:"0 2px 8px rgba(0,0,0,0.1)",flexShrink:0,lineHeight:1 }} title="Close">✕</button>
+            <button onClick={onClose} style={{ width:34,height:34,border:"1.5px solid rgba(0,0,0,0.15)",borderRadius:10,background:"rgba(255,255,255,0.95)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#000",fontSize:16,fontWeight:700,boxShadow:"0 2px 8px rgba(0,0,0,0.1)",flexShrink:0,lineHeight:1 }} title="Close">✕</button>
           </div>
           <div style={{ padding:"8px 28px 24px" }}>
             <div style={{ display:"flex",flexWrap:"wrap",gap:6,marginBottom:14 }}>
@@ -1102,14 +1195,14 @@ function ScholarshipDrawer({
             </div>
             <h2 style={{ fontSize:22,fontWeight:700,color:"#1a1a2e",margin:"0 0 6px",lineHeight:1.25,fontFamily:"'Lora',serif",letterSpacing:"-0.02em" }}>{scholarship.name} scholarship</h2>
             {scholarship.sanghaName && (
-              <div style={{ fontSize:12,color:"#666",marginBottom:16,display:"flex",alignItems:"center",gap:5 }}>
+              <div style={{ fontSize:12,color:"#000",marginBottom:16,display:"flex",alignItems:"center",gap:5 }}>
                 🏛 Offered by the sangha : <strong style={{ color:"#CC5500",fontWeight:600 }}>{scholarship.sanghaName} </strong>
               </div>
             )}
             <div style={{ display:"flex",alignItems:"baseline",gap:8,marginTop:scholarship.sanghaName?0:12 }}>
               <span style={{ fontSize:40,fontWeight:800,fontFamily:"'Lora',serif",color,lineHeight:1,letterSpacing:"-0.02em" }}>₹{scholarship.baseAmount.toLocaleString("en-IN")}</span>
               <div>
-                <div style={{ fontSize:12,color:"#888",fontWeight:500 }}>base award</div>
+                <div style={{ fontSize:12,color:"#000",fontWeight:500 }}>base award</div>
                 {scholarship.tieredAmounts.length>0&&<div style={{ fontSize:11,color,fontWeight:600 }}>+{scholarship.tieredAmounts.length} tiers available</div>}
               </div>
             </div>
@@ -1128,7 +1221,7 @@ function ScholarshipDrawer({
                     <div key={i} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderRadius:12,background:"#fff",border:"1px solid #ebebf0",boxShadow:"0 1px 3px rgba(0,0,0,0.04)" }}>
                       <div>
                         <div style={{ fontSize:13,fontWeight:600,color:"#1a1a2e" }}>{tier.label}</div>
-                        <div style={{ fontSize:11,color:"#888",marginTop:2 }}>{tier.condition}</div>
+                        <div style={{ fontSize:11,color:"#000",marginTop:2 }}>{tier.condition}</div>
                       </div>
                       <div style={{ fontSize:17,fontWeight:700,fontFamily:"'Lora',serif",color }}>₹{tier.amount.toLocaleString("en-IN")}</div>
                     </div>
@@ -1174,7 +1267,7 @@ function ScholarshipDrawer({
                             {cc.label}
                           </div>
                           {cc.description && (
-                            <div style={{ fontSize:12,color:"#666",lineHeight:1.6,marginTop:5,paddingTop:5,borderTop:"1px dashed #ebebf0" }}>
+                            <div style={{ fontSize:12,color:"#000",lineHeight:1.6,marginTop:5,paddingTop:5,borderTop:"1px dashed #ebebf0" }}>
                               {cc.description}
                             </div>
                           )}
@@ -1184,7 +1277,7 @@ function ScholarshipDrawer({
                   ))}
                 </div>
                 {/* Explanatory note */}
-                <div style={{ marginTop:8,fontSize:11,color:"#999",display:"flex",alignItems:"center",gap:5,paddingLeft:2 }}>
+                <div style={{ marginTop:8,fontSize:11,color:"#000",display:"flex",alignItems:"center",gap:5,paddingLeft:2 }}>
                   <span style={{ color:"#534AB7",fontSize:10 }}>ℹ</span>
                   These requirements are specific to {scholarship.sanghaName || "this sangha"}.
                 </div>
@@ -1209,7 +1302,7 @@ function ScholarshipDrawer({
                         </div>
                         <div style={{ flex:1,minWidth:0 }}>
                           <div style={{ fontSize:13,fontWeight:600,color:"#1a1a2e" }}>{app.memberName}</div>
-                          <div style={{ fontSize:11,color:"#888" }}>{app.relation}</div>
+                          <div style={{ fontSize:11,color:"#000" }}>{app.relation}</div>
                         </div>
                         {cfg && (
                           <span style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:100,fontSize:11,fontWeight:700,background:cfg.bg,color:cfg.color,border:`0.5px solid ${cfg.border}`,flexShrink:0 }}>
@@ -1236,7 +1329,7 @@ function ScholarshipDrawer({
                   { label:"Closes", value:formatDate(scholarship.applicationEnd),   icon:"📅", highlight:scholarship.status==="closing_soon" },
                 ].filter(d => d.value !== "—").map(d => (
                   <div key={d.label} style={{ padding:"14px 16px",borderRadius:12,background:"#fff",border:`1px solid ${d.highlight?"rgba(220,100,0,0.35)":"#ebebf0"}`,boxShadow:d.highlight?"0 0 0 3px rgba(220,100,0,0.1)":"0 1px 3px rgba(0,0,0,0.04)" }}>
-                    <div style={{ fontSize:10,color:d.highlight?"#c96000":"#999",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5 }}>{d.icon} {d.label}</div>
+                    <div style={{ fontSize:10,color:d.highlight?"#c96000":"#000",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5 }}>{d.icon} {d.label}</div>
                     <div style={{ fontSize:14,fontWeight:700,color:d.highlight?"#c96000":"#1a1a2e" }}>{d.value}</div>
                     {d.highlight&&days>0&&<div style={{ fontSize:11,color:"#c96000",marginTop:3,fontWeight:600 }}>{days} days remaining</div>}
                   </div>
@@ -1258,7 +1351,7 @@ function ScholarshipDrawer({
         </div>
 
         <div style={{ padding:"16px 28px",borderTop:"1px solid #ebebf0",background:"#fff",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12 }}>
-          <div style={{ fontSize:12,color:"#999",lineHeight:1.5,maxWidth:220 }}>
+          <div style={{ fontSize:12,color:"#000",lineHeight:1.5,maxWidth:220 }}>
             {status!=="closed" && !allMembersApplied && !isFull && (
               hasPartialApplications
                 ? "Some members have applied. You can apply for the remaining members."
@@ -1329,7 +1422,7 @@ function PersistentFilterSidebar({
 
         {/* Status section */}
         <div style={{ marginBottom:4 }}>
-          <div style={{ padding:"0 18px 8px", fontSize:10, fontWeight:700, color:"#bbb", textTransform:"uppercase", letterSpacing:"0.12em" }}>
+          <div style={{ padding:"0 18px 8px", fontSize:10, fontWeight:700, color:"#000", textTransform:"uppercase", letterSpacing:"0.12em" }}>
             Status
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
@@ -1353,7 +1446,7 @@ function PersistentFilterSidebar({
                     background:active ? "#534AB7" : "#d0d0d8",
                     transition:"background 0.13s",
                   }} />
-                  <span style={{ fontSize:13, fontWeight:active?600:400, color:active?"#1a1a2e":"#555", flex:1 }}>
+                  <span style={{ fontSize:13, fontWeight:active?600:400, color:"#000", flex:1 }}>
                     {f}
                   </span>
                   {active && <span style={{ color:"#534AB7", fontSize:11, fontWeight:700 }}>✓</span>}
@@ -1366,7 +1459,7 @@ function PersistentFilterSidebar({
         {/* Categories section */}
         {categoriesWithColor.length > 0 && (
           <div style={{ marginTop:16 }}>
-            <div style={{ padding:"0 18px 8px", fontSize:10, fontWeight:700, color:"#bbb", textTransform:"uppercase", letterSpacing:"0.12em", display:"flex", alignItems:"center", gap:5 }}>
+            <div style={{ padding:"0 18px 8px", fontSize:10, fontWeight:700, color:"#000", textTransform:"uppercase", letterSpacing:"0.12em", display:"flex", alignItems:"center", gap:5 }}>
               Categories
               {selectedCategories.size > 0 && (
                 <span style={{ color:"#534AB7", fontWeight:700 }}>({selectedCategories.size})</span>
@@ -1394,7 +1487,7 @@ function PersistentFilterSidebar({
                       boxShadow:active ? `0 0 0 3px ${color}30` : "none",
                       transition:"box-shadow 0.15s",
                     }} />
-                    <span style={{ fontSize:13, fontWeight:active?600:400, color:active?"#1a1a2e":"#555", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    <span style={{ fontSize:13, fontWeight:active?600:400, color:"#000", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                       {cat}
                     </span>
                     {active && <span style={{ color:"#534AB7", fontSize:11, fontWeight:700 }}>✓</span>}
@@ -1408,7 +1501,7 @@ function PersistentFilterSidebar({
         {/* Eligibility section */}
         {allEligibilityLabels.length > 0 && (
           <div style={{ marginTop:16, borderTop:"1px solid #f0f0f5", paddingTop:16 }}>
-            <div style={{ padding:"0 18px 8px", fontSize:10, fontWeight:700, color:"#bbb", textTransform:"uppercase", letterSpacing:"0.12em", display:"flex", alignItems:"center", gap:5 }}>
+            <div style={{ padding:"0 18px 8px", fontSize:10, fontWeight:700, color:"#000", textTransform:"uppercase", letterSpacing:"0.12em", display:"flex", alignItems:"center", gap:5 }}>
               Eligibility
               {selectedEligibilities.size > 0 && (
                 <span style={{ color:"#534AB7", fontWeight:700 }}>({selectedEligibilities.size})</span>
@@ -1440,7 +1533,7 @@ function PersistentFilterSidebar({
                     }}>
                       {active ? "✓" : ""}
                     </span>
-                    <span style={{ fontSize:12, fontWeight:active?600:400, color:active?"#1a1a2e":"#555", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    <span style={{ fontSize:12, fontWeight:active?600:400, color:"#000", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                       {e}
                     </span>
                     {active && <span style={{ color:"#534AB7", fontSize:11, fontWeight:700, flexShrink:0 }}>✓</span>}
@@ -1502,21 +1595,21 @@ function MobileFilterPanel({
                 Clear all
               </button>
             )}
-            <button onClick={onClose} style={{ width:30,height:30,border:"1.5px solid #e0e0e8",borderRadius:8,background:"#fafafa",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#444",fontSize:15,fontWeight:700 }}>✕</button>
+            <button onClick={onClose} style={{ width:30,height:30,border:"1.5px solid #e0e0e8",borderRadius:8,background:"#fafafa",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#000",fontSize:15,fontWeight:700 }}>✕</button>
           </div>
         </div>
 
         <div style={{ flex:1,overflowY:"auto",padding:"16px 0" }}>
           {/* Status */}
           <div style={{ marginBottom:8 }}>
-            <div style={{ padding:"0 20px 8px",fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.1em" }}>Status</div>
+            <div style={{ padding:"0 20px 8px",fontSize:11,fontWeight:700,color:"#000",textTransform:"uppercase",letterSpacing:"0.1em" }}>Status</div>
             {STATUS_FILTERS.map(f => {
               const active = statusFilter === f;
               return (
                 <button key={f} className="filter-panel-chip" onClick={() => onSetStatus(f)}
                   style={{ display:"flex",alignItems:"center",gap:12,padding:"9px 20px",border:"none",background:active?"rgba(83,74,183,0.06)":"transparent",cursor:"pointer",textAlign:"left",width:"100%",borderLeft:active?"3px solid #534AB7":"3px solid transparent" }}>
                   <span style={{ width:7,height:7,borderRadius:"50%",flexShrink:0,background:active?"#534AB7":"#d0d0d8" }} />
-                  <span style={{ fontSize:13,fontWeight:active?600:400,color:active?"#1a1a2e":"#444",flex:1 }}>{f}</span>
+                  <span style={{ fontSize:13,fontWeight:active?600:400,color:"#000",flex:1 }}>{f}</span>
                   {active && <span style={{ color:"#534AB7",fontSize:12,fontWeight:700 }}>✓</span>}
                 </button>
               );
@@ -1525,7 +1618,7 @@ function MobileFilterPanel({
 
           {/* Categories */}
           <div style={{ borderTop:"1px solid #f0f0f5",paddingTop:12,marginTop:4 }}>
-            <div style={{ padding:"0 20px 8px",fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.1em",display:"flex",alignItems:"center",gap:6 }}>
+            <div style={{ padding:"0 20px 8px",fontSize:11,fontWeight:700,color:"#000",textTransform:"uppercase",letterSpacing:"0.1em",display:"flex",alignItems:"center",gap:6 }}>
               Categories {selectedCategories.size > 0 && <span style={{ color:"#534AB7",fontWeight:700 }}>({selectedCategories.size})</span>}
             </div>
             {categoriesWithColor.map(({ name: cat, color }) => {
@@ -1534,7 +1627,7 @@ function MobileFilterPanel({
                 <button key={cat} className="filter-panel-chip" onClick={() => onToggleCategory(cat)}
                   style={{ display:"flex",alignItems:"center",gap:12,padding:"9px 20px",border:"none",background:active?"rgba(83,74,183,0.06)":"transparent",cursor:"pointer",textAlign:"left",width:"100%",borderLeft:active?"3px solid #534AB7":"3px solid transparent" }}>
                   <span style={{ width:9,height:9,borderRadius:"50%",background:color,flexShrink:0,boxShadow:active?`0 0 0 3px ${color}30`:"none" }} />
-                  <span style={{ fontSize:13,fontWeight:active?600:400,color:active?"#1a1a2e":"#444",flex:1 }}>{cat}</span>
+                  <span style={{ fontSize:13,fontWeight:active?600:400,color:"#000",flex:1 }}>{cat}</span>
                   {active && <span style={{ color:"#534AB7",fontSize:12,fontWeight:700 }}>✓</span>}
                 </button>
               );
@@ -1544,7 +1637,7 @@ function MobileFilterPanel({
           {/* Eligibility */}
           {allEligibilityLabels.length > 0 && (
             <div style={{ borderTop:"1px solid #f0f0f5",paddingTop:12,marginTop:4 }}>
-              <div style={{ padding:"0 20px 8px",fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.1em",display:"flex",alignItems:"center",gap:6 }}>
+              <div style={{ padding:"0 20px 8px",fontSize:11,fontWeight:700,color:"#000",textTransform:"uppercase",letterSpacing:"0.1em",display:"flex",alignItems:"center",gap:6 }}>
                 Eligibility {selectedEligibilities.size > 0 && <span style={{ color:"#534AB7",fontWeight:700 }}>({selectedEligibilities.size})</span>}
               </div>
               {allEligibilityLabels.map(e => {
@@ -1553,7 +1646,7 @@ function MobileFilterPanel({
                   <button key={e} className="filter-panel-chip" onClick={() => onToggleEligibility(e)}
                     style={{ display:"flex",alignItems:"center",gap:12,padding:"9px 20px",border:"none",background:active?"rgba(83,74,183,0.06)":"transparent",cursor:"pointer",textAlign:"left",width:"100%",borderLeft:active?"3px solid #534AB7":"3px solid transparent" }}>
                     <span style={{ width:14,height:14,borderRadius:4,flexShrink:0,border:active?"none":"1.5px solid #ccc",background:active?"#534AB7":"transparent",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:8,fontWeight:700 }}>{active?"✓":""}</span>
-                    <span style={{ fontSize:12,fontWeight:active?600:400,color:active?"#1a1a2e":"#444",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{e}</span>
+                    <span style={{ fontSize:12,fontWeight:active?600:400,color:"#000",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{e}</span>
                     {active && <span style={{ color:"#534AB7",fontSize:12,fontWeight:700,flexShrink:0 }}>✓</span>}
                   </button>
                 );
@@ -1773,9 +1866,9 @@ function MyApplicationsTabs({
           const isActive = activeTab === tab.key;
           return (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              style={{ padding:"10px 20px",fontSize:14,fontWeight:isActive?700:500,color:isActive?"#534AB7":"#888",background:"none",border:"none",borderBottom:isActive?"2.5px solid #534AB7":"2.5px solid transparent",marginBottom:"-2px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s ease",whiteSpace:"nowrap" }}>
+              style={{ padding:"10px 20px",fontSize:14,fontWeight:isActive?700:500,color:isActive?"#534AB7":"#000",background:"none",border:"none",borderBottom:isActive?"2.5px solid #534AB7":"2.5px solid transparent",marginBottom:"-2px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s ease",whiteSpace:"nowrap" }}>
               {tab.label}
-              <span style={{ minWidth:22,height:22,borderRadius:100,padding:"0 6px",fontSize:12,fontWeight:700,background:isActive?"#534AB7":"#e8e8f0",color:isActive?"#fff":"#888",display:"inline-flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s ease" }}>
+              <span style={{ minWidth:22,height:22,borderRadius:100,padding:"0 6px",fontSize:12,fontWeight:700,background:isActive?"#534AB7":"#e8e8f0",color:isActive?"#fff":"#000",display:"inline-flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s ease" }}>
                 {tab.count}
               </span>
             </button>
@@ -1785,7 +1878,7 @@ function MyApplicationsTabs({
 
       <div style={{ display:"flex",flexDirection:"column",gap:10,animation:"fadeIn 0.2s ease" }} key={activeTab}>
         {currentList.length === 0 ? (
-          <div style={{ textAlign:"center",padding:"3rem 1rem",color:"#aaa",fontSize:13 }}>
+          <div style={{ textAlign:"center",padding:"3rem 1rem",color:"#000",fontSize:13 }}>
             <div style={{ fontSize:32,marginBottom:10,opacity:0.4 }}>
               {activeTab==="approved"?"✓":activeTab==="rejected"?"✕":"⏳"}
             </div>
@@ -1860,7 +1953,7 @@ function MyAppCard({
 
           {scholarship.sanghaName && (
             <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:5 }}>
-              <span style={{ fontSize:10, color:"#aaa", letterSpacing:"0.04em", fontWeight:600, textTransform:"uppercase" }}>🏛</span>
+              <span style={{ fontSize:10, color:"#000", letterSpacing:"0.04em", fontWeight:600, textTransform:"uppercase" }}>🏛</span>
               <span style={{ fontSize:15, color:"#CC5500", fontWeight:500, letterSpacing:"0.01em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                 {scholarship.sanghaName}
               </span>
@@ -1876,19 +1969,19 @@ function MyAppCard({
               {memberName.charAt(0).toUpperCase()}
             </div>
             <div style={{ minWidth:0 }}>
-              <span style={{ fontSize:12, fontWeight:600, color:"#333" }}>{memberName}</span>
-              <span style={{ fontSize:11, color:"#bbb", marginLeft:5, fontWeight:400 }}>{relation}</span>
+              <span style={{ fontSize:12, fontWeight:600, color:"#000" }}>{memberName}</span>
+              <span style={{ fontSize:11, color:"#000", marginLeft:5, fontWeight:400 }}>{relation}</span>
             </div>
           </div>
         </div>
 
         <div style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"flex-end", justifyContent:"space-between", paddingLeft:12, borderLeft:"1px solid #f0f0f4", minWidth:80 }}>
           <div style={{ textAlign:"right" }}>
-            <div style={{ fontSize:10, color:"#bbb", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:3 }}>Award</div>
+            <div style={{ fontSize:10, color:"#000", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:3 }}>Award</div>
             <div style={{ fontSize:18, fontWeight:800, fontFamily:"'Lora',serif", color, lineHeight:1, letterSpacing:"-0.01em" }}>
               ₹{scholarship.baseAmount.toLocaleString("en-IN")}
             </div>
-            <div style={{ fontSize:10, color:"#aaa", fontWeight:500, marginTop:2 }}>base</div>
+            <div style={{ fontSize:10, color:"#000", fontWeight:500, marginTop:2 }}>base</div>
           </div>
 
           {highestTier && (

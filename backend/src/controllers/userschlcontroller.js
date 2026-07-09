@@ -466,16 +466,36 @@ exports.getMemberEducation = async (req, res) => {
     if (!profileId) return res.status(404).json({ message: 'Profile not found.' });
 
     const familyMemberId = toFamilyMemberId(req.params.memberId);
-    const r = await pool.query(
-      `SELECT employment_type, pursuing_degree, sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
-              pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
-              degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url
-       FROM member_education_details
-       WHERE profile_id = $1
-         AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
-       LIMIT 1`,
-      [profileId, familyMemberId]
-    );
+   const r = await pool.query(
+  `SELECT
+      employment_type,
+      pursuing_degree,
+
+      sslc_pursued,
+      pu_pursued,
+
+      sslc_school_name,
+      sslc_year,
+      sslc_percentage,
+      sslc_marks_card_url,
+
+      pu_college_name,
+      pu_year,
+      pu_percentage,
+      pu_marks_card_url,
+
+      degree_name,
+      degree_institution,
+      degree_year,
+      degree_percentage,
+      degree_certificate_url
+
+   FROM member_education_details
+   WHERE profile_id = $1
+     AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
+   LIMIT 1`,
+  [profileId, familyMemberId]
+);
 
     if (!r.rows.length) return res.json({ data: null });
 
@@ -484,6 +504,8 @@ exports.getMemberEducation = async (req, res) => {
       data: {
         employmentType:      row.employment_type,
         pursuingDegree:      row.pursuing_degree,
+        sslcPursued: row.sslc_pursued,
+        puPursued: row.pu_pursued,
         sslcSchoolName:      row.sslc_school_name,
         sslcYear:            row.sslc_year,
         sslcPercentage:      row.sslc_percentage,
@@ -523,13 +545,29 @@ exports.saveMemberEducation = async (req, res) => {
       }
     }
 
-    const {
-      employmentType = null, pursuingDegree = null,
-      sslcSchoolName = null, sslcYear = null, sslcPercentage = null, sslcMarksCardUrl = null,
-      puCollegeName = null, puYear = null, puPercentage = null, puMarksCardUrl = null,
-      degreeName = null, degreeInstitution = null, degreeYear = null, degreePercentage = null,
-      degreeCertificateUrl = null,
-    } = req.body;
+  const {
+  employmentType = null,
+  pursuingDegree = null,
+
+  sslcPursued = null,
+  puPursued = null,
+
+  sslcSchoolName = null,
+  sslcYear = null,
+  sslcPercentage = null,
+  sslcMarksCardUrl = null,
+
+  puCollegeName = null,
+  puYear = null,
+  puPercentage = null,
+  puMarksCardUrl = null,
+
+  degreeName = null,
+  degreeInstitution = null,
+  degreeYear = null,
+  degreePercentage = null,
+  degreeCertificateUrl = null,
+} = req.body;
 
     const existing = await pool.query(
       `SELECT id, sslc_marks_card_url, pu_marks_card_url, degree_certificate_url
@@ -548,28 +586,115 @@ exports.saveMemberEducation = async (req, res) => {
     if (existing.rows.length) {
       await pool.query(
         `UPDATE member_education_details SET
-           employment_type = $1, pursuing_degree = $2, sslc_school_name = $3, sslc_year = $4, sslc_percentage = $5, sslc_marks_card_url = $6,
-           pu_college_name = $7, pu_year = $8, pu_percentage = $9, pu_marks_card_url = $10,
-           degree_name = $11, degree_institution = $12, degree_year = $13, degree_percentage = $14, degree_certificate_url = $15,
-           updated_at = NOW()
-         WHERE id = $16`,
-        [employmentType, pursuingDegree, sslcSchoolName, sslcYear, sslcPercentage, finalSslcUrl,
-         puCollegeName, puYear, puPercentage, finalPuUrl,
-         degreeName, degreeInstitution, degreeYear, degreePercentage, finalDegreeUrl,
-         existing.rows[0].id]
+   employment_type = $1,
+   pursuing_degree = $2,
+
+   sslc_pursued = $3,
+   pu_pursued = $4,
+
+   sslc_school_name = $5,
+   sslc_year = $6,
+   sslc_percentage = $7,
+   sslc_marks_card_url = $8,
+
+   pu_college_name = $9,
+   pu_year = $10,
+   pu_percentage = $11,
+   pu_marks_card_url = $12,
+
+   degree_name = $13,
+   degree_institution = $14,
+   degree_year = $15,
+   degree_percentage = $16,
+   degree_certificate_url = $17,
+
+   updated_at = NOW()
+WHERE id = $18`,
+        [
+  employmentType,
+  pursuingDegree,
+
+  sslcPursued,
+  puPursued,
+
+  sslcSchoolName,
+  sslcYear,
+  sslcPercentage,
+  finalSslcUrl,
+
+  puCollegeName,
+  puYear,
+  puPercentage,
+  finalPuUrl,
+
+  degreeName,
+  degreeInstitution,
+  degreeYear,
+  degreePercentage,
+  finalDegreeUrl,
+
+  existing.rows[0].id
+]
       );
     } else {
       await pool.query(
         `INSERT INTO member_education_details
-           (profile_id, family_member_id, employment_type, pursuing_degree,
-            sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
-            pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
-            degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-        [profileId, familyMemberId, employmentType, pursuingDegree,
-         sslcSchoolName, sslcYear, sslcPercentage, finalSslcUrl,
-         puCollegeName, puYear, puPercentage, finalPuUrl,
-         degreeName, degreeInstitution, degreeYear, degreePercentage, finalDegreeUrl]
+(
+ profile_id,
+ family_member_id,
+
+ employment_type,
+ pursuing_degree,
+
+ sslc_pursued,
+ pu_pursued,
+
+ sslc_school_name,
+ sslc_year,
+ sslc_percentage,
+ sslc_marks_card_url,
+
+ pu_college_name,
+ pu_year,
+ pu_percentage,
+ pu_marks_card_url,
+
+ degree_name,
+ degree_institution,
+ degree_year,
+ degree_percentage,
+ degree_certificate_url
+)
+VALUES
+(
+ $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+)`,
+        [
+  profileId,
+  familyMemberId,
+
+  employmentType,
+  pursuingDegree,
+
+  sslcPursued,
+  puPursued,
+
+  sslcSchoolName,
+  sslcYear,
+  sslcPercentage,
+  finalSslcUrl,
+
+  puCollegeName,
+  puYear,
+  puPercentage,
+  finalPuUrl,
+
+  degreeName,
+  degreeInstitution,
+  degreeYear,
+  degreePercentage,
+  finalDegreeUrl
+]
       );
     }
 

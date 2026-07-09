@@ -112,6 +112,8 @@ interface RichApplicantsPagination { total: number; page: number; limit: number;
 interface EducationDocuments {
   employmentType: string | null;
   pursuingDegree: boolean | null;
+  sslcPursued: boolean | null;
+  puPursued: boolean | null;
   sslcSchoolName: string | null; sslcYear: string | null; sslcPercentage: string | null; sslcMarksCardUrl: string | null;
   puCollegeName: string | null; puYear: string | null; puPercentage: string | null; puMarksCardUrl: string | null;
   degreeName: string | null; degreeInstitution: string | null; degreeYear: string | null; degreePercentage: string | null; degreeCertificateUrl: string | null;
@@ -374,6 +376,25 @@ function BoolBadge({ value, label }: { value: boolean | null | undefined; label:
   return (
     <span style={{ fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:6,background:value?"rgba(15,110,86,0.1)":"rgba(100,116,139,0.08)",color:value?"var(--color-text-success)":"var(--color-text-tertiary)",border:`0.5px solid ${value?"rgba(15,110,86,0.25)":"var(--color-border-tertiary)"}` }}>
       {value ? <><i className="ti ti-check" style={{ fontSize:9,marginRight:3 }} />{label}</> : <><i className="ti ti-minus" style={{ fontSize:9,marginRight:3 }} />No {label}</>}
+    </span>
+  );
+}
+
+function PursuedBadge({ value }: { value: boolean | null | undefined }) {
+  if (value === null || value === undefined) {
+    return (
+      <span style={{ fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:6,background:"rgba(100,116,139,0.08)",color:"var(--color-text-tertiary)",border:"0.5px solid var(--color-border-tertiary)" }}>
+        Not specified
+      </span>
+    );
+  }
+  return value ? (
+    <span style={{ fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,background:"rgba(15,110,86,0.1)",color:"var(--color-text-success)",border:"0.5px solid rgba(15,110,86,0.25)" }}>
+      <i className="ti ti-check" style={{ fontSize:9,marginRight:3 }} />Yes
+    </span>
+  ) : (
+    <span style={{ fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,background:"rgba(192,57,43,0.06)",color:"var(--color-text-danger)",border:"0.5px solid rgba(192,57,43,0.2)" }}>
+      <i className="ti ti-x" style={{ fontSize:9,marginRight:3 }} />No
     </span>
   );
 }
@@ -1342,19 +1363,75 @@ function SanghaApplicantDetailModal({ applicationId, applicantName, isFamilyMemb
                   </div>
                 )}
 
-                {/* ── NEW: Education Documents ── */}
+               {/* ── NEW: Education Documents ── */}
                 <div>
                   <SubSectionHeader label="Education Documents" />
                   {d.documents ? (
-                    <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                    <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+
                       {d.documents.employmentType && (
-                        <div style={{ fontSize:12,color:"var(--color-text-secondary)",marginBottom:2 }}>
+                        <div style={{ fontSize:12,color:"var(--color-text-secondary)" }}>
                           Status: <strong>{d.documents.employmentType === "student" ? "Currently studying" : "Employed"}</strong>
                         </div>
                       )}
-                      <DocFileChip label={`SSLC Marks Card${d.documents.sslcYear ? ` (${d.documents.sslcYear})` : ""}`} url={d.documents.sslcMarksCardUrl} />
-                      <DocFileChip label={`PU Marks Card${d.documents.puYear ? ` (${d.documents.puYear})` : ""}`} url={d.documents.puMarksCardUrl} />
-                      <DocFileChip label={`Degree Certificate${d.documents.degreeYear ? ` (${d.documents.degreeYear})` : ""}`} url={d.documents.degreeCertificateUrl} />
+
+                      {/* ── SSLC ── */}
+                      <div style={{ padding:"12px 14px",borderRadius:10,background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)" }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom: d.documents.sslcPursued===true ? 10 : 0 }}>
+                          <span style={{ fontSize:12,color:"var(--color-text-secondary)",fontWeight:600,flex:1 }}>SSLC Pursued</span>
+                          <PursuedBadge value={d.documents.sslcPursued} />
+                        </div>
+                        {d.documents.sslcPursued === true && (
+                          <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+                            <ProfileField label="School name" value={d.documents.sslcSchoolName} />
+                            <ProfileField label="Year of passing" value={d.documents.sslcYear} />
+                            <ProfileField label="Percentage" value={d.documents.sslcPercentage} />
+                            <DocFileChip label="SSLC Marks Card" url={d.documents.sslcMarksCardUrl} />
+                          </div>
+                        )}
+                        {d.documents.sslcPursued === false && (
+                          <div style={{ fontSize:12,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
+                            Marked as not pursued by the applicant.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── PU ── */}
+                      <div style={{ padding:"12px 14px",borderRadius:10,background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)" }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom: d.documents.puPursued===true ? 10 : 0 }}>
+                          <span style={{ fontSize:12,color:"var(--color-text-secondary)",fontWeight:600,flex:1 }}>PU Pursued</span>
+                          <PursuedBadge value={d.documents.puPursued} />
+                        </div>
+                        {d.documents.puPursued === true && (
+                          <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+                            <ProfileField label="College name" value={d.documents.puCollegeName} />
+                            <ProfileField label="Year of passing" value={d.documents.puYear} />
+                            <ProfileField label="Percentage" value={d.documents.puPercentage} />
+                            <DocFileChip label="PU Marks Card" url={d.documents.puMarksCardUrl} />
+                          </div>
+                        )}
+                        {d.documents.puPursued === false && (
+                          <div style={{ fontSize:12,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
+                            Marked as not pursued by the applicant.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── Degree (only shown if the applicant actually provided one) ── */}
+                      {(d.documents.degreeName || d.documents.degreeInstitution || d.documents.degreeCertificateUrl) && (
+                        <div style={{ padding:"12px 14px",borderRadius:10,background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)" }}>
+                          <div style={{ fontSize:12,color:"var(--color-text-secondary)",fontWeight:600,marginBottom:10 }}>
+                            {d.documents.employmentType === "employed" ? "Highest Degree" : "Degree Details"}
+                          </div>
+                          <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+                            <ProfileField label="Degree name" value={d.documents.degreeName} />
+                            <ProfileField label="Institution" value={d.documents.degreeInstitution} />
+                            <ProfileField label="Year of passing" value={d.documents.degreeYear} />
+                            <ProfileField label="Percentage" value={d.documents.degreePercentage} />
+                            <DocFileChip label="Degree Certificate" url={d.documents.degreeCertificateUrl} />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div style={{ fontSize:12,color:"var(--color-text-tertiary)",fontStyle:"italic",padding:"10px 12px",borderRadius:10,background:"var(--color-background-primary)",border:"1px dashed var(--color-border-secondary)" }}>
