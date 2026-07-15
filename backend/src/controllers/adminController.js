@@ -4,6 +4,8 @@ const bcrypt = require('bcrypt');
 const { signToken } = require('../utils/jwt');
 const { generateOtp }  = require('../utils/otp');
 const { sendOtpEmail } = require('../config/mailer');
+const crypto = require('crypto');
+const { sendModeratorSetupEmail } = require('../config/mailer');
 
 // ─── POST /admin/login/send-otp ───────────────────────────────────
 const loginSendOtp = async (req, res) => {
@@ -1003,6 +1005,57 @@ const getUserScholarships = async (req, res) => {
   }
 };
 
+// ─── POST /admin/job-moderators ───────────────────────────────
+const addJobModerator = async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    if (!name?.trim() || !email?.trim()) {
+      return res.status(400).json({ message: 'Name and email are required' });
+    }
+
+    const existing = await pool.query('SELECT id FROM users WHERE email=$1', [email.trim()]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ message: 'An account with this email already exists' });
+    }
+
+    const setupToken = crypto.randomBytes(32).toString('hex');
+    const setupTokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+
+    const result = await pool.query(
+      `INSERT INTO users (name, email, role, is_active, is_email_verified, setup_token, setup_token_expires_at)
+       VALUES ($1, $2, 'job_moderator', true, false, $3, $4)
+       RETURNING id, name, email, created_at`,
+      [name.trim(), email.trim(), setupToken, setupTokenExpiresAt]
+    );
+
+    const setupLink = `${process.env.JOB_MODERATOR_FRONTEND_URL}/set-password?token=${setupToken}`;
+    await sendModeratorSetupEmail(email.trim(), name.trim(), setupLink);
+
+    res.status(201).json({ message: 'Job moderator added and setup email sent', moderator: result.rows[0] });
+  } catch (err) {
+    console.error('addJobModerator error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── GET /admin/job-moderators ─────────────────────────────────
+const getJobModerators = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, email, is_active, is_blocked,
+              (password_hash IS NOT NULL) AS setup_complete,
+              last_login_at, created_at
+       FROM users
+       WHERE role='job_moderator' AND is_deleted=false
+       ORDER BY created_at DESC`
+    );
+    res.json({ moderators: result.rows });
+  } catch (err) {
+    console.error('getJobModerators error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = {
   loginSendOtp,
   loginVerifyOtp,
@@ -1034,4 +1087,6 @@ module.exports = {
   getAllBlocklistUsers,
   getAllBlocklistSanghas,
   getUserScholarships,
+  addJobModerator,
+  getJobModerators,
 };

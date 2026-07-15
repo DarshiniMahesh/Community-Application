@@ -19,6 +19,11 @@ const sendOtp = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
 
     const user = result.rows[0];
+
+    if (!user.password_hash) {
+      return res.status(403).json({ message: 'Please set up your password first using the link sent to your email' });
+    }
+
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
 
@@ -63,4 +68,43 @@ const verifyOtp = async (req, res) => {
   }
 };
 
-module.exports = { sendOtp, verifyOtp };
+// ── Set Password (first-time setup via emailed link) ────────────
+const setPassword = async (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword) {
+    return res.status(400).json({ message: 'Token and new password are required' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ message: 'Password must be at least 6 characters' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT id, setup_token_expires_at FROM users
+       WHERE setup_token=$1 AND role='job_moderator'`,
+      [token]
+    );
+    if (result.rows.length === 0) {
+      return res.status(400).json({ message: 'Invalid or already used setup link' });
+    }
+    const user = result.rows[0];
+    if (new Date() > new Date(user.setup_token_expires_at)) {
+      return res.status(400).json({ message: 'Setup link has expired. Ask admin to resend.' });
+    }
+
+    const password_hash = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      `UPDATE users
+       SET password_hash=$1, setup_token=NULL, setup_token_expires_at=NULL, is_email_verified=true
+       WHERE id=$2`,
+      [password_hash, user.id]
+    );
+
+    return res.json({ message: 'Password set successfully. You can now log in.' });
+  } catch (err) {
+    console.error('moderator setPassword:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+module.exports = { sendOtp, verifyOtp, setPassword };

@@ -1733,3 +1733,4 @@ module.exports = {
   getScholarshipApplicantsList,
   getSanghaApplicantDetails,
   getSanghaApplicantScholarshipHistory,
+}

@@ -12,6 +12,9 @@ router.use('/reports', require('./adminreport'));
 // ── All routes below require admin auth ──────────────────────
 router.use(authenticate);
 router.use(requireRole('admin'));
+// Job Moderator management
+router.post('/job-moderators', ac.addJobModerator);
+router.get('/job-moderators',  ac.getJobModerators);
 
 // Dashboard
 router.get('/dashboard', ac.getDashboard);
