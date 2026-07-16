@@ -8,6 +8,13 @@ const getHeaders = () => {
   };
 };
 
+const getAuthHeaderOnly = () => {
+  const token = typeof window !== "undefined" ? localStorage.getItem("company_token") : null;
+  return {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const api = {
   get: async (path: string): Promise<any> => {
@@ -19,6 +26,16 @@ export const api = {
   post: async (path: string, body: object): Promise<any> => {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "POST", headers: getHeaders(), body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Something went wrong");
+    return data;
+  },
+  // For multipart/form-data uploads (e.g. logo). Do NOT set Content-Type manually —
+  // the browser sets it (including the multipart boundary) automatically for FormData bodies.
+  postForm: async (path: string, formData: FormData): Promise<any> => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST", headers: getAuthHeaderOnly(), body: formData,
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || "Something went wrong");

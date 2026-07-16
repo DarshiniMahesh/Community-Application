@@ -5,6 +5,7 @@ const {
   moderatorListReferrals, approveReferral, rejectReferral,
   applyToReferral, getReferralApplicants,
   updateReferralApplicantStatus, getMyReferralApplications,
+  getReferralModeratorDetail,
 } = require('../controllers/referralController');
 const { authenticate, requireRole } = require('../middlewares/auth');
 
@@ -24,7 +25,8 @@ router.get('/my-applications',                       authenticate, requireRole('
 router.patch('/:id/applicants/:applicantId/status',  authenticate, requireRole('user'), updateReferralApplicantStatus);
 
 // ── Job Moderator: Manage referrals ────────────────────────────
-router.get('/admin', authenticate, requireRole('admin'), moderatorListReferrals);
+router.get('/admin', authenticate, requireRole('admin', 'job_moderator'), moderatorListReferrals);
+router.get('/:id/moderator-detail', authenticate, requireRole('admin', 'job_moderator'), getReferralModeratorDetail);
 router.patch('/:id/approve', authenticate, requireRole('admin', 'job_moderator'), approveReferral);
 router.patch('/:id/reject',  authenticate, requireRole('admin', 'job_moderator'), rejectReferral);
 

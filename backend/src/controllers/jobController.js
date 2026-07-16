@@ -15,7 +15,6 @@ const createJob = async (req, res) => {
   try {
     const companyId = await getCompanyId(req.user.id);
 
-    // Fetch company info for auto-fill
     const comp = await pool.query(
       `SELECT company_name FROM companies WHERE id=$1`, [companyId]
     );
@@ -48,18 +47,15 @@ const createJob = async (req, res) => {
       reason_for_vacancy, budget_code, resume_scoring,
     } = req.body;
 
-    // Validate mandatory fields
     if (!job_title || !job_description || !location || !postal_code || !country ||
       !work_setting || !employment_type || !company_website ||
       !required_skills || !responsibilities || !key_responsibilities ||
       !contact_email || !equal_opportunity_statement)
       return res.status(400).json({ message: 'Missing mandatory fields' });
 
-    // Validate contract_duration only for contract type
     if (employment_type === 'Contract' && contract_duration === undefined)
       return res.status(400).json({ message: 'Contract duration required for Contract employment type' });
 
-    // Validate dates
     if (job_expiration) {
       const exp = new Date(job_expiration);
       if (exp < new Date()) return res.status(400).json({ message: 'Expiry date cannot be in the past' });
@@ -145,13 +141,13 @@ const createJob = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
 // ── Update Job ─────────────────────────────────────────────────
 const updateJob = async (req, res) => {
   const { id } = req.params;
   try {
     const companyId = await getCompanyId(req.user.id);
 
-    // Verify ownership
     const ownership = await pool.query(
       `SELECT id FROM company_jobs WHERE id=$1 AND company_id=$2`,
       [id, companyId]
@@ -252,6 +248,7 @@ const updateJob = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
 // ── List Jobs (company) ────────────────────────────────────────
 const listJobs = async (req, res) => {
   try {
@@ -318,7 +315,7 @@ const getJobApplicants = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT ja.id, ja.status, ja.applied_at, ja.resume_url,
-              ja.cover_letter_url, ja.portfolio_url,
+              ja.cover_letter_url, ja.portfolio_url, ja.resume_score,
               u.email as applicant_email,
               COALESCE(pd.first_name || ' ' || pd.last_name, u.email) as applicant_name
        FROM job_applications ja
@@ -346,7 +343,6 @@ const updateApplicantStatus = async (req, res) => {
     return res.status(400).json({ message: 'Invalid status' });
 
   try {
-    // Get current status
     const current = await pool.query(
       `SELECT status FROM job_applications WHERE id=$1 AND job_id=$2`,
       [applicantId, jobId]
@@ -358,10 +354,8 @@ const updateApplicantStatus = async (req, res) => {
     const currentIdx = VALID_STATUSES.indexOf(currentStatus);
     const newIdx = VALID_STATUSES.indexOf(status);
 
-    // Cannot move back to Submitted once progressed
     if (status === 'Submitted' && currentIdx > 0)
       return res.status(400).json({ message: 'Cannot move back to Submitted' });
-    // Cannot move to earlier status (except Rejected which can always be set)
     if (newIdx < currentIdx && status !== 'Rejected')
       return res.status(400).json({ message: 'Cannot move to a previous status' });
 
@@ -376,13 +370,43 @@ const updateApplicantStatus = async (req, res) => {
   }
 };
 
+// ── Set Resume Score (one-time only, then frozen) ──────────────
+const setResumeScore = async (req, res) => {
+  const { jobId, applicantId } = req.params;
+  const { resume_score } = req.body;
+
+  const score = Number(resume_score);
+  if (resume_score === undefined || resume_score === null || Number.isNaN(score) || score < 0 || score > 100)
+    return res.status(400).json({ message: 'Resume score must be a number between 0 and 100' });
+
+  try {
+    const existing = await pool.query(
+      `SELECT resume_score FROM job_applications WHERE id=$1 AND job_id=$2`,
+      [applicantId, jobId]
+    );
+    if (existing.rows.length === 0)
+      return res.status(404).json({ message: 'Application not found' });
+    if (existing.rows[0].resume_score !== null)
+      return res.status(409).json({ message: 'Resume score has already been set and cannot be changed' });
+
+    await pool.query(
+      `UPDATE job_applications SET resume_score=$1, updated_at=now() WHERE id=$2`,
+      [score, applicantId]
+    );
+    return res.json({ message: 'Resume score set', resume_score: score });
+  } catch (err) {
+    console.error('setResumeScore:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 // ── Get All Applications (company-wide) ───────────────────────
 const getAllApplications = async (req, res) => {
   try {
     const companyId = await getCompanyId(req.user.id);
     const result = await pool.query(
       `SELECT ja.id, ja.status, ja.applied_at, ja.resume_url, ja.cover_letter_url,
-              ja.portfolio_url, ja.job_id, cj.job_title,
+              ja.portfolio_url, ja.resume_score, ja.job_id, cj.job_title,
               u.email as applicant_email,
               COALESCE(pd.first_name || ' ' || pd.last_name, u.email) as applicant_name
        FROM job_applications ja
@@ -469,16 +493,15 @@ const publicGetJob = async (req, res) => {
 const applyToJob = async (req, res) => {
   const { id } = req.params;
   const { portfolio_url, answers } = req.body;
-const resumeFile = req.files?.resume?.[0];
-const coverFile = req.files?.cover_letter?.[0];
-if (!resumeFile)
-  return res.status(400).json({ message: 'Resume is required' });
-const resume_url = `/uploads/resumes/${resumeFile.filename}`;
-const cover_letter_url = coverFile ? `/uploads/resumes/${coverFile.filename}` : null;
-const screening_answers = answers ? JSON.parse(answers) : {};
+  const resumeFile = req.files?.resume?.[0];
+  const coverFile = req.files?.cover_letter?.[0];
+  if (!resumeFile)
+    return res.status(400).json({ message: 'Resume is required' });
+  const resume_url = `/uploads/resumes/${resumeFile.filename}`;
+  const cover_letter_url = coverFile ? `/uploads/resumes/${coverFile.filename}` : null;
+  const screening_answers = answers ? JSON.parse(answers) : {};
 
   try {
-    // Check already applied
     const existing = await pool.query(
       `SELECT id FROM job_applications WHERE job_id=$1 AND user_id=$2`,
       [id, req.user.id]
@@ -486,7 +509,6 @@ const screening_answers = answers ? JSON.parse(answers) : {};
     if (existing.rows.length > 0)
       return res.status(409).json({ message: 'You have already applied to this job' });
 
-    // Check job exists and active
     const job = await pool.query(
       `SELECT id FROM company_jobs WHERE id=$1 AND status='active'`, [id]
     );
@@ -512,10 +534,10 @@ const getUserApplications = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT ja.id, ja.job_id, cj.job_title, cj.company_name, ja.applied_at, ja.status
- FROM job_applications ja
- JOIN company_jobs cj ON cj.id = ja.job_id
- WHERE ja.user_id=$1
- ORDER BY ja.applied_at DESC`,
+       FROM job_applications ja
+       JOIN company_jobs cj ON cj.id = ja.job_id
+       WHERE ja.user_id=$1
+       ORDER BY ja.applied_at DESC`,
       [req.user.id]
     );
     return res.json({ applications: result.rows });
@@ -564,16 +586,19 @@ const getSavedJobs = async (req, res) => {
   }
 };
 
-// ── Admin: View all job postings ──────────────────────────────
+// ── Admin: View all job postings (optionally scoped to one company) ───
 const adminListJobs = async (req, res) => {
+  const { company_id } = req.query;
   try {
     const result = await pool.query(
       `SELECT cj.*, c.company_name as co_name, COUNT(ja.id) as applicant_count
        FROM company_jobs cj
        JOIN companies c ON c.id = cj.company_id
        LEFT JOIN job_applications ja ON ja.job_id = cj.id
+       WHERE ($1::uuid IS NULL OR cj.company_id = $1)
        GROUP BY cj.id, c.company_name
-       ORDER BY cj.posted_at DESC`
+       ORDER BY cj.posted_at DESC`,
+      [company_id || null]
     );
     return res.json({ jobs: result.rows });
   } catch (err) {
@@ -584,7 +609,7 @@ const adminListJobs = async (req, res) => {
 
 module.exports = {
   createJob, listJobs, getJob, deleteJob, updateJob,
-  getJobApplicants, updateApplicantStatus, getAllApplications,
+  getJobApplicants, updateApplicantStatus, setResumeScore, getAllApplications,
   publicListJobs, publicGetJob,
   applyToJob, getUserApplications, saveJob, getSavedJobs,
   adminListJobs,

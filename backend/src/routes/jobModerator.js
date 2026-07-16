@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { sendOtp, verifyOtp } = require('../controllers/jobModeratorController');
+const { sendOtp, verifyOtp, setPassword } = require('../controllers/jobModeratorController');
+
+router.post('/set-password', setPassword);
 
 // ── Job Moderator Auth ────────────────────────────────────────
 router.post('/login/send-otp',    sendOtp);

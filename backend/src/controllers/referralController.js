@@ -250,9 +250,43 @@ const getMyReferralApplications = async (req, res) => {
   }
 };
 
+// ── Moderator: Get single referral with poster + applicants ────
+const getReferralModeratorDetail = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const refResult = await pool.query(
+      `SELECT jr.*, u.email as posted_by_email, u.phone as posted_by_phone
+       FROM job_referrals jr
+       JOIN users u ON u.id = jr.user_id
+       WHERE jr.id=$1`,
+      [id]
+    );
+    if (refResult.rows.length === 0)
+      return res.status(404).json({ message: 'Referral not found' });
+
+    const appResult = await pool.query(
+      `SELECT ra.id, ra.status, ra.applied_at,
+              u.email, u.phone,
+              COALESCE(pd.first_name||' '||pd.last_name, u.email) as name
+       FROM referral_applications ra
+       JOIN users u ON u.id = ra.user_id
+       LEFT JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN personal_details pd ON pd.profile_id = p.id
+       WHERE ra.referral_id=$1 ORDER BY ra.applied_at DESC`,
+      [id]
+    );
+
+    return res.json({ referral: refResult.rows[0], applicants: appResult.rows });
+  } catch (err) {
+    console.error('getReferralModeratorDetail:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   createReferral, getMyReferrals, listApprovedReferrals,
   moderatorListReferrals, approveReferral, rejectReferral,
   applyToReferral, getReferralApplicants,
   updateReferralApplicantStatus, getMyReferralApplications,
+  getReferralModeratorDetail,
 };

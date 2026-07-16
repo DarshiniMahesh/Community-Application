@@ -34,6 +34,10 @@ export default function AdminCompaniesPage() {
   const [rejectTarget, setRejectTarget] = useState<Company | null>(null);
   const [reasonError, setReasonError] = useState("");
 
+  // Job roles for the selected company
+  const [companyJobs, setCompanyJobs] = useState<any[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
   const fetchCompanies = (status: TabType) => {
@@ -45,6 +49,16 @@ export default function AdminCompaniesPage() {
   };
 
   useEffect(() => { fetchCompanies(tab); }, [tab]);
+
+  // Fetch job roles whenever the selected company changes
+  useEffect(() => {
+    if (!selected) { setCompanyJobs([]); return; }
+    setJobsLoading(true);
+    api.get(`/api/jobs/admin/all?company_id=${selected.id}`)
+      .then((d) => setCompanyJobs(d.jobs || []))
+      .catch(console.error)
+      .finally(() => setJobsLoading(false));
+  }, [selected]);
 
   const handleApprove = async (company: Company) => {
     setActionLoading(true);
@@ -229,6 +243,37 @@ export default function AdminCompaniesPage() {
                 <CheckCircle size={14} color="#065f46" /> Company is approved and active.
               </div>
             )}
+
+            {/* Job Roles Posted */}
+            <div style={{ marginTop: 24, borderTop: "1px solid #eee", paddingTop: 20 }}>
+              <p style={{ fontSize: 11, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", margin: "0 0 12px" }}>
+                Job Roles Posted ({companyJobs.length})
+              </p>
+              {jobsLoading ? (
+                <p style={{ fontSize: 13, color: "#6b7280" }}>Loading jobs...</p>
+              ) : companyJobs.length === 0 ? (
+                <p style={{ fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>No jobs posted yet.</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 260, overflowY: "auto" }}>
+                  {companyJobs.map((j) => (
+                    <div key={j.id} style={{
+                      background: "#f9fafb", borderRadius: 8, padding: "10px 14px",
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                    }}>
+                      <div>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e", margin: "0 0 2px" }}>{j.job_title}</p>
+                        <p style={{ fontSize: 11, color: "#9ca3af", margin: 0 }}>
+                          {j.location} · {j.employment_type} · {j.status}
+                        </p>
+                      </div>
+                      <span style={{ fontSize: 11, color: "#1a56db", fontWeight: 600 }}>
+                        {j.applicant_count} applicant{j.applicant_count === "1" ? "" : "s"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div style={styles.noSelection}>

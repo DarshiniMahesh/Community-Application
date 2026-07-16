@@ -14,7 +14,6 @@ const register = async (req, res) => {
     return res.status(400).json({ message: 'Email or phone is required' });
 
   try {
-    // Check duplicate in verified accounts only
     const existing = await pool.query(
       `SELECT id FROM company_auth WHERE (email=$1 OR phone=$2) AND is_verified=true`,
       [email || null, phone || null]
@@ -26,7 +25,6 @@ const register = async (req, res) => {
     const otp = generateOtp();
     const otp_expires_at = new Date(Date.now() + parseInt(process.env.OTP_EXPIRES_MINUTES || '10') * 60000);
 
-    // Delete any previous unverified attempts with same contact
     await pool.query(
       `DELETE FROM company_auth WHERE (email=$1 OR phone=$2) AND is_verified=false`,
       [email || null, phone || null]
@@ -67,21 +65,19 @@ const verifyOtp = async (req, res) => {
     if (new Date() > new Date(row.otp_expires_at))
       return res.status(400).json({ message: 'OTP expired. Please request a new one.' });
 
-    // Mark verified
     await pool.query(
       `UPDATE company_auth SET is_verified=true, otp_code=NULL, otp_expires_at=NULL WHERE id=$1`,
       [row.id]
     );
 
-    // Check if profile exists
     const profile = await pool.query(
-  `SELECT id, status FROM companies WHERE company_auth_id=$1`, [row.id]
-);
-const profileComplete = profile.rows.length > 0;
-const companyStatus = profileComplete ? profile.rows[0].status : null;
+      `SELECT id, status FROM companies WHERE company_auth_id=$1`, [row.id]
+    );
+    const profileComplete = profile.rows.length > 0;
+    const companyStatus = profileComplete ? profile.rows[0].status : null;
 
-const token = generateToken({ id: row.id, role: 'company' });
-return res.json({ message: 'Verified', token, profileComplete, companyStatus });
+    const token = generateToken({ id: row.id, role: 'company' });
+    return res.json({ message: 'Verified', token, profileComplete, companyStatus });
   } catch (err) {
     console.error('company verifyOtp:', err);
     return res.status(500).json({ message: 'Internal server error' });
@@ -156,7 +152,7 @@ const login = async (req, res) => {
 const getProfile = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT c.*, ca.email, ca.phone
+      `SELECT c.*, ca.email AS registered_email, ca.phone AS registered_phone
        FROM companies c
        JOIN company_auth ca ON ca.id = c.company_auth_id
        WHERE c.company_auth_id = $1`,
@@ -171,30 +167,75 @@ const getProfile = async (req, res) => {
   }
 };
 
+// ── Upload Logo (standalone) ────────────────────────────────────
+const uploadLogo = async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No logo file uploaded' });
+  try {
+    const logo_url = `/uploads/logos/${req.file.filename}`;
+    // If a company row already exists (edit mode), persist immediately.
+    // On first-time setup this simply matches zero rows and no-ops;
+    // createProfile saves logo_url itself right after this call returns.
+    await pool.query(
+      `UPDATE companies SET logo_url=$1, updated_at=now() WHERE company_auth_id=$2`,
+      [logo_url, req.user.id]
+    );
+    return res.json({ logo_url });
+  } catch (err) {
+    console.error('uploadLogo:', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 // ── Create Profile ─────────────────────────────────────────────
 const createProfile = async (req, res) => {
   const {
-    company_name, company_description,
-    address_line1, address_line2,
-    company_category, company_subcategory, company_size,
+    company_name, company_description, company_size,
+    company_category, company_subcategory,
+    registered_address_line1, registered_address_line2,
+    registered_city, registered_pincode,
+    same_as_registered,
+    company_address_line1, company_address_line2,
+    company_city, company_pincode,
+    website, contact_email, contact_phone,
+    logo_url,
   } = req.body;
 
-  if (!company_name || !company_description || !address_line1 || !company_category || !company_subcategory || !company_size)
+  const sameAsRegistered = same_as_registered === true || same_as_registered === 'true';
+
+  if (!company_name || !company_description || !company_size ||
+      !company_category || !company_subcategory ||
+      !registered_address_line1 || !registered_city || !registered_pincode)
     return res.status(400).json({ message: 'All mandatory fields are required' });
 
+  if (!sameAsRegistered && (!company_address_line1 || !company_city || !company_pincode))
+    return res.status(400).json({ message: 'Company address is required when it differs from the registered address' });
+
   try {
-    // Check duplicate company name
     const dup = await pool.query(`SELECT id FROM companies WHERE company_name=$1`, [company_name]);
     if (dup.rows.length > 0)
       return res.status(409).json({ message: 'A company with this name already exists' });
 
     await pool.query(
       `INSERT INTO companies
-         (company_auth_id, company_name, company_description, address_line1, address_line2,
-          company_category, company_subcategory, company_size, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending')`,
-      [req.user.id, company_name, company_description, address_line1, address_line2 || null,
-       company_category, company_subcategory, company_size]
+         (company_auth_id, company_name, company_description, company_size,
+          company_category, company_subcategory,
+          registered_address_line1, registered_address_line2, registered_city, registered_pincode,
+          same_as_registered,
+          company_address_line1, company_address_line2, company_city, company_pincode,
+          website, contact_email, contact_phone, logo_url,
+          status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'pending')`,
+      [
+        req.user.id, company_name, company_description, Number(company_size),
+        company_category, company_subcategory,
+        registered_address_line1, registered_address_line2 || null, registered_city, registered_pincode,
+        sameAsRegistered,
+        sameAsRegistered ? null : company_address_line1,
+        sameAsRegistered ? null : (company_address_line2 || null),
+        sameAsRegistered ? null : company_city,
+        sameAsRegistered ? null : company_pincode,
+        website || null, contact_email || null, contact_phone || null, logo_url || null,
+      ]
     );
     return res.status(201).json({ message: 'Profile created. Pending admin approval.' });
   } catch (err) {
@@ -206,21 +247,45 @@ const createProfile = async (req, res) => {
 // ── Update Profile ─────────────────────────────────────────────
 const updateProfile = async (req, res) => {
   const {
-    company_name, company_description,
-    address_line1, address_line2,
-    company_category, company_subcategory, company_size,
+    company_name, company_description, company_size,
+    company_category, company_subcategory,
+    registered_address_line1, registered_address_line2,
+    registered_city, registered_pincode,
+    same_as_registered,
+    company_address_line1, company_address_line2,
+    company_city, company_pincode,
+    website, contact_email, contact_phone,
+    logo_url,
   } = req.body;
+
+  const sameAsRegistered = same_as_registered === true || same_as_registered === 'true';
 
   try {
     const result = await pool.query(
       `UPDATE companies SET
-         company_name=$1, company_description=$2, address_line1=$3, address_line2=$4,
-         company_category=$5, company_subcategory=$6, company_size=$7,
+         company_name=$1, company_description=$2, company_size=$3,
+         company_category=$4, company_subcategory=$5,
+         registered_address_line1=$6, registered_address_line2=$7, registered_city=$8, registered_pincode=$9,
+         same_as_registered=$10,
+         company_address_line1=$11, company_address_line2=$12, company_city=$13, company_pincode=$14,
+         website=$15, contact_email=$16, contact_phone=$17,
+         logo_url=COALESCE($18, logo_url),
          status='pending', rejection_reason=NULL, updated_at=now()
-       WHERE company_auth_id=$8
+       WHERE company_auth_id=$19
        RETURNING status`,
-      [company_name, company_description, address_line1, address_line2 || null,
-       company_category, company_subcategory, company_size, req.user.id]
+      [
+        company_name, company_description, Number(company_size),
+        company_category, company_subcategory,
+        registered_address_line1, registered_address_line2 || null, registered_city, registered_pincode,
+        sameAsRegistered,
+        sameAsRegistered ? null : company_address_line1,
+        sameAsRegistered ? null : (company_address_line2 || null),
+        sameAsRegistered ? null : company_city,
+        sameAsRegistered ? null : company_pincode,
+        website || null, contact_email || null, contact_phone || null,
+        logo_url || null,
+        req.user.id,
+      ]
     );
     return res.json({ message: 'Profile updated. Sent for re-approval.', status: result.rows[0]?.status });
   } catch (err) {
@@ -417,7 +482,7 @@ const adminRejectCompany = async (req, res) => {
 
 module.exports = {
   register, login, verifyOtp, resendOtp,
-  getProfile, createProfile, updateProfile, reapply,
+  getProfile, createProfile, updateProfile, reapply, uploadLogo,
   getDashboardStats,
   getEmployees, addEmployee, deleteEmployee,
   adminListCompanies, adminApproveCompany, adminRejectCompany,
