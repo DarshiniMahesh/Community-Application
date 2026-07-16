@@ -8,6 +8,7 @@ import {
   XCircle, Clock, Eye, X, Loader2, GraduationCap,
   IndianRupee, Calendar, AlertCircle, FileText,
   Banknote, ListChecks, Minus, User, Award, ClipboardList,
+  Download,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ interface ApplicantDetail {
   data: SelfDetail | FamilyMemberDetail;
 }
 
-// NEW: SSLC / PU pursued status + certificate details (from member_education_details)
+// SSLC / PU pursued status + certificate details (from member_education_details)
 interface EducationStatusDetail {
   sslcPursued: boolean | null;
   puPursued: boolean | null;
@@ -113,7 +114,7 @@ interface SelfDetail {
   economic: EconomicDetail | null;
   insurance: InsuranceDetail | null;
   documents: DocumentDetail | null;
-  // NEW: SSLC / PU pursued status
+  // SSLC / PU pursued status
   educationStatus: EducationStatusDetail | null;
   sanghas: { sangha_name: string; role: string; tenure: string; status: string; }[];
 }
@@ -123,7 +124,7 @@ interface FamilyMemberDetail {
   education: EducationDetail | null;
   insurance: InsuranceDetail | null;
   documents: DocumentDetail | null;
-  // NEW: SSLC / PU pursued status
+  // SSLC / PU pursued status
   educationStatus: EducationStatusDetail | null;
 }
 interface AddressItem {
@@ -461,6 +462,120 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Document row with View / Download actions — used for marks cards / certificates
+function EduDocRow({ label, url }: { label: string; url?: string | null }) {
+  if (!url) return null;
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      padding: "10px 14px", borderRadius: 10, background: C.gray50, border: `1px solid ${C.gray100}`,
+      flexWrap: "wrap", gap: 8,
+    }}>
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: C.gray700, display: "flex", alignItems: "center", gap: 6 }}>
+        <FileText size={13} style={{ color: C.orange500, flexShrink: 0 }} /> {label}
+      </span>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <a href={url} target="_blank" rel="noopener noreferrer"
+          style={{ fontSize: 12, fontWeight: 600, color: C.orange600, display: "flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
+          <Eye size={13} /> View
+        </a>
+        <a href={url} download target="_blank" rel="noopener noreferrer"
+          style={{ fontSize: 12, fontWeight: 600, color: C.blue600, display: "flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
+          <Download size={13} /> Download
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// One SSLC / PU stage block: pursued badge + fields (shown only when pursued) + marks card row
+function EduStageBlock({
+  title, pursued, fields, docLabel, docUrl,
+}: {
+  title: string;
+  pursued: boolean | null;
+  fields: { label: string; value?: string | null }[];
+  docLabel: string;
+  docUrl?: string | null;
+}) {
+  return (
+    <div style={{ padding: "14px 16px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}`, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: C.gray800 }}>{title} Pursued</span>
+        <YesNoBadgeEl value={pursued} />
+      </div>
+      {pursued && (fields.some(f => f.value) || docUrl) && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            {fields.map(f => <DField key={f.label} label={f.label} value={f.value} />)}
+          </div>
+          <EduDocRow label={docLabel} url={docUrl} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// Degree details block, shown whenever any degree info is present
+function DegreeDetailsBlock({ edu }: { edu: EducationStatusDetail }) {
+  const hasAny = edu.degreeName || edu.degreeInstitution || edu.degreeYear || edu.degreePercentage || edu.degreeCertificateUrl;
+  if (!hasAny) return null;
+  return (
+    <div style={{ padding: "14px 16px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}`, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: C.gray800 }}>Degree Details</span>
+        {edu.pursuingDegree && (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 9999, background: C.blue100, color: C.blue700, border: "1px solid #bfdbfe" }}>
+            Currently Pursuing
+          </span>
+        )}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        <DField label="Degree Name" value={edu.degreeName} />
+        <DField label="Institution" value={edu.degreeInstitution} />
+        <DField label="Year of Passing" value={edu.degreeYear} />
+        <DField label="Percentage" value={edu.degreePercentage} />
+        <DField label="Employment Type" value={edu.employmentType} />
+      </div>
+      <EduDocRow label="Degree Certificate" url={edu.degreeCertificateUrl} />
+    </div>
+  );
+}
+
+// Full SSLC / PU / Degree section — shared by self & family member views
+function EducationStatusSection({ edu }: { edu: EducationStatusDetail }) {
+  return (
+    <div>
+      <SectionTitle>SSLC / PU / Degree Details</SectionTitle>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <EduStageBlock
+          title="SSLC"
+          pursued={edu.sslcPursued}
+          fields={[
+            { label: "School Name", value: edu.sslcSchoolName },
+            { label: "Year of Passing", value: edu.sslcYear },
+            { label: "Percentage", value: edu.sslcPercentage },
+          ]}
+          docLabel="SSLC Marks Card"
+          docUrl={edu.sslcMarksCardUrl}
+        />
+        <EduStageBlock
+          title="PU"
+          pursued={edu.puPursued}
+          fields={[
+            { label: "College Name", value: edu.puCollegeName },
+            { label: "Year of Passing", value: edu.puYear },
+            { label: "Percentage", value: edu.puPercentage },
+          ]}
+          docLabel="PU Marks Card"
+          docUrl={edu.puMarksCardUrl}
+        />
+        <DegreeDetailsBlock edu={edu} />
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // APPLICANT INFO TAB — the original full-profile detail rendering
 // ─────────────────────────────────────────────────────────────────────────────
@@ -557,22 +672,8 @@ function ApplicantInfoTab({
             </div>
           )}
 
-          {/* NEW: SSLC / PU Pursued Status */}
-          {fmData.educationStatus && (
-            <div>
-              <SectionTitle>SSLC / PU Status</SectionTitle>
-              <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, color: C.gray600, fontWeight: 500 }}>SSLC Pursued</span>
-                  <YesNoBadgeEl value={fmData.educationStatus.sslcPursued} />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, color: C.gray600, fontWeight: 500 }}>PU Pursued</span>
-                  <YesNoBadgeEl value={fmData.educationStatus.puPursued} />
-                </div>
-              </div>
-            </div>
-          )}
+          {/* SSLC / PU / Degree Status */}
+          {fmData.educationStatus && <EducationStatusSection edu={fmData.educationStatus} />}
 
           {/* Insurance */}
           {fmData.insurance && (
@@ -741,22 +842,8 @@ function ApplicantInfoTab({
             </div>
           )}
 
-          {/* NEW: SSLC / PU Pursued Status */}
-          {selfData.educationStatus && (
-            <div>
-              <SectionTitle>SSLC / PU Status</SectionTitle>
-              <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, color: C.gray600, fontWeight: 500 }}>SSLC Pursued</span>
-                  <YesNoBadgeEl value={selfData.educationStatus.sslcPursued} />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, color: C.gray600, fontWeight: 500 }}>PU Pursued</span>
-                  <YesNoBadgeEl value={selfData.educationStatus.puPursued} />
-                </div>
-              </div>
-            </div>
-          )}
+          {/* SSLC / PU / Degree Status */}
+          {selfData.educationStatus && <EducationStatusSection edu={selfData.educationStatus} />}
 
           {/* Economic */}
           {selfData.economic && (

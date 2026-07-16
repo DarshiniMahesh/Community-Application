@@ -1,6 +1,9 @@
 // Community-Application\backend\src\controllers\userschlcontroller.js
 const pool = require('../config/db');
 const { createClient } = require('@supabase/supabase-js');
+console.log('[userschlcontroller] SUPABASE_URL:', process.env.SUPABASE_URL);
+console.log('[userschlcontroller] SUPABASE_SERVICE_KEY present:', !!process.env.SUPABASE_SERVICE_KEY, 'length:', process.env.SUPABASE_SERVICE_KEY?.length);
+
 
 const supabaseStorage = createClient(
   process.env.SUPABASE_URL,

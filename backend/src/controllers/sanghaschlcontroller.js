@@ -1732,4 +1732,5 @@ module.exports = {
   // ── NEW ──
   getScholarshipApplicantsList,
   getSanghaApplicantDetails,
-  getSanghaApplicantScholarshipHistory,
+  getSanghaApplicantScholarshipHistory
+}
