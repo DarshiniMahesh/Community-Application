@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { UserCog, Mail, CheckCircle2, Clock, Plus, Search } from "lucide-react";
+import { UserCog, Mail, CheckCircle2, Clock, Plus, Search, Ban, ShieldCheck, Trash2 } from "lucide-react";
 
 interface Moderator {
   id: string;
@@ -26,6 +26,9 @@ export default function JobModerationPage() {
   const [formError, setFormError] = useState("");
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formSuccess, setFormSuccess] = useState("");
+
+  const [actionError, setActionError] = useState("");
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const loadModerators = () => {
     setLoading(true);
@@ -65,6 +68,47 @@ export default function JobModerationPage() {
       setFormError(err?.message || "Failed to add job moderator");
     } finally {
       setFormSubmitting(false);
+    }
+  };
+
+  const handleBlock = async (m: Moderator) => {
+    setActionError("");
+    setActionLoadingId(m.id);
+    try {
+      await api.post(`/api/admin/job-moderators/${m.id}/block`, {});
+      loadModerators();
+    } catch (err: any) {
+      setActionError(err?.message || "Failed to block moderator");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleUnblock = async (m: Moderator) => {
+    setActionError("");
+    setActionLoadingId(m.id);
+    try {
+      await api.post(`/api/admin/job-moderators/${m.id}/unblock`, {});
+      loadModerators();
+    } catch (err: any) {
+      setActionError(err?.message || "Failed to unblock moderator");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDelete = async (m: Moderator) => {
+    const confirmed = window.confirm(`Delete job moderator "${m.name}"? This cannot be undone.`);
+    if (!confirmed) return;
+    setActionError("");
+    setActionLoadingId(m.id);
+    try {
+      await api.delete(`/api/admin/job-moderators/${m.id}`);
+      loadModerators();
+    } catch (err: any) {
+      setActionError(err?.message || "Failed to delete moderator");
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -140,6 +184,12 @@ export default function JobModerationPage() {
         </div>
       )}
 
+      {actionError && (
+        <div style={styles.errorBar}>
+          {actionError}
+        </div>
+      )}
+
       <div style={styles.card}>
         {loading ? (
           <p style={styles.loadingText}>Loading job moderators...</p>
@@ -153,40 +203,77 @@ export default function JobModerationPage() {
             <table style={styles.table}>
               <thead>
                 <tr>
-                  {["Name", "Email", "Status", "Setup", "Last Login", "Added"].map((h) => (
+                  {["Name", "Email", "Status", "Setup", "Last Login", "Added", "Actions"].map((h) => (
                     <th key={h} style={styles.th}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filteredModerators.map((m) => (
-                  <tr key={m.id} style={styles.tr}>
-                    <td style={styles.td}><p style={styles.name}>{m.name}</p></td>
-                    <td style={styles.td}>
-                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <Mail size={12} color="#9ca3af" /> {m.email}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <span style={{ ...styles.badge, ...statusStyle(m.is_blocked ? "rejected" : m.is_active ? "active" : "expired") }}>
-                        {m.is_blocked ? "Blocked" : m.is_active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      {m.setup_complete ? (
-                        <span style={{ ...styles.badge, ...statusStyle("active") }}>
-                          <CheckCircle2 size={11} style={{ marginRight: 4, verticalAlign: "-2px" }} /> Complete
+                {filteredModerators.map((m) => {
+                  const isBusy = actionLoadingId === m.id;
+                  return (
+                    <tr key={m.id} style={styles.tr}>
+                      <td style={styles.td}><p style={styles.name}>{m.name}</p></td>
+                      <td style={styles.td}>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <Mail size={12} color="#9ca3af" /> {m.email}
                         </span>
-                      ) : (
-                        <span style={{ ...styles.badge, ...statusStyle("pending") }}>
-                          <Clock size={11} style={{ marginRight: 4, verticalAlign: "-2px" }} /> Pending
+                      </td>
+                      <td style={styles.td}>
+                        <span style={{ ...styles.badge, ...statusStyle(m.is_blocked ? "rejected" : m.is_active ? "active" : "expired") }}>
+                          {m.is_blocked ? "Blocked" : m.is_active ? "Active" : "Inactive"}
                         </span>
-                      )}
-                    </td>
-                    <td style={styles.td}>{m.last_login_at ? new Date(m.last_login_at).toLocaleDateString() : "—"}</td>
-                    <td style={styles.td}>{new Date(m.created_at).toLocaleDateString()}</td>
-                  </tr>
-                ))}
+                      </td>
+                      <td style={styles.td}>
+                        {m.setup_complete ? (
+                          <span style={{ ...styles.badge, ...statusStyle("active") }}>
+                            <CheckCircle2 size={11} style={{ marginRight: 4, verticalAlign: "-2px" }} /> Complete
+                          </span>
+                        ) : (
+                          <span style={{ ...styles.badge, ...statusStyle("pending") }}>
+                            <Clock size={11} style={{ marginRight: 4, verticalAlign: "-2px" }} /> Pending
+                          </span>
+                        )}
+                      </td>
+                      <td style={styles.td}>{m.last_login_at ? new Date(m.last_login_at).toLocaleDateString() : "—"}</td>
+                      <td style={styles.td}>{new Date(m.created_at).toLocaleDateString()}</td>
+                      <td style={styles.td}>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {m.is_blocked ? (
+                            <button
+                              style={styles.unblockBtn}
+                              disabled={isBusy}
+                              onClick={() => handleUnblock(m)}
+                              title="Unblock moderator"
+                            >
+                              <ShieldCheck size={12} /> {isBusy ? "..." : "Unblock"}
+                            </button>
+                          ) : (
+                            <button
+                              style={{
+                                ...styles.blockBtn,
+                                ...(m.setup_complete ? {} : styles.btnDisabled),
+                              }}
+                              disabled={isBusy || !m.setup_complete}
+                              onClick={() => handleBlock(m)}
+                              title={m.setup_complete ? "Block moderator" : "Cannot block until setup is complete"}
+                            >
+                              <Ban size={12} /> {isBusy ? "..." : "Block"}
+                            </button>
+                          )}
+                          <button
+                            style={styles.deleteBtn}
+                            disabled={isBusy}
+                            onClick={() => handleDelete(m)}
+                            title="Delete moderator"
+                          >
+                            <Trash2 size={12} /> {isBusy ? "..." : "Delete"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -215,12 +302,17 @@ const styles: Record<string, React.CSSProperties> = {
   submitBtn: { padding: "9px 18px", background: "#1a56db", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" },
   cancelBtn: { padding: "9px 18px", background: "#f3f4f6", color: "#374151", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" },
   successBar: { display: "flex", alignItems: "center", gap: 8, background: "#d1fae5", color: "#065f46", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 },
+  errorBar: { background: "#fee2e2", color: "#991b1b", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16, fontWeight: 500 },
   loadingText: { textAlign: "center", color: "#6b7280", padding: 32, fontSize: 13 },
   emptyState: { textAlign: "center", padding: "48px 0", display: "flex", flexDirection: "column", alignItems: "center" },
-  table: { width: "100%", borderCollapse: "collapse", minWidth: 640 },
+  table: { width: "100%", borderCollapse: "collapse", minWidth: 760 },
   th: { fontSize: 11, fontWeight: 700, color: "#9ca3af", padding: "10px 12px", textAlign: "left", borderBottom: "2px solid #f3f4f6", whiteSpace: "nowrap" },
   tr: { borderBottom: "1px solid #f9fafb" },
   td: { padding: "12px 12px", fontSize: 13, color: "#374151", verticalAlign: "top" },
   name: { fontSize: 13, fontWeight: 600, color: "#1a1a2e", margin: 0 },
   badge: { fontSize: 11, padding: "3px 8px", borderRadius: 20, fontWeight: 600, display: "inline-block" },
+  blockBtn: { display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", background: "#fee2e2", color: "#991b1b", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" },
+  unblockBtn: { display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", background: "#d1fae5", color: "#065f46", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" },
+  deleteBtn: { display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", background: "#f3f4f6", color: "#374151", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" },
+  btnDisabled: { opacity: 0.4, cursor: "not-allowed" },
 };

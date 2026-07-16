@@ -12,13 +12,17 @@ const sendOtp = async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT id, password_hash, role FROM users WHERE email=$1 AND role='job_moderator'`,
+      `SELECT id, password_hash, role, is_blocked FROM users WHERE email=$1 AND role='job_moderator'`,
       [email]
     );
     if (result.rows.length === 0)
       return res.status(401).json({ message: 'Invalid credentials' });
 
     const user = result.rows[0];
+
+    if (user.is_blocked) {
+      return res.status(403).json({ message: 'Your account has been blocked. Contact the admin.' });
+    }
 
     if (!user.password_hash) {
       return res.status(403).json({ message: 'Please set up your password first using the link sent to your email' });
@@ -47,13 +51,18 @@ const verifyOtp = async (req, res) => {
   const { email, otp } = req.body;
   try {
     const result = await pool.query(
-      `SELECT id, otp_code, otp_expires_at FROM users WHERE email=$1 AND role='job_moderator'`,
+      `SELECT id, otp_code, otp_expires_at, is_blocked FROM users WHERE email=$1 AND role='job_moderator'`,
       [email]
     );
     if (result.rows.length === 0)
       return res.status(404).json({ message: 'User not found' });
 
     const user = result.rows[0];
+
+    if (user.is_blocked) {
+      return res.status(403).json({ message: 'Your account has been blocked. Contact the admin.' });
+    }
+
     if (user.otp_code !== otp)
       return res.status(400).json({ message: 'Invalid OTP' });
     if (new Date() > new Date(user.otp_expires_at))

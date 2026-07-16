@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ShieldCheck, Search, LogOut, Clock, CheckCircle2, XCircle,
-  Users, Mail, Phone, MapPin, Briefcase, ExternalLink, X, Check, Ban,
+  Users, Mail, Phone, MapPin, Briefcase, X, Check, Ban,
 } from "lucide-react";
 import api from "../api/axiosInstance.js";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -284,12 +284,6 @@ function DetailModal({ detail, loading, tab, onClose, onApprove, onReject }) {
                 <SectionLabel>Message for applicants</SectionLabel>
                 <p style={s.bodyText}>{referral.message_for_applicants}</p>
               </>
-            )}
-
-            {referral.job_posting_url && (
-              <a href={referral.job_posting_url} target="_blank" rel="noreferrer" style={s.externalLink}>
-                View original job posting <ExternalLink size={12} />
-              </a>
             )}
 
             <SectionLabel>Posted by</SectionLabel>

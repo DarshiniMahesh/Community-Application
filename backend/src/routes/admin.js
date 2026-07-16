@@ -13,8 +13,11 @@ router.use('/reports', require('./adminreport'));
 router.use(authenticate);
 router.use(requireRole('admin'));
 // Job Moderator management
-router.post('/job-moderators', ac.addJobModerator);
-router.get('/job-moderators',  ac.getJobModerators);
+router.post('/job-moderators',              ac.addJobModerator);
+router.get('/job-moderators',               ac.getJobModerators);
+router.post('/job-moderators/:id/block',    ac.blockJobModerator);
+router.post('/job-moderators/:id/unblock',  ac.unblockJobModerator);
+router.delete('/job-moderators/:id',        ac.deleteJobModerator);
 
 // Dashboard
 router.get('/dashboard', ac.getDashboard);

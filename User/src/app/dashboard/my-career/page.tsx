@@ -184,7 +184,7 @@ export default function MyCareerPage() {
         </a>
         <a href="/dashboard/my-referrals" style={styles.quickNavItem}>
           <Users size={15} color="#1a56db" />
-          <span>My Referrals</span>
+          <span>My Posted Referrals</span>
           <ChevronRight size={13} color="#9ca3af" />
         </a>
       </div>
@@ -195,13 +195,13 @@ export default function MyCareerPage() {
           style={{ ...styles.tab, ...(activeTab === "jobs" ? styles.tabActive : {}) }}
           onClick={() => setActiveTab("jobs")}
         >
-          <Briefcase size={13} /> Job Postings
+          <Briefcase size={13} /> Company Job
         </button>
         <button
           style={{ ...styles.tab, ...(activeTab === "referrals" ? styles.tabActive : {}) }}
           onClick={() => setActiveTab("referrals")}
         >
-          <Users size={13} /> Community Referrals
+          <Users size={13} /> Referral Jobs
         </button>
       </div>
 
@@ -395,9 +395,6 @@ export default function MyCareerPage() {
                           {applyingReferralId === r.id ? "Applying..." : "Apply"}
                         </button>
                       )}
-                      <a href={r.job_posting_url} target="_blank" rel="noreferrer" style={styles.viewPostingLink}>
-                        View posting →
-                      </a>
                     </div>
                   </div>
                 );

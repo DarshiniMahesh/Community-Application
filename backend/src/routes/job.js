@@ -1,16 +1,44 @@
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const {
-  createJob, listJobs, getJob, deleteJob,updateJob,
-  getJobApplicants, updateApplicantStatus, getAllApplications,
+  createJob, listJobs, getJob, deleteJob, updateJob,
+  getJobApplicants, updateApplicantStatus, setResumeScore, getAllApplications,
   publicListJobs, publicGetJob,
   applyToJob, getUserApplications, saveJob, getSavedJobs,
   adminListJobs,
 } = require('../controllers/jobController');
 const { authenticate, requireRole } = require('../middlewares/auth');
 const companyAuth = require('../middlewares/companyAuth');
-const multer = require('multer');
-const upload = multer({ storage: multer.memoryStorage() });
+
+// ── Resume/cover-letter upload config ───────────────────────────
+// Writes to disk (not memory) so resumeFile.filename is defined and
+// the saved file is actually retrievable later via /uploads/resumes/<filename>.
+const resumeDir = path.join(__dirname, '../../uploads/resumes');
+fs.mkdirSync(resumeDir, { recursive: true });
+
+const resumeStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, resumeDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const safeField = file.fieldname; // "resume" or "cover_letter"
+    cb(null, `${safeField}_${req.user?.id || 'anon'}_${Date.now()}${ext}`);
+  },
+});
+
+const upload = multer({
+  storage: resumeStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (/^application\/pdf$|^application\/msword$|^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document$/.test(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF or Word documents are allowed'));
+    }
+  },
+});
 
 // ── Public: Job search (users) ────────────────────────────────
 router.get('/public',          publicListJobs);
@@ -32,7 +60,8 @@ router.get('/:id',                       companyAuth, getJob);
 router.delete('/:id',                    companyAuth, deleteJob);
 router.patch('/:id',                     companyAuth, updateJob);
 router.get('/:id/applicants',            companyAuth, getJobApplicants);
-router.patch('/:jobId/applicants/:applicantId/status', companyAuth, updateApplicantStatus);
+router.patch('/:jobId/applicants/:applicantId/status',       companyAuth, updateApplicantStatus);
+router.put('/:jobId/applicants/:applicantId/resume-score',   companyAuth, setResumeScore);
 
 // ── Admin: View all jobs ──────────────────────────────────────
 router.get('/admin/all',               authenticate, requireRole('admin'), adminListJobs);

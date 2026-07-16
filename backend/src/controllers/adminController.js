@@ -1056,6 +1056,66 @@ const getJobModerators = async (req, res) => {
   }
 };
 
+// ─── POST /admin/job-moderators/:id/block ─────────────────────
+const blockJobModerator = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const check = await pool.query(
+      `SELECT password_hash FROM users WHERE id=$1 AND role='job_moderator'`,
+      [id]
+    );
+    if (check.rows.length === 0)
+      return res.status(404).json({ message: 'Job moderator not found' });
+
+    if (!check.rows[0].password_hash)
+      return res.status(400).json({ message: 'Cannot block a moderator who has not completed account setup' });
+
+    const result = await pool.query(
+      `UPDATE users SET is_blocked=true WHERE id=$1 AND role='job_moderator' RETURNING id, name, email, is_blocked`,
+      [id]
+    );
+    res.json({ message: 'Job moderator blocked successfully', moderator: result.rows[0] });
+  } catch (err) {
+    console.error('blockJobModerator error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /admin/job-moderators/:id/unblock ───────────────────
+const unblockJobModerator = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `UPDATE users SET is_blocked=false WHERE id=$1 AND role='job_moderator' RETURNING id, name, email, is_blocked`,
+      [id]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'Job moderator not found' });
+    res.json({ message: 'Job moderator unblocked successfully', moderator: result.rows[0] });
+  } catch (err) {
+    console.error('unblockJobModerator error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── DELETE /admin/job-moderators/:id ──────────────────────────
+const deleteJobModerator = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `DELETE FROM users WHERE id=$1 AND role='job_moderator' RETURNING id`,
+      [id]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'Job moderator not found' });
+    res.json({ message: 'Job moderator deleted permanently' });
+  } catch (err) {
+    console.error('deleteJobModerator error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = {
   loginSendOtp,
   loginVerifyOtp,
@@ -1089,4 +1149,7 @@ module.exports = {
   getUserScholarships,
   addJobModerator,
   getJobModerators,
+  blockJobModerator,
+  unblockJobModerator,
+  deleteJobModerator,
 };
