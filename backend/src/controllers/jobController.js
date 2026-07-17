@@ -16,121 +16,85 @@ const createJob = async (req, res) => {
     const companyId = await getCompanyId(req.user.id);
 
     const comp = await pool.query(
-      `SELECT company_name FROM companies WHERE id=$1`, [companyId]
+      `SELECT company_name, website, company_category FROM companies WHERE id=$1`, [companyId]
     );
+    const companyName = comp.rows[0].company_name;
+    const companyWebsite = comp.rows[0].website;
+    const industry = comp.rows[0].company_category;
 
     const {
       job_title, job_description, location, postal_code, country,
       job_code, department, functional_area,
+      certifications,
       work_setting, employment_type,
       experience_min_years, experience_min_months,
       experience_max_years, experience_max_months,
       duration, contract_duration,
-      company_website, industry,
-      required_skills, preferred_skills, technical_skills, soft_skills,
-      required_experience, preferred_qualifications, certifications, licenses,
-      responsibilities, key_responsibilities,
-      role_overview, day_to_day_activities, long_term_goals,
-      team_information, reports_to, travel_requirements,
-      relocation_requirements, physical_requirements, shift_schedule,
       salary_min, salary_max, salary_grade,
-      performance_bonuses, signing_bonus, health_benefits,
-      retirement_plan, paid_time_off, flexible_hours,
-      remote_work_options, other_perks,
+      bonuses_offered, bonus_details, other_perks,
       screening_questions,
       resume_required, cover_letter_required, portfolio_required,
       application_deadline, expected_start_date, recruitment_timeline,
       contact_phone, contact_email,
-      job_poster, hiring_manager, job_expiration, number_of_openings,
+      job_poster, hiring_manager, number_of_openings,
       equal_opportunity_statement, ada_compliance,
       legal_disclosures, background_check_required,
-      reason_for_vacancy, budget_code, resume_scoring,
+      reason_for_vacancy, budget_code,
     } = req.body;
 
     if (!job_title || !job_description || !location || !postal_code || !country ||
-      !work_setting || !employment_type || !company_website ||
-      !required_skills || !responsibilities || !key_responsibilities ||
-      !contact_email || !equal_opportunity_statement)
+      !work_setting || !employment_type || !contact_email || !equal_opportunity_statement)
       return res.status(400).json({ message: 'Missing mandatory fields' });
 
     if (employment_type === 'Contract' && contract_duration === undefined)
       return res.status(400).json({ message: 'Contract duration required for Contract employment type' });
 
-    if (job_expiration) {
-      const exp = new Date(job_expiration);
-      if (exp < new Date()) return res.status(400).json({ message: 'Expiry date cannot be in the past' });
-    }
-    if (application_deadline && job_expiration) {
-      if (new Date(application_deadline) > new Date(job_expiration))
-        return res.status(400).json({ message: 'Application deadline cannot be after job expiry' });
-    }
-
     const result = await pool.query(
       `INSERT INTO company_jobs (
         company_id, company_name,
         job_title, job_description, location, postal_code, country,
-        job_code, department, functional_area,
+        job_code, department, functional_area, certifications,
         work_setting, employment_type,
         experience_min_years, experience_min_months,
         experience_max_years, experience_max_months,
         duration, contract_duration,
         company_website, industry,
-        required_skills, preferred_skills, technical_skills, soft_skills,
-        required_experience, preferred_qualifications, certifications, licenses,
-        responsibilities, key_responsibilities,
-        role_overview, day_to_day_activities, long_term_goals,
-        team_information, reports_to, travel_requirements,
-        relocation_requirements, physical_requirements, shift_schedule,
         salary_min, salary_max, salary_grade,
-        performance_bonuses, signing_bonus, health_benefits,
-        retirement_plan, paid_time_off, flexible_hours,
-        remote_work_options, other_perks,
+        bonuses_offered, bonus_details, other_perks,
         screening_questions,
         resume_required, cover_letter_required, portfolio_required,
         application_deadline, expected_start_date, recruitment_timeline,
         contact_phone, contact_email,
-        job_poster, hiring_manager, expiry_date, number_of_openings,
+        job_poster, hiring_manager, number_of_openings,
         equal_opportunity_statement, ada_compliance,
         legal_disclosures, background_check_required,
-        reason_for_vacancy, budget_code, resume_scoring,
+        reason_for_vacancy, budget_code,
         status
       ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,
-        $35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,
-        $51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,
-        $67,$68,$69,$70,'active'
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+        $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,
+        $37,$38,$39,$40,$41,$42,$43,$44,$45,'active'
       ) RETURNING id`,
       [
-        companyId, comp.rows[0].company_name,
+        companyId, companyName,
         job_title, job_description, location, postal_code, country,
         job_code || null, department || null, functional_area || null,
+        certifications && certifications.length ? certifications.join(', ') : null,
         work_setting, employment_type,
         experience_min_years || 0, experience_min_months || 0,
         experience_max_years || null, experience_max_months || null,
         duration || null, contract_duration || null,
-        company_website, industry || null,
-        required_skills, preferred_skills || null, technical_skills || null, soft_skills || null,
-        required_experience || null, preferred_qualifications || null,
-        certifications || null, licenses || null,
-        responsibilities, key_responsibilities,
-        role_overview || null, day_to_day_activities || null, long_term_goals || null,
-        team_information || null, reports_to || null, travel_requirements || null,
-        relocation_requirements || null, physical_requirements || null, shift_schedule || null,
+        companyWebsite || null, industry || null,
         salary_min || null, salary_max || null, salary_grade || null,
-        performance_bonuses || null, signing_bonus || null, health_benefits || null,
-        retirement_plan || null, paid_time_off || null, flexible_hours || null,
-        remote_work_options || null, other_perks || null,
+        bonuses_offered || false, bonus_details || null, other_perks || null,
         JSON.stringify(screening_questions || []),
         resume_required !== false, cover_letter_required || false, portfolio_required || false,
         application_deadline || null, expected_start_date || null, recruitment_timeline || null,
         contact_phone || null, contact_email,
-        job_poster || null, hiring_manager || null, job_expiration || null,
-        number_of_openings || null,
+        job_poster || null, hiring_manager || null, number_of_openings || null,
         equal_opportunity_statement, ada_compliance || null,
         legal_disclosures || null, background_check_required || false,
         reason_for_vacancy || null, budget_code || null,
-        resume_scoring || null,
       ]
     );
 
@@ -157,18 +121,16 @@ const updateJob = async (req, res) => {
 
     const {
       job_title, job_description, location, postal_code, country,
-      job_code, department, functional_area,
+      job_code, department, functional_area, certifications,
       work_setting, employment_type,
       experience_min_years, experience_max_years,
-      company_website, industry,
-      required_skills, preferred_skills, technical_skills, soft_skills,
-      key_responsibilities, responsibilities,
       salary_min, salary_max,
+      bonuses_offered, bonus_details,
       contact_email, contact_phone,
       screening_questions,
       cover_letter_required, portfolio_required,
       background_check_required,
-      application_deadline, expected_start_date, job_expiration,
+      application_deadline, expected_start_date,
       number_of_openings, equal_opportunity_statement,
       status,
     } = req.body;
@@ -183,50 +145,42 @@ const updateJob = async (req, res) => {
         job_code = COALESCE($6, job_code),
         department = COALESCE($7, department),
         functional_area = COALESCE($8, functional_area),
-        work_setting = COALESCE($9, work_setting),
-        employment_type = COALESCE($10, employment_type),
-        experience_min_years = COALESCE($11, experience_min_years),
-        experience_max_years = COALESCE($12, experience_max_years),
-        company_website = COALESCE($13, company_website),
-        industry = COALESCE($14, industry),
-        required_skills = COALESCE($15, required_skills),
-        preferred_skills = COALESCE($16, preferred_skills),
-        technical_skills = COALESCE($17, technical_skills),
-        soft_skills = COALESCE($18, soft_skills),
-        key_responsibilities = COALESCE($19, key_responsibilities),
-        responsibilities = COALESCE($20, responsibilities),
-        salary_min = COALESCE($21, salary_min),
-        salary_max = COALESCE($22, salary_max),
-        contact_email = COALESCE($23, contact_email),
-        contact_phone = COALESCE($24, contact_phone),
-        screening_questions = COALESCE($25, screening_questions),
-        cover_letter_required = COALESCE($26, cover_letter_required),
-        portfolio_required = COALESCE($27, portfolio_required),
-        background_check_required = COALESCE($28, background_check_required),
-        application_deadline = COALESCE($29, application_deadline),
-        expected_start_date = COALESCE($30, expected_start_date),
-        expiry_date = COALESCE($31, expiry_date),
-        number_of_openings = COALESCE($32, number_of_openings),
-        equal_opportunity_statement = COALESCE($33, equal_opportunity_statement),
-        status = COALESCE($34, status),
+        certifications = COALESCE($9, certifications),
+        work_setting = COALESCE($10, work_setting),
+        employment_type = COALESCE($11, employment_type),
+        experience_min_years = COALESCE($12, experience_min_years),
+        experience_max_years = COALESCE($13, experience_max_years),
+        salary_min = COALESCE($14, salary_min),
+        salary_max = COALESCE($15, salary_max),
+        bonuses_offered = COALESCE($16, bonuses_offered),
+        bonus_details = COALESCE($17, bonus_details),
+        contact_email = COALESCE($18, contact_email),
+        contact_phone = COALESCE($19, contact_phone),
+        screening_questions = COALESCE($20, screening_questions),
+        cover_letter_required = COALESCE($21, cover_letter_required),
+        portfolio_required = COALESCE($22, portfolio_required),
+        background_check_required = COALESCE($23, background_check_required),
+        application_deadline = COALESCE($24, application_deadline),
+        expected_start_date = COALESCE($25, expected_start_date),
+        number_of_openings = COALESCE($26, number_of_openings),
+        equal_opportunity_statement = COALESCE($27, equal_opportunity_statement),
+        status = COALESCE($28, status),
         updated_at = now()
-      WHERE id=$35`,
+      WHERE id=$29`,
       [
         job_title, job_description, location, postal_code, country,
         job_code, department, functional_area,
+        Array.isArray(certifications) ? certifications.join(', ') : certifications,
         work_setting, employment_type,
         experience_min_years, experience_max_years,
-        company_website, industry,
-        required_skills, preferred_skills, technical_skills, soft_skills,
-        key_responsibilities, responsibilities,
         salary_min, salary_max,
+        bonuses_offered, bonus_details,
         contact_email, contact_phone,
         screening_questions ? JSON.stringify(screening_questions) : undefined,
         cover_letter_required, portfolio_required,
         background_check_required,
         application_deadline || null,
         expected_start_date || null,
-        job_expiration || null,
         number_of_openings,
         equal_opportunity_statement,
         status,
@@ -464,12 +418,13 @@ const publicGetJob = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT cj.id, cj.job_title, cj.company_name, cj.location, cj.country,
+              cj.department, cj.functional_area, cj.certifications,
               cj.work_setting, cj.employment_type, cj.job_description,
-              cj.required_skills, cj.preferred_skills, cj.responsibilities,
-              cj.key_responsibilities, cj.salary_min, cj.salary_max,
+              cj.salary_min, cj.salary_max,
               cj.experience_min_years, cj.experience_max_years,
+              cj.bonuses_offered, cj.bonus_details, cj.other_perks,
               cj.application_deadline, cj.expected_start_date,
-              cj.contact_email, cj.contact_phone,
+              cj.contact_email, cj.contact_phone, cj.company_website, cj.industry,
               cj.resume_required, cj.cover_letter_required, cj.portfolio_required,
               cj.screening_questions, cj.equal_opportunity_statement,
               cj.background_check_required, cj.number_of_openings,

@@ -15,6 +15,7 @@ interface JobForm {
   job_code: string;
   department: string;
   functional_area: string;
+  certifications: string[];
   work_setting: string;
   employment_type: string;
   experience_min_years: string;
@@ -23,37 +24,11 @@ interface JobForm {
   experience_max_months: string;
   duration: string;
   contract_duration: string;
-  company_website: string;
-  industry: string;
-  required_skills: string;
-  preferred_skills: string;
-  technical_skills: string;
-  soft_skills: string;
-  required_experience: string;
-  preferred_qualifications: string;
-  certifications: string;
-  licenses: string;
-  responsibilities: string;
-  key_responsibilities: string;
-  role_overview: string;
-  day_to_day_activities: string;
-  long_term_goals: string;
-  team_information: string;
-  reports_to: string;
-  travel_requirements: string;
-  relocation_requirements: string;
-  physical_requirements: string;
-  shift_schedule: string;
   salary_min: string;
   salary_max: string;
   salary_grade: string;
-  performance_bonuses: string;
-  signing_bonus: string;
-  health_benefits: string;
-  retirement_plan: string;
-  paid_time_off: string;
-  flexible_hours: string;
-  remote_work_options: string;
+  bonuses_offered: boolean;
+  bonus_details: string;
   other_perks: string;
   screening_questions: string[];
   resume_required: boolean;
@@ -66,7 +41,6 @@ interface JobForm {
   contact_email: string;
   job_poster: string;
   hiring_manager: string;
-  job_expiration: string;
   number_of_openings: string;
   equal_opportunity_statement: string;
   ada_compliance: string;
@@ -74,76 +48,43 @@ interface JobForm {
   background_check_required: boolean;
   reason_for_vacancy: string;
   budget_code: string;
-  resume_scoring: string;
 }
 
 const EMPTY_FORM: JobForm = {
   job_title: "", job_description: "", location: "", postal_code: "",
   country: "", job_code: "", department: "", functional_area: "",
+  certifications: [],
   work_setting: "", employment_type: "",
   experience_min_years: "", experience_min_months: "",
   experience_max_years: "", experience_max_months: "",
   duration: "", contract_duration: "",
-  company_website: "", industry: "",
-  required_skills: "", preferred_skills: "", technical_skills: "",
-  soft_skills: "", required_experience: "", preferred_qualifications: "",
-  certifications: "", licenses: "",
-  responsibilities: "", key_responsibilities: "", role_overview: "",
-  day_to_day_activities: "", long_term_goals: "", team_information: "",
-  reports_to: "", travel_requirements: "", relocation_requirements: "",
-  physical_requirements: "", shift_schedule: "",
   salary_min: "", salary_max: "", salary_grade: "",
-  performance_bonuses: "", signing_bonus: "", health_benefits: "",
-  retirement_plan: "", paid_time_off: "", flexible_hours: "",
-  remote_work_options: "", other_perks: "",
+  bonuses_offered: false, bonus_details: "", other_perks: "",
   screening_questions: [],
   resume_required: true, cover_letter_required: false, portfolio_required: false,
   application_deadline: "", expected_start_date: "", recruitment_timeline: "",
   contact_phone: "", contact_email: "",
-  job_poster: "", hiring_manager: "", job_expiration: "", number_of_openings: "",
+  job_poster: "", hiring_manager: "", number_of_openings: "",
   equal_opportunity_statement: "We are an Equal Opportunity Employer. All qualified applicants will receive consideration for employment without regard to race, color, religion, sex, national origin, disability, or protected veteran status.",
   ada_compliance: "", legal_disclosures: "", background_check_required: false,
-  reason_for_vacancy: "", budget_code: "", resume_scoring: "",
+  reason_for_vacancy: "", budget_code: "",
 };
 
 const SECTIONS = [
   "Job Identification",
   "Work Setting & Employment",
-  "Company Information",
-  "Qualifications & Requirements",
-  "Role Details",
   "Compensation & Benefits",
   "Application Details",
-  "Job Settings",
   "Compliance & Legal",
   "Internal / HR Fields",
 ];
 
-// Maps each validated field to the accordion section it lives in.
-// Used to auto-open + auto-scroll to the first invalid field on submit.
 const FIELD_SECTION: Partial<Record<keyof JobForm, number>> = {
   job_title: 0, job_description: 0, location: 0, postal_code: 0, country: 0,
   work_setting: 1, employment_type: 1,
-  company_website: 2,
-  required_skills: 3,
-  responsibilities: 4, key_responsibilities: 4,
-  contact_email: 6, application_deadline: 6,
-  job_expiration: 7,
-  equal_opportunity_statement: 8,
-  resume_scoring: 9,
+  contact_email: 3, application_deadline: 3,
+  equal_opportunity_statement: 4,
 };
-
-// ─────────────────────────────────────────────────────────────────
-// Field components defined OUTSIDE the page component.
-//
-// These were previously defined INSIDE NewJobPage's function body,
-// which meant a brand-new component function was created on every
-// re-render (i.e. every keystroke). React saw each one as a
-// different component type than the last render, so it unmounted
-// the old <input>/<textarea> DOM node and mounted a new one —
-// wiping focus after every single character. Defining them here
-// keeps a stable identity across renders, which fixes that.
-// ─────────────────────────────────────────────────────────────────
 
 function FieldGroup({
   label, req, children, error,
@@ -228,6 +169,7 @@ export default function NewJobPage() {
   const [openSections, setOpenSections] = useState<number[]>([0]);
   const [loading, setLoading] = useState(false);
   const [newQuestion, setNewQuestion] = useState("");
+  const [newCertification, setNewCertification] = useState("");
 
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -252,6 +194,16 @@ export default function NewJobPage() {
     set("screening_questions", form.screening_questions.filter((_, idx) => idx !== i));
   };
 
+  const addCertification = () => {
+    if (!newCertification.trim()) return;
+    set("certifications", [...form.certifications, newCertification.trim()]);
+    setNewCertification("");
+  };
+
+  const removeCertification = (i: number) => {
+    set("certifications", form.certifications.filter((_, idx) => idx !== i));
+  };
+
   const validate = () => {
     const e: Partial<Record<keyof JobForm, string>> = {};
     if (!form.job_title.trim()) e.job_title = "Job title is required";
@@ -261,30 +213,9 @@ export default function NewJobPage() {
     if (!form.country.trim()) e.country = "Country is required";
     if (!form.work_setting) e.work_setting = "Work setting is required";
     if (!form.employment_type) e.employment_type = "Employment type is required";
-    if (!form.company_website.trim()) e.company_website = "Company website is required";
-    if (!form.required_skills.trim()) e.required_skills = "Required skills are mandatory";
-    if (!form.responsibilities.trim()) e.responsibilities = "Responsibilities are mandatory";
-    if (!form.key_responsibilities.trim()) e.key_responsibilities = "Key responsibilities are mandatory";
     if (!form.contact_email.trim()) e.contact_email = "Contact email is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contact_email)) e.contact_email = "Enter a valid email";
     if (!form.equal_opportunity_statement.trim()) e.equal_opportunity_statement = "EOE statement is required";
-
-    if (form.job_expiration) {
-      const exp = new Date(form.job_expiration);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if (exp < today) e.job_expiration = "Expiry date cannot be in the past";
-    }
-
-    if (form.application_deadline && form.job_expiration) {
-      const deadline = new Date(form.application_deadline);
-      const expiry = new Date(form.job_expiration);
-      if (deadline > expiry) e.application_deadline = "Deadline cannot be after job expiry date";
-    }
-
-    if (form.resume_scoring && isNaN(parseFloat(form.resume_scoring))) {
-      e.resume_scoring = "Must be a decimal number (e.g. 0.75)";
-    }
 
     return e;
   };
@@ -322,7 +253,6 @@ export default function NewJobPage() {
       await api.post("/jobs", {
         ...form,
         number_of_openings: form.number_of_openings ? Number(form.number_of_openings) : null,
-        resume_scoring: form.resume_scoring ? parseFloat(form.resume_scoring) : null,
       });
       router.push("/dashboard/job-postings");
     } catch (err: unknown) {
@@ -361,7 +291,7 @@ export default function NewJobPage() {
                 <div style={styles.sectionTitleRow}>
                   <span style={styles.sectionNum}>{idx + 1}</span>
                   <span style={styles.sectionTitle}>{section}</span>
-                  {idx === 9 && <span style={styles.internalBadge}>Internal — Not visible to candidates</span>}
+                  {idx === 5 && <span style={styles.internalBadge}>Internal — Not visible to candidates</span>}
                 </div>
                 {open ? <ChevronUp size={18} color="#6b7280" /> : <ChevronDown size={18} color="#6b7280" />}
               </button>
@@ -398,6 +328,30 @@ export default function NewJobPage() {
                       <FieldGroup label="Functional Area">
                         <TextInput value={form.functional_area} onChange={(v) => set("functional_area", v)} placeholder="e.g. Engineering, Sales, HR" />
                       </FieldGroup>
+
+                      <div style={styles.fieldGroup}>
+                        <label style={styles.label}>Certifications</label>
+                        {form.certifications.map((c, i) => (
+                          <div key={i} style={styles.questionItem}>
+                            <span style={styles.questionText}>{i + 1}. {c}</span>
+                            <button type="button" title="Remove certification" style={styles.removeQ} onClick={() => removeCertification(i)}>
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ))}
+                        <div style={styles.addQuestionRow}>
+                          <input
+                            style={styles.input}
+                            placeholder="Type a certification and press Enter..."
+                            value={newCertification}
+                            onChange={(e) => setNewCertification(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCertification(); } }}
+                          />
+                          <button type="button" title="Add certification" style={styles.addQBtn} onClick={addCertification}>
+                            <Plus size={14} /> Add
+                          </button>
+                        </div>
+                      </div>
                     </>
                   )}
 
@@ -436,101 +390,6 @@ export default function NewJobPage() {
 
                   {idx === 2 && (
                     <>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Company Website" req error={errors.company_website}>
-                          <TextInput value={form.company_website} onChange={(v) => set("company_website", v)} placeholder="https://yourcompany.com" error={errors.company_website} />
-                        </FieldGroup>
-                        <FieldGroup label="Industry">
-                          <TextInput value={form.industry} onChange={(v) => set("industry", v)} placeholder="e.g. Technology, Finance" />
-                        </FieldGroup>
-                      </div>
-                      <p style={styles.hint}>Company name is auto-filled from your registered profile.</p>
-                    </>
-                  )}
-
-                  {idx === 3 && (
-                    <>
-                      <FieldGroup label="Required Skills & Qualifications" req error={errors.required_skills}>
-                        <TextareaInput value={form.required_skills} onChange={(v) => set("required_skills", v)} rows={5} placeholder="List must-have education, experience, technical & soft skills..." error={errors.required_skills} />
-                      </FieldGroup>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Preferred Skills">
-                          <TextareaInput value={form.preferred_skills} onChange={(v) => set("preferred_skills", v)} rows={3} placeholder="Nice-to-have skills..." />
-                        </FieldGroup>
-                        <FieldGroup label="Technical Skills">
-                          <TextareaInput value={form.technical_skills} onChange={(v) => set("technical_skills", v)} rows={3} placeholder="Specific technical competencies..." />
-                        </FieldGroup>
-                      </div>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Soft Skills">
-                          <TextInput value={form.soft_skills} onChange={(v) => set("soft_skills", v)} placeholder="e.g. Communication, Leadership" />
-                        </FieldGroup>
-                        <FieldGroup label="Required Experience">
-                          <TextInput value={form.required_experience} onChange={(v) => set("required_experience", v)} placeholder="Specific experience requirements" />
-                        </FieldGroup>
-                      </div>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Preferred Qualifications">
-                          <TextInput value={form.preferred_qualifications} onChange={(v) => set("preferred_qualifications", v)} placeholder="Additional beneficial qualifications" />
-                        </FieldGroup>
-                        <FieldGroup label="Certifications">
-                          <TextInput value={form.certifications} onChange={(v) => set("certifications", v)} placeholder="e.g. AWS Certified, PMP" />
-                        </FieldGroup>
-                      </div>
-                      <FieldGroup label="Licenses">
-                        <TextInput value={form.licenses} onChange={(v) => set("licenses", v)} placeholder="Required professional licenses" />
-                      </FieldGroup>
-                    </>
-                  )}
-
-                  {idx === 4 && (
-                    <>
-                      <FieldGroup label="Role / Responsibilities" req error={errors.responsibilities}>
-                        <TextareaInput value={form.responsibilities} onChange={(v) => set("responsibilities", v)} rows={5} placeholder="Specific duties and expectations (bullet points recommended)..." error={errors.responsibilities} />
-                      </FieldGroup>
-                      <FieldGroup label="Key Responsibilities" req error={errors.key_responsibilities}>
-                        <TextareaInput value={form.key_responsibilities} onChange={(v) => set("key_responsibilities", v)} rows={4} placeholder="Priority tasks and day-to-day activities..." error={errors.key_responsibilities} />
-                      </FieldGroup>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Role Overview">
-                          <TextareaInput value={form.role_overview} onChange={(v) => set("role_overview", v)} rows={3} placeholder="High-level overview of position purpose..." />
-                        </FieldGroup>
-                        <FieldGroup label="Day-to-Day Activities">
-                          <TextareaInput value={form.day_to_day_activities} onChange={(v) => set("day_to_day_activities", v)} rows={3} placeholder="Detailed daily tasks..." />
-                        </FieldGroup>
-                      </div>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Long-term Goals">
-                          <TextInput value={form.long_term_goals} onChange={(v) => set("long_term_goals", v)} placeholder="Role's long-term objectives" />
-                        </FieldGroup>
-                        <FieldGroup label="Team Information">
-                          <TextInput value={form.team_information} onChange={(v) => set("team_information", v)} placeholder="Team structure, who you'll work with" />
-                        </FieldGroup>
-                      </div>
-                      <div style={styles.grid3}>
-                        <FieldGroup label="Reports To">
-                          <TextInput value={form.reports_to} onChange={(v) => set("reports_to", v)} placeholder="e.g. Engineering Manager" />
-                        </FieldGroup>
-                        <FieldGroup label="Travel Requirements">
-                          <TextInput value={form.travel_requirements} onChange={(v) => set("travel_requirements", v)} placeholder="e.g. 20% travel" />
-                        </FieldGroup>
-                        <FieldGroup label="Shift Schedule">
-                          <TextInput value={form.shift_schedule} onChange={(v) => set("shift_schedule", v)} placeholder="e.g. 9AM–6PM IST" />
-                        </FieldGroup>
-                      </div>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Relocation Requirements">
-                          <TextInput value={form.relocation_requirements} onChange={(v) => set("relocation_requirements", v)} placeholder="Relocation details if required" />
-                        </FieldGroup>
-                        <FieldGroup label="Physical Requirements">
-                          <TextInput value={form.physical_requirements} onChange={(v) => set("physical_requirements", v)} placeholder="Physical demands of the job" />
-                        </FieldGroup>
-                      </div>
-                    </>
-                  )}
-
-                  {idx === 5 && (
-                    <>
                       <p style={styles.sectionNote}>All fields optional — mandatory in some locations by law.</p>
                       <div style={styles.grid2}>
                         <FieldGroup label="Salary Range — Minimum">
@@ -540,45 +399,36 @@ export default function NewJobPage() {
                           <TextInput value={form.salary_max} onChange={(v) => set("salary_max", v)} type="number" placeholder="e.g. 1200000" />
                         </FieldGroup>
                       </div>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Salary Grade">
-                          <TextInput value={form.salary_grade} onChange={(v) => set("salary_grade", v)} placeholder="e.g. L4, Band B" />
-                        </FieldGroup>
-                        <FieldGroup label="Performance Bonuses">
-                          <TextInput value={form.performance_bonuses} onChange={(v) => set("performance_bonuses", v)} placeholder="Bonus structure details" />
-                        </FieldGroup>
+                      <FieldGroup label="Salary Grade">
+                        <TextInput value={form.salary_grade} onChange={(v) => set("salary_grade", v)} placeholder="e.g. L4, Band B" />
+                      </FieldGroup>
+
+                      <div style={styles.fieldGroup}>
+                        <label style={styles.label}>Bonuses Offered?</label>
+                        <div style={styles.checkRow}>
+                          <label style={styles.checkLabel}>
+                            <input type="radio" name="bonuses_offered" checked={form.bonuses_offered === true} onChange={() => set("bonuses_offered", true)} />
+                            Yes
+                          </label>
+                          <label style={styles.checkLabel}>
+                            <input type="radio" name="bonuses_offered" checked={form.bonuses_offered === false} onChange={() => { set("bonuses_offered", false); set("bonus_details", ""); }} />
+                            No
+                          </label>
+                        </div>
                       </div>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Signing Bonus">
-                          <TextInput value={form.signing_bonus} onChange={(v) => set("signing_bonus", v)} placeholder="Signing incentive amount" />
+                      {form.bonuses_offered && (
+                        <FieldGroup label="Bonus Details">
+                          <TextareaInput value={form.bonus_details} onChange={(v) => set("bonus_details", v)} rows={3} placeholder="e.g. Signing bonus of ₹50,000; annual performance bonus up to 15% of base salary" />
                         </FieldGroup>
-                        <FieldGroup label="Health Benefits">
-                          <TextInput value={form.health_benefits} onChange={(v) => set("health_benefits", v)} placeholder="Medical, dental, vision details" />
-                        </FieldGroup>
-                      </div>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Retirement Plan">
-                          <TextInput value={form.retirement_plan} onChange={(v) => set("retirement_plan", v)} placeholder="e.g. EPF, 401(k)" />
-                        </FieldGroup>
-                        <FieldGroup label="Paid Time Off">
-                          <TextInput value={form.paid_time_off} onChange={(v) => set("paid_time_off", v)} placeholder="e.g. 21 days annual leave" />
-                        </FieldGroup>
-                      </div>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Flexible Hours">
-                          <TextInput value={form.flexible_hours} onChange={(v) => set("flexible_hours", v)} placeholder="Flexible working policy" />
-                        </FieldGroup>
-                        <FieldGroup label="Remote Work Options">
-                          <TextInput value={form.remote_work_options} onChange={(v) => set("remote_work_options", v)} placeholder="Remote work details" />
-                        </FieldGroup>
-                      </div>
+                      )}
+
                       <FieldGroup label="Other Perks">
                         <TextareaInput value={form.other_perks} onChange={(v) => set("other_perks", v)} rows={3} placeholder="Gym, meals, tuition reimbursement, etc." />
                       </FieldGroup>
                     </>
                   )}
 
-                  {idx === 6 && (
+                  {idx === 3 && (
                     <>
                       <div style={styles.fieldGroup}>
                         <label style={styles.label}>Required Application Documents <span style={styles.req}>*</span></label>
@@ -631,32 +481,22 @@ export default function NewJobPage() {
                         </FieldGroup>
                       </div>
                       <div style={styles.grid3}>
-                        <FieldGroup label="Application Deadline" error={errors.application_deadline}>
-                          <TextInput value={form.application_deadline} onChange={(v) => set("application_deadline", v)} type="date" error={errors.application_deadline} />
+                        <FieldGroup label="Application Deadline">
+                          <TextInput value={form.application_deadline} onChange={(v) => set("application_deadline", v)} type="date" />
                         </FieldGroup>
-                        <FieldGroup label="Expected Start Date">
+                        <FieldGroup label="Onboarding Date">
                           <TextInput value={form.expected_start_date} onChange={(v) => set("expected_start_date", v)} type="date" />
                         </FieldGroup>
                         <FieldGroup label="Recruitment Timeline">
                           <TextInput value={form.recruitment_timeline} onChange={(v) => set("recruitment_timeline", v)} placeholder="e.g. 2–3 weeks" />
                         </FieldGroup>
                       </div>
-                    </>
-                  )}
-
-                  {idx === 7 && (
-                    <>
-                      <div style={styles.grid2}>
+                      <div style={styles.grid3}>
                         <FieldGroup label="Job Poster">
                           <TextInput value={form.job_poster} onChange={(v) => set("job_poster", v)} placeholder="Name of person posting (if on behalf)" />
                         </FieldGroup>
                         <FieldGroup label="Hiring Manager">
                           <TextInput value={form.hiring_manager} onChange={(v) => set("hiring_manager", v)} placeholder="Hiring manager name" />
-                        </FieldGroup>
-                      </div>
-                      <div style={styles.grid2}>
-                        <FieldGroup label="Job Posting Expiration" error={errors.job_expiration}>
-                          <TextInput value={form.job_expiration} onChange={(v) => set("job_expiration", v)} type="date" error={errors.job_expiration} />
                         </FieldGroup>
                         <FieldGroup label="Number of Openings">
                           <TextInput value={form.number_of_openings} onChange={(v) => set("number_of_openings", v)} type="number" placeholder="e.g. 3" />
@@ -665,7 +505,7 @@ export default function NewJobPage() {
                     </>
                   )}
 
-                  {idx === 8 && (
+                  {idx === 4 && (
                     <>
                       <FieldGroup label="Equal Opportunity Statement" req error={errors.equal_opportunity_statement}>
                         <TextareaInput value={form.equal_opportunity_statement} onChange={(v) => set("equal_opportunity_statement", v)} rows={3} placeholder="EOE statement..." error={errors.equal_opportunity_statement} />
@@ -689,7 +529,7 @@ export default function NewJobPage() {
                     </>
                   )}
 
-                  {idx === 9 && (
+                  {idx === 5 && (
                     <>
                       <div style={styles.internalNote}>
                         🔒 These fields are for internal use only and will not be shown to candidates.
@@ -702,9 +542,6 @@ export default function NewJobPage() {
                           <TextInput value={form.budget_code} onChange={(v) => set("budget_code", v)} placeholder="Internal budget code" />
                         </FieldGroup>
                       </div>
-                      <FieldGroup label="Resume Scoring Weight" error={errors.resume_scoring}>
-                        <TextInput value={form.resume_scoring} onChange={(v) => set("resume_scoring", v)} placeholder="Float value e.g. 0.75" error={errors.resume_scoring} />
-                      </FieldGroup>
                     </>
                   )}
                 </div>

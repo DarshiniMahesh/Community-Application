@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import {
   ArrowLeft, MapPin, Briefcase, Clock, Users, Building2,
   BookmarkCheck, Bookmark, CheckCircle2, AlertCircle, X,
-  Upload, FileText, Link as LinkIcon, ChevronDown, ChevronUp,
+  Upload, FileText, Link as LinkIcon, ChevronDown, ChevronUp, Award,
 } from "lucide-react";
 
 interface Job {
@@ -18,6 +18,7 @@ interface Job {
   country: string;
   department: string;
   functional_area: string;
+  certifications: string;
   work_setting: string;
   employment_type: string;
   experience_min_years: number;
@@ -25,13 +26,11 @@ interface Job {
   company_name: string;
   company_website: string;
   industry: string;
-  required_skills: string;
-  preferred_skills: string;
-  technical_skills: string;
-  soft_skills: string;
-  key_responsibilities: string;
   salary_min: number;
   salary_max: number;
+  bonuses_offered: boolean;
+  bonus_details: string;
+  other_perks: string;
   contact_email: string;
   contact_phone: string;
   screening_questions: string[];
@@ -67,7 +66,6 @@ export default function UserJobDetailPage() {
   const [appStatus, setAppStatus] = useState<ApplicationStatus>({ hasApplied: false });
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
-  // Apply modal
   const [modalStep, setModalStep] = useState<ModalStep>("idle");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null);
@@ -77,11 +75,9 @@ export default function UserJobDetailPage() {
   const resumeRef = useRef<HTMLInputElement>(null);
   const coverRef = useRef<HTMLInputElement>(null);
 
-  // Expandable sections
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     description: true,
-    responsibilities: true,
-    skills: true,
+    certifications: true,
     details: true,
     documents: true,
     questions: true,
@@ -168,13 +164,13 @@ export default function UserJobDetailPage() {
       if (answers.length) formData.append("answers", JSON.stringify(answers));
 
       const token = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
-await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/apply/${jobId}`, {
-  method: "POST",
-  headers: {
-    Authorization: `Bearer ${token}`,
-  },
-  body: formData,
-}).then(res => { if (!res.ok) throw new Error("Failed to submit"); return res.json(); });
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/apply/${jobId}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      }).then(res => { if (!res.ok) throw new Error("Failed to submit"); return res.json(); });
       setAppStatus({ hasApplied: true, status: "Submitted" });
       setModalStep("success");
     } catch (err: unknown) {
@@ -216,10 +212,10 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
   const deadline = job.application_deadline ? new Date(job.application_deadline) : null;
   const isExpired = deadline ? deadline < new Date() : false;
   const canApply = !appStatus.hasApplied && !isExpired && job.status === "active";
+  const certList = job.certifications ? job.certifications.split(",").map((c) => c.trim()).filter(Boolean) : [];
 
   return (
     <div style={styles.root}>
-      {/* Toast */}
       {toast && (
         <div style={{ ...styles.toast, ...(toast.type === "error" ? styles.toastError : {}) }}>
           {toast.type === "success" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
@@ -227,19 +223,16 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
         </div>
       )}
 
-      {/* Back */}
       <button style={styles.backBtn} onClick={() => router.push("/dashboard/my-career")}>
         <ArrowLeft size={15} /> Back to Job Search
       </button>
 
-      {/* Expired banner */}
       {isExpired && (
         <div style={styles.expiredBanner}>
           <AlertCircle size={15} /> This job posting has closed — applications are no longer accepted.
         </div>
       )}
 
-      {/* ── Hero card ── */}
       <div style={styles.heroCard}>
         <div style={styles.companyAvatar}>{job.company_name.charAt(0)}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -281,7 +274,6 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
           </div>
         </div>
 
-        {/* CTA column */}
         <div style={styles.ctaCol}>
           {appStatus.hasApplied ? (
             <div style={styles.appliedBox}>
@@ -320,63 +312,22 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
         </div>
       </div>
 
-      {/* ── Content ── */}
       <div style={styles.bodyGrid}>
-        {/* LEFT: main content */}
         <div style={styles.leftCol}>
 
           <Accordion title="Job Description" open={expanded.description} onToggle={() => toggle("description")}>
             <p style={styles.bodyText}>{job.job_description}</p>
           </Accordion>
 
-          {job.key_responsibilities && (
-            <Accordion title="Key Responsibilities" open={expanded.responsibilities} onToggle={() => toggle("responsibilities")}>
-              <p style={styles.bodyText}>{job.key_responsibilities}</p>
+          {certList.length > 0 && (
+            <Accordion title="Certifications" open={expanded.certifications} onToggle={() => toggle("certifications")}>
+              <div style={styles.skillChips}>
+                {certList.map((c, i) => (
+                  <span key={i} style={styles.certChip}><Award size={12} /> {c}</span>
+                ))}
+              </div>
             </Accordion>
           )}
-
-          <Accordion title="Skills & Qualifications" open={expanded.skills} onToggle={() => toggle("skills")}>
-            {job.required_skills && (
-              <div style={{ marginBottom: 14 }}>
-                <p style={styles.skillGroupLabel}>Required</p>
-                <div style={styles.skillChips}>
-                  {job.required_skills.split(/[,\n]+/).filter(Boolean).map((s, i) => (
-                    <span key={i} style={styles.skillChip}>{s.trim()}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {job.preferred_skills && (
-              <div style={{ marginBottom: 14 }}>
-                <p style={styles.skillGroupLabel}>Preferred</p>
-                <div style={styles.skillChips}>
-                  {job.preferred_skills.split(/[,\n]+/).filter(Boolean).map((s, i) => (
-                    <span key={i} style={{ ...styles.skillChip, ...styles.skillChipAlt }}>{s.trim()}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {job.technical_skills && (
-              <div style={{ marginBottom: 14 }}>
-                <p style={styles.skillGroupLabel}>Technical</p>
-                <div style={styles.skillChips}>
-                  {job.technical_skills.split(/[,\n]+/).filter(Boolean).map((s, i) => (
-                    <span key={i} style={styles.skillChip}>{s.trim()}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {job.soft_skills && (
-              <div>
-                <p style={styles.skillGroupLabel}>Soft Skills</p>
-                <div style={styles.skillChips}>
-                  {job.soft_skills.split(/[,\n]+/).filter(Boolean).map((s, i) => (
-                    <span key={i} style={{ ...styles.skillChip, ...styles.skillChipSoft }}>{s.trim()}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Accordion>
 
           {job.screening_questions?.length > 0 && (
             <Accordion title={`Screening Questions (${job.screening_questions.length})`} open={expanded.questions} onToggle={() => toggle("questions")}>
@@ -389,6 +340,23 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
                   <p style={styles.questionText}>{q}</p>
                 </div>
               ))}
+            </Accordion>
+          )}
+
+          {(job.bonuses_offered || job.other_perks) && (
+            <Accordion title="Compensation & Perks" open={true} onToggle={() => {}}>
+              {job.bonuses_offered && (
+                <div style={{ marginBottom: 10 }}>
+                  <p style={styles.skillGroupLabel}>Bonuses</p>
+                  <p style={styles.bodyText}>{job.bonus_details || "Bonuses offered — details not specified."}</p>
+                </div>
+              )}
+              {job.other_perks && (
+                <div>
+                  <p style={styles.skillGroupLabel}>Other Perks</p>
+                  <p style={styles.bodyText}>{job.other_perks}</p>
+                </div>
+              )}
             </Accordion>
           )}
 
@@ -406,7 +374,6 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
           </Accordion>
         </div>
 
-        {/* RIGHT: sidebar */}
         <div style={styles.rightCol}>
           <div style={styles.sideCard}>
             <p style={styles.sideCardTitle}>Job Details</p>
@@ -425,7 +392,7 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
               <SideInfo label="Openings" value={String(job.number_of_openings)} />
             )}
             {job.expected_start_date && (
-              <SideInfo label="Expected Start" value={new Date(job.expected_start_date).toLocaleDateString()} />
+              <SideInfo label="Onboarding Date" value={new Date(job.expected_start_date).toLocaleDateString()} />
             )}
             {deadline && (
               <SideInfo
@@ -453,7 +420,6 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
             )}
           </div>
 
-          {/* Sticky apply CTA at bottom of sidebar */}
           {!appStatus.hasApplied && !isExpired && (
             <button
               style={styles.sideApplyBtn}
@@ -465,12 +431,10 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
         </div>
       </div>
 
-      {/* ── Apply Modal ── */}
       {modalStep !== "idle" && (
         <div style={styles.modalOverlay} onClick={() => modalStep !== "submitting" && setModalStep("idle")}>
           <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
 
-            {/* Success */}
             {modalStep === "success" && (
               <div style={styles.modalCenter}>
                 <div style={styles.successCircle}><CheckCircle2 size={36} color="#059669" /></div>
@@ -483,7 +447,6 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
               </div>
             )}
 
-            {/* Error */}
             {modalStep === "error" && (
               <div style={styles.modalCenter}>
                 <AlertCircle size={36} color="#dc2626" />
@@ -496,7 +459,6 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
               </div>
             )}
 
-            {/* Form */}
             {(modalStep === "form" || modalStep === "submitting") && (
               <>
                 <div style={styles.modalHeader}>
@@ -505,12 +467,11 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
                     <p style={styles.modalSub}>{job.company_name} · {job.location}</p>
                   </div>
                   <button style={styles.closeBtn} onClick={() => setModalStep("idle")} aria-label="Close modal">
-  <X size={18} />
-</button>
+                    <X size={18} />
+                  </button>
                 </div>
 
                 <div style={styles.modalBody}>
-                  {/* Resume */}
                   <div style={styles.fieldGroup}>
                     <label style={styles.fieldLabel}>
                       Resume <span style={styles.required}>*</span>
@@ -526,17 +487,16 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
                       )}
                     </div>
                     <input
-  ref={resumeRef}
-  type="file"
-  accept=".pdf,.doc,.docx"
-  style={{ display: "none" }}
-  title="Upload resume"
-  aria-label="Upload resume"
-  onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
-/>
+                      ref={resumeRef}
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      style={{ display: "none" }}
+                      title="Upload resume"
+                      aria-label="Upload resume"
+                      onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
+                    />
                   </div>
 
-                  {/* Cover Letter */}
                   <div style={styles.fieldGroup}>
                     <label style={styles.fieldLabel}>
                       Cover Letter {job.cover_letter_required
@@ -554,35 +514,33 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
                       )}
                     </div>
                     <input
-  ref={coverRef}
-  type="file"
-  accept=".pdf,.doc,.docx"
-  style={{ display: "none" }}
-  title="Upload cover letter"
-  aria-label="Upload cover letter"
-  onChange={(e) => setCoverLetterFile(e.target.files?.[0] ?? null)}
-/>
+                      ref={coverRef}
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      style={{ display: "none" }}
+                      title="Upload cover letter"
+                      aria-label="Upload cover letter"
+                      onChange={(e) => setCoverLetterFile(e.target.files?.[0] ?? null)}
+                    />
                   </div>
 
-                  {/* Portfolio URL */}
                   {job.portfolio_required && (
                     <div style={styles.fieldGroup}>
                       <label style={styles.fieldLabel}>
                         Portfolio URL <span style={styles.required}>*</span>
                       </label>
                       <input
-  style={styles.textInput}
-  type="url"
-  placeholder="https://yourportfolio.com"
-  title="Portfolio URL"
-  aria-label="Portfolio URL"
-  value={portfolioUrl}
-  onChange={(e) => setPortfolioUrl(e.target.value)}
-/>
+                        style={styles.textInput}
+                        type="url"
+                        placeholder="https://yourportfolio.com"
+                        title="Portfolio URL"
+                        aria-label="Portfolio URL"
+                        value={portfolioUrl}
+                        onChange={(e) => setPortfolioUrl(e.target.value)}
+                      />
                     </div>
                   )}
 
-                  {/* Screening Questions */}
                   {job.screening_questions?.length > 0 && (
                     <div style={styles.fieldGroup}>
                       <label style={styles.fieldLabel}>Screening Questions <span style={styles.required}>*</span></label>
@@ -590,18 +548,18 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
                         <div key={i} style={{ marginBottom: 12 }}>
                           <p style={styles.questionMini}>{i + 1}. {q}</p>
                           <textarea
-  style={styles.textarea}
-  rows={3}
-  placeholder="Your answer..."
-  title={`Answer for question ${i + 1}`}
-  aria-label={`Answer for question ${i + 1}`}
-  value={answers[i] ?? ""}
-  onChange={(e) => {
-    const next = [...answers];
-    next[i] = e.target.value;
-    setAnswers(next);
-  }}
-/>
+                            style={styles.textarea}
+                            rows={3}
+                            placeholder="Your answer..."
+                            title={`Answer for question ${i + 1}`}
+                            aria-label={`Answer for question ${i + 1}`}
+                            value={answers[i] ?? ""}
+                            onChange={(e) => {
+                              const next = [...answers];
+                              next[i] = e.target.value;
+                              setAnswers(next);
+                            }}
+                          />
                         </div>
                       ))}
                     </div>
@@ -634,8 +592,6 @@ await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/jobs/
     </div>
   );
 }
-
-// ── Sub-components ────────────────────────────────────────────
 
 function Accordion({
   title, open, onToggle, children,
@@ -690,8 +646,6 @@ function DocItem({ label, required }: { label: string; required: boolean }) {
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────
-
 const styles: Record<string, React.CSSProperties> = {
   root: { fontFamily: "'Segoe UI', sans-serif", maxWidth: 1100, margin: "0 auto" },
   loading: {
@@ -722,8 +676,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 8, padding: "10px 16px",
     fontSize: 13, color: "#991b1b", fontWeight: 500, marginBottom: 14,
   },
-
-  // Hero card
   heroCard: {
     background: "#fff", borderRadius: 12, padding: "24px",
     boxShadow: "0 2px 12px rgba(0,0,0,0.08)", marginBottom: 20,
@@ -747,8 +699,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11, padding: "3px 10px", borderRadius: 20,
     background: "#d1fae5", color: "#065f46", fontWeight: 700,
   },
-
-  // CTA col
   ctaCol: { display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch", minWidth: 170 },
   applyBtn: {
     padding: "12px 24px", background: "#1a56db",
@@ -773,8 +723,6 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1.5px solid #bbf7d0",
   },
   statusPill: { fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 600 },
-
-  // Body layout
   bodyGrid: { display: "grid", gridTemplateColumns: "1fr 300px", gap: 16, alignItems: "start" },
   leftCol: {},
   rightCol: { display: "flex", flexDirection: "column", gap: 12 },
@@ -789,22 +737,20 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14, fontWeight: 700, cursor: "pointer", width: "100%",
     boxShadow: "0 2px 8px rgba(26,86,219,0.3)",
   },
-
-  // Content
   bodyText: { fontSize: 13, color: "#374151", lineHeight: 1.8, margin: 0, whiteSpace: "pre-line" },
   skillGroupLabel: { fontSize: 11, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, margin: "0 0 6px" },
   skillChips: { display: "flex", flexWrap: "wrap", gap: 6 },
-  skillChip: { fontSize: 12, padding: "4px 10px", borderRadius: 6, background: "#eff6ff", color: "#1a56db", fontWeight: 500 },
-  skillChipAlt: { background: "#f0fdf4", color: "#059669" },
-  skillChipSoft: { background: "#faf5ff", color: "#7c3aed" },
+  certChip: {
+    fontSize: 12, padding: "4px 10px", borderRadius: 6,
+    background: "#fef3c7", color: "#92400e", fontWeight: 500,
+    display: "inline-flex", alignItems: "center", gap: 5,
+  },
   questionItem: { display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 10 },
   questionNum: {
     width: 22, height: 22, borderRadius: "50%", background: "#eff6ff", color: "#1a56db",
     fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
   questionText: { fontSize: 13, color: "#374151", margin: 0, lineHeight: 1.6 },
-
-  // Modal
   modalOverlay: {
     position: "fixed", inset: 0, zIndex: 300,
     background: "rgba(0,0,0,0.45)", backdropFilter: "blur(2px)",
@@ -841,8 +787,6 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#f0fdf4", display: "flex",
     alignItems: "center", justifyContent: "center",
   },
-
-  // Form fields
   fieldGroup: { marginBottom: 18 },
   fieldLabel: { fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 },
   required: { color: "#dc2626" },

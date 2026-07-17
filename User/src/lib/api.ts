@@ -31,6 +31,18 @@ export const api = {
     if (!res.ok) throw new Error(data.message || "Something went wrong");
     return data;
   },
+  // ✅ ADDED: PUT method
+  put: async (path: string, body: object): Promise<any> => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "PUT",
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+    if (!res.ok) throw new Error(data.message || "Something went wrong");
+    return data;
+  },
   // ✅ ADDED: DELETE method
   delete: async (path: string): Promise<any> => {
     const res = await fetch(`${API_BASE}${path}`, {

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { APPLICATION_STATUSES } from "@/lib/constants";
-import { ArrowLeft, Edit2, Eye, Users, Save, X } from "lucide-react";
+import { ArrowLeft, Edit2, Eye, Users, Save, X, Trash2, Plus } from "lucide-react";
 
 interface Job {
   id: string;
@@ -16,6 +16,7 @@ interface Job {
   job_code: string;
   department: string;
   functional_area: string;
+  certifications: string;
   work_setting: string;
   employment_type: string;
   experience_min_years: number;
@@ -25,14 +26,11 @@ interface Job {
   company_name: string;
   company_website: string;
   industry: string;
-  required_skills: string;
-  preferred_skills: string;
-  technical_skills: string;
-  soft_skills: string;
-  responsibilities: string;
-  key_responsibilities: string;
   salary_min: number;
   salary_max: number;
+  bonuses_offered: boolean;
+  bonus_details: string;
+  other_perks: string;
   contact_email: string;
   contact_phone: string;
   screening_questions: string[];
@@ -42,7 +40,6 @@ interface Job {
   application_deadline: string;
   expected_start_date: string;
   number_of_openings: number;
-  job_expiration: string;
   equal_opportunity_statement: string;
   background_check_required: boolean;
   status: string;
@@ -78,11 +75,12 @@ export default function JobDetailPage() {
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
   const [toast, setToast] = useState("");
 
-  // Edit mode
   const [isEditMode, setIsEditMode] = useState(searchParams.get("edit") === "true");
   const [editForm, setEditForm] = useState<Partial<Job>>({});
   const [saving, setSaving] = useState(false);
-  const [questionsRaw, setQuestionsRaw] = useState(""); // comma/newline separated
+  const [questionsRaw, setQuestionsRaw] = useState("");
+  const [certList, setCertList] = useState<string[]>([]);
+  const [newCert, setNewCert] = useState("");
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
@@ -96,6 +94,11 @@ export default function JobDetailPage() {
         setApplicants(applicantsData.applicants || []);
         setEditForm(jobData.job);
         setQuestionsRaw((jobData.job.screening_questions || []).join("\n"));
+        setCertList(
+          jobData.job.certifications
+            ? jobData.job.certifications.split(",").map((c: string) => c.trim()).filter(Boolean)
+            : []
+        );
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -104,6 +107,7 @@ export default function JobDetailPage() {
   const handleEnterEdit = () => {
     setEditForm(job ?? {});
     setQuestionsRaw((job?.screening_questions || []).join("\n"));
+    setCertList(job?.certifications ? job.certifications.split(",").map((c) => c.trim()).filter(Boolean) : []);
     setIsEditMode(true);
     setActiveTab("details");
   };
@@ -111,6 +115,7 @@ export default function JobDetailPage() {
   const handleCancelEdit = () => {
     setEditForm(job ?? {});
     setQuestionsRaw((job?.screening_questions || []).join("\n"));
+    setCertList(job?.certifications ? job.certifications.split(",").map((c) => c.trim()).filter(Boolean) : []);
     setIsEditMode(false);
   };
 
@@ -118,11 +123,22 @@ export default function JobDetailPage() {
     setEditForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const addCert = () => {
+    if (!newCert.trim()) return;
+    setCertList((prev) => [...prev, newCert.trim()]);
+    setNewCert("");
+  };
+
+  const removeCert = (i: number) => {
+    setCertList((prev) => prev.filter((_, idx) => idx !== i));
+  };
+
   const handleSaveJob = async () => {
     setSaving(true);
     try {
       const payload = {
         ...editForm,
+        certifications: certList.join(", "),
         screening_questions: questionsRaw
           .split(/[\n,]+/)
           .map((q) => q.trim())
@@ -186,7 +202,6 @@ export default function JobDetailPage() {
     <div>
       {toast && <div style={styles.toast}>{toast}</div>}
 
-      {/* Header */}
       <div style={styles.pageHeader}>
         <button style={styles.backBtn} onClick={() => router.push("/dashboard/job-postings")}>
           <ArrowLeft size={16} /> Back to Jobs
@@ -209,7 +224,6 @@ export default function JobDetailPage() {
         </div>
       </div>
 
-      {/* Job Title Banner */}
       <div style={styles.banner}>
         <div style={{ flex: 1 }}>
           {isEditMode ? (
@@ -254,7 +268,6 @@ export default function JobDetailPage() {
         </div>
       </div>
 
-      {/* Tabs — hide applicants tab in edit mode */}
       <div style={styles.tabs}>
         {(["details", "applicants"] as const).map((tab) => {
           if (isEditMode && tab === "applicants") return null;
@@ -289,39 +302,39 @@ export default function JobDetailPage() {
               <Field label="Functional Area">
                 <input style={styles.input} value={editForm.functional_area ?? ""} onChange={(e) => handleField("functional_area", e.target.value)} placeholder="e.g. Software" title="Functional Area" />
               </Field>
-              <Field label="Industry">
-                <input style={styles.input} value={editForm.industry ?? ""} onChange={(e) => handleField("industry", e.target.value)} placeholder="e.g. Technology" title="Industry" />
-              </Field>
               <Field label="Number of Openings">
                 <input style={styles.input} type="number" min={1} value={editForm.number_of_openings ?? ""} onChange={(e) => handleField("number_of_openings", Number(e.target.value))} title="Number of Openings" />
               </Field>
             </div>
+
+            <Field label="Certifications">
+              {certList.map((c, i) => (
+                <div key={i} style={styles.questionItem}>
+                  <span style={styles.questionText}>{i + 1}. {c}</span>
+                  <button type="button" title="Remove certification" style={styles.removeQ} onClick={() => removeCert(i)}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+              <div style={styles.addQuestionRow}>
+                <input
+                  style={styles.input}
+                  placeholder="Type a certification and press Enter..."
+                  value={newCert}
+                  onChange={(e) => setNewCert(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCert(); } }}
+                />
+                <button type="button" title="Add certification" style={styles.addQBtn} onClick={addCert}>
+                  <Plus size={14} /> Add
+                </button>
+              </div>
+            </Field>
           </EditSection>
 
           <EditSection title="Job Description">
             <Field label="Description" required>
               <textarea style={styles.textarea} rows={5} value={editForm.job_description ?? ""} onChange={(e) => handleField("job_description", e.target.value)} placeholder="Describe the role..." title="Job Description" />
             </Field>
-            <Field label="Key Responsibilities">
-              <textarea style={styles.textarea} rows={5} value={editForm.key_responsibilities ?? ""} onChange={(e) => handleField("key_responsibilities", e.target.value)} placeholder="List key responsibilities..." title="Key Responsibilities" />
-            </Field>
-          </EditSection>
-
-          <EditSection title="Skills">
-            <div style={styles.formGrid2}>
-              <Field label="Required Skills">
-                <textarea style={styles.textarea} rows={3} value={editForm.required_skills ?? ""} onChange={(e) => handleField("required_skills", e.target.value)} placeholder="e.g. React, Node.js" title="Required Skills" />
-              </Field>
-              <Field label="Preferred Skills">
-                <textarea style={styles.textarea} rows={3} value={editForm.preferred_skills ?? ""} onChange={(e) => handleField("preferred_skills", e.target.value)} placeholder="e.g. GraphQL, Docker" title="Preferred Skills" />
-              </Field>
-              <Field label="Technical Skills">
-                <textarea style={styles.textarea} rows={3} value={editForm.technical_skills ?? ""} onChange={(e) => handleField("technical_skills", e.target.value)} placeholder="e.g. Python, AWS" title="Technical Skills" />
-              </Field>
-              <Field label="Soft Skills">
-                <textarea style={styles.textarea} rows={3} value={editForm.soft_skills ?? ""} onChange={(e) => handleField("soft_skills", e.target.value)} placeholder="e.g. Communication, Leadership" title="Soft Skills" />
-              </Field>
-            </div>
           </EditSection>
 
           <EditSection title="Work Details">
@@ -351,6 +364,24 @@ export default function JobDetailPage() {
                 <input style={styles.input} type="number" min={0} value={editForm.salary_max ?? ""} onChange={(e) => handleField("salary_max", Number(e.target.value))} title="Maximum Salary" />
               </Field>
             </div>
+
+            <Field label="Bonuses Offered?">
+              <div style={styles.checkRow}>
+                <label style={styles.checkLabel}>
+                  <input type="radio" name="bonuses_offered_edit" checked={editForm.bonuses_offered === true} onChange={() => handleField("bonuses_offered", true)} />
+                  Yes
+                </label>
+                <label style={styles.checkLabel}>
+                  <input type="radio" name="bonuses_offered_edit" checked={!editForm.bonuses_offered} onChange={() => { handleField("bonuses_offered", false); handleField("bonus_details", ""); }} />
+                  No
+                </label>
+              </div>
+            </Field>
+            {editForm.bonuses_offered && (
+              <Field label="Bonus Details">
+                <textarea style={styles.textarea} rows={3} value={editForm.bonus_details ?? ""} onChange={(e) => handleField("bonus_details", e.target.value)} title="Bonus Details" />
+              </Field>
+            )}
           </EditSection>
 
           <EditSection title="Location & Contact">
@@ -370,9 +401,6 @@ export default function JobDetailPage() {
               <Field label="Contact Phone">
                 <input style={styles.input} value={editForm.contact_phone ?? ""} onChange={(e) => handleField("contact_phone", e.target.value)} title="Contact Phone" />
               </Field>
-              <Field label="Company Website">
-                <input style={styles.input} value={editForm.company_website ?? ""} onChange={(e) => handleField("company_website", e.target.value)} title="Company Website" />
-              </Field>
             </div>
           </EditSection>
 
@@ -381,11 +409,8 @@ export default function JobDetailPage() {
               <Field label="Application Deadline">
                 <input style={styles.input} type="date" value={editForm.application_deadline?.slice(0, 10) ?? ""} onChange={(e) => handleField("application_deadline", e.target.value)} title="Application Deadline" />
               </Field>
-              <Field label="Expected Start Date">
-                <input style={styles.input} type="date" value={editForm.expected_start_date?.slice(0, 10) ?? ""} onChange={(e) => handleField("expected_start_date", e.target.value)} title="Expected Start Date" />
-              </Field>
-              <Field label="Job Expiration Date">
-                <input style={styles.input} type="date" value={editForm.job_expiration?.slice(0, 10) ?? ""} onChange={(e) => handleField("job_expiration", e.target.value)} title="Job Expiration Date" />
+              <Field label="Onboarding Date">
+                <input style={styles.input} type="date" value={editForm.expected_start_date?.slice(0, 10) ?? ""} onChange={(e) => handleField("expected_start_date", e.target.value)} title="Onboarding Date" />
               </Field>
             </div>
           </EditSection>
@@ -445,7 +470,6 @@ export default function JobDetailPage() {
             />
           </EditSection>
 
-          {/* Bottom save bar */}
           <div style={styles.saveBar}>
             <button style={styles.cancelBtn} onClick={handleCancelEdit} disabled={saving}>
               <X size={14} /> Cancel
@@ -463,15 +487,9 @@ export default function JobDetailPage() {
           <Section title="Job Description">
             <p style={styles.bodyText}>{job.job_description}</p>
           </Section>
-          <Section title="Key Responsibilities">
-            <p style={styles.bodyText}>{job.key_responsibilities}</p>
-          </Section>
-          <Section title="Required Skills & Qualifications">
-            <p style={styles.bodyText}>{job.required_skills}</p>
-          </Section>
-          {job.preferred_skills && (
-            <Section title="Preferred Skills">
-              <p style={styles.bodyText}>{job.preferred_skills}</p>
+          {job.certifications && (
+            <Section title="Certifications">
+              <p style={styles.bodyText}>{job.certifications}</p>
             </Section>
           )}
           <Section title="Job Details">
@@ -483,11 +501,21 @@ export default function JobDetailPage() {
               {job.salary_min && <Info label="Salary Range" value={`₹${job.salary_min.toLocaleString()} – ₹${job.salary_max?.toLocaleString()}`} />}
               {job.number_of_openings && <Info label="Openings" value={String(job.number_of_openings)} />}
               {job.application_deadline && <Info label="Application Deadline" value={new Date(job.application_deadline).toLocaleDateString()} />}
-              {job.expected_start_date && <Info label="Expected Start" value={new Date(job.expected_start_date).toLocaleDateString()} />}
+              {job.expected_start_date && <Info label="Onboarding Date" value={new Date(job.expected_start_date).toLocaleDateString()} />}
               <Info label="Contact Email" value={job.contact_email} />
               {job.contact_phone && <Info label="Contact Phone" value={job.contact_phone} />}
             </div>
           </Section>
+          {job.bonuses_offered && (
+            <Section title="Bonuses">
+              <p style={styles.bodyText}>{job.bonus_details || "Bonuses offered — details not specified."}</p>
+            </Section>
+          )}
+          {job.other_perks && (
+            <Section title="Other Perks">
+              <p style={styles.bodyText}>{job.other_perks}</p>
+            </Section>
+          )}
           <Section title="Required Documents">
             <div style={styles.checksList}>
               <span style={checkItemStyle(true)}>✓ Resume (Required)</span>
@@ -581,8 +609,6 @@ export default function JobDetailPage() {
     </div>
   );
 }
-
-// ── Sub-components ─────────────────────────────────────────────
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -721,6 +747,22 @@ const styles: Record<string, React.CSSProperties> = {
   checkLabel: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#374151", cursor: "pointer" },
   checksList: { display: "flex", flexDirection: "column", gap: 6 },
   questionLine: { fontSize: 13, color: "#374151", margin: "0 0 6px" },
+  questionItem: {
+    display: "flex", alignItems: "center", gap: 8,
+    background: "#f9fafb", borderRadius: 6, padding: "8px 12px", marginBottom: 6,
+  },
+  questionText: { flex: 1, fontSize: 13, color: "#374151" },
+  removeQ: {
+    background: "none", border: "none", cursor: "pointer",
+    color: "#ef4444", display: "flex", alignItems: "center",
+  },
+  addQuestionRow: { display: "flex", gap: 8, marginTop: 6 },
+  addQBtn: {
+    display: "flex", alignItems: "center", gap: 6,
+    padding: "9px 16px", background: "#eff6ff",
+    color: "#1a56db", border: "none", borderRadius: 7,
+    fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+  },
   saveBar: {
     display: "flex", justifyContent: "flex-end", gap: 10,
     padding: "16px 0 4px",
