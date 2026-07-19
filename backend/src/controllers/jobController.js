@@ -452,9 +452,9 @@ const applyToJob = async (req, res) => {
   const coverFile = req.files?.cover_letter?.[0];
   if (!resumeFile)
     return res.status(400).json({ message: 'Resume is required' });
-  const resume_url = `/uploads/resumes/${resumeFile.filename}`;
-  const cover_letter_url = coverFile ? `/uploads/resumes/${coverFile.filename}` : null;
+
   const screening_answers = answers ? JSON.parse(answers) : {};
+  const BUCKET = 'resumes';
 
   try {
     const existing = await pool.query(
@@ -470,11 +470,34 @@ const applyToJob = async (req, res) => {
     if (job.rows.length === 0)
       return res.status(404).json({ message: 'Job not found or no longer active' });
 
+    // ── Upload resume to Supabase Storage ──────────────────────
+    const resumeExt = resumeFile.originalname.split('.').pop();
+    const resumePath = `resume_${req.user.id}_${Date.now()}.${resumeExt}`;
+    const { error: resumeUploadErr } = await supabase.storage
+      .from(BUCKET)
+      .upload(resumePath, resumeFile.buffer, { contentType: resumeFile.mimetype });
+    if (resumeUploadErr) throw resumeUploadErr;
+    const { data: resumePublicUrl } = supabase.storage.from(BUCKET).getPublicUrl(resumePath);
+    const resume_url = resumePublicUrl.publicUrl;
+
+    // ── Upload cover letter (if provided) ──────────────────────
+    let cover_letter_url = null;
+    if (coverFile) {
+      const coverExt = coverFile.originalname.split('.').pop();
+      const coverPath = `cover_${req.user.id}_${Date.now()}.${coverExt}`;
+      const { error: coverUploadErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(coverPath, coverFile.buffer, { contentType: coverFile.mimetype });
+      if (coverUploadErr) throw coverUploadErr;
+      const { data: coverPublicUrl } = supabase.storage.from(BUCKET).getPublicUrl(coverPath);
+      cover_letter_url = coverPublicUrl.publicUrl;
+    }
+
     await pool.query(
       `INSERT INTO job_applications
          (job_id, user_id, resume_url, cover_letter_url, portfolio_url, screening_answers, status)
        VALUES ($1,$2,$3,$4,$5,$6,'Submitted')`,
-      [id, req.user.id, resume_url, cover_letter_url || null,
+      [id, req.user.id, resume_url, cover_letter_url,
        portfolio_url || null, JSON.stringify(screening_answers)]
     );
     return res.status(201).json({ message: 'Application submitted' });

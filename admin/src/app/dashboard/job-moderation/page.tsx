@@ -203,7 +203,7 @@ export default function JobModerationPage() {
             <table style={styles.table}>
               <thead>
                 <tr>
-                  {["Name", "Email", "Status", "Setup", "Last Login", "Added", "Actions"].map((h) => (
+                  {["Name", "Email", "Status", "Setup", "Added", "Actions"].map((h) => (
                     <th key={h} style={styles.th}>{h}</th>
                   ))}
                 </tr>
@@ -235,7 +235,6 @@ export default function JobModerationPage() {
                           </span>
                         )}
                       </td>
-                      <td style={styles.td}>{m.last_login_at ? new Date(m.last_login_at).toLocaleDateString() : "—"}</td>
                       <td style={styles.td}>{new Date(m.created_at).toLocaleDateString()}</td>
                       <td style={styles.td}>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

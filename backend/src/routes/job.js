@@ -1,7 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const path = require('path');
-const fs = require('fs');
 const multer = require('multer');
 const {
   createJob, listJobs, getJob, deleteJob, updateJob,
@@ -14,22 +12,10 @@ const { authenticate, requireRole } = require('../middlewares/auth');
 const companyAuth = require('../middlewares/companyAuth');
 
 // ── Resume/cover-letter upload config ───────────────────────────
-// Writes to disk (not memory) so resumeFile.filename is defined and
-// the saved file is actually retrievable later via /uploads/resumes/<filename>.
-const resumeDir = path.join(__dirname, '../../uploads/resumes');
-fs.mkdirSync(resumeDir, { recursive: true });
-
-const resumeStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, resumeDir),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const safeField = file.fieldname; // "resume" or "cover_letter"
-    cb(null, `${safeField}_${req.user?.id || 'anon'}_${Date.now()}${ext}`);
-  },
-});
-
+// Memory storage: file stays in a buffer (req.files[...][0].buffer)
+// and is uploaded to Supabase Storage inside applyToJob, not written to local disk.
 const upload = multer({
-  storage: resumeStorage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req, file, cb) => {
     if (/^application\/pdf$|^application\/msword$|^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document$/.test(file.mimetype)) {
