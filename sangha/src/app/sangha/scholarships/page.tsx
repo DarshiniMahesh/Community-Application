@@ -109,13 +109,22 @@ interface RichApplicant {
 }
 interface RichApplicantsPagination { total: number; page: number; limit: number; totalPages: number; }
 
+// ── UPDATED: EducationDocuments now carries the four-state PU fields
+// (puStatus / puFirstStatus / puFirstCertificateUrl / puSecondCertificateUrl)
+// returned by the backend, while keeping the legacy `puPursued` boolean for
+// backward compatibility with any older records / callers.
 interface EducationDocuments {
   employmentType: string | null;
   pursuingDegree: boolean | null;
   sslcPursued: boolean | null;
-  puPursued: boolean | null;
   sslcSchoolName: string | null; sslcYear: string | null; sslcPercentage: string | null; sslcMarksCardUrl: string | null;
+  // Legacy flag — kept for backward compatibility with older data/consumers.
+  puPursued: boolean | null;
+  // New four-state PU fields
+  puStatus: "pursued" | "pursuing" | "not_pursued" | null;
+  puFirstStatus: "completed" | "pursuing" | null;
   puCollegeName: string | null; puYear: string | null; puPercentage: string | null; puMarksCardUrl: string | null;
+  puFirstCertificateUrl: string | null; puSecondCertificateUrl: string | null;
   degreeName: string | null; degreeInstitution: string | null; degreeYear: string | null; degreePercentage: string | null; degreeCertificateUrl: string | null;
 }
 interface BankDetailsFull {
@@ -395,6 +404,45 @@ function PursuedBadge({ value }: { value: boolean | null | undefined }) {
   ) : (
     <span style={{ fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,background:"rgba(192,57,43,0.06)",color:"var(--color-text-danger)",border:"0.5px solid rgba(192,57,43,0.2)" }}>
       <i className="ti ti-x" style={{ fontSize:9,marginRight:3 }} />No
+    </span>
+  );
+}
+
+// ── NEW: Four-state PU status badge ──────────────────────────────────────────
+// Renders the PU status header badge based on the new `puStatus` /
+// `puFirstStatus` fields returned by the backend:
+//   - "pursued"                             → "Completed" (success)
+//   - "pursuing" + firstStatus "completed"  → "Pursuing 2nd PU" (info)
+//   - "pursuing" + firstStatus otherwise     → "Pursuing 1st PU" (info)
+//   - "not_pursued"                         → "Not Pursued" (danger)
+//   - null                                   → "Not specified" (neutral)
+function PuStatusBadge({ status, firstStatus }: { status: "pursued" | "pursuing" | "not_pursued" | null; firstStatus?: "completed" | "pursuing" | null }) {
+  if (!status) {
+    return (
+      <span style={{ fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:6,background:"rgba(100,116,139,0.08)",color:"var(--color-text-tertiary)",border:"0.5px solid var(--color-border-tertiary)" }}>
+        Not specified
+      </span>
+    );
+  }
+  if (status === "pursued") {
+    return (
+      <span style={{ fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,background:"rgba(15,110,86,0.1)",color:"var(--color-text-success)",border:"0.5px solid rgba(15,110,86,0.25)" }}>
+        <i className="ti ti-check" style={{ fontSize:9,marginRight:3 }} />Completed
+      </span>
+    );
+  }
+  if (status === "not_pursued") {
+    return (
+      <span style={{ fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,background:"rgba(192,57,43,0.06)",color:"var(--color-text-danger)",border:"0.5px solid rgba(192,57,43,0.2)" }}>
+        <i className="ti ti-x" style={{ fontSize:9,marginRight:3 }} />Not Pursued
+      </span>
+    );
+  }
+  // status === "pursuing"
+  const label = firstStatus === "completed" ? "Pursuing 2nd PU" : "Pursuing 1st PU";
+  return (
+    <span style={{ fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,background:"rgba(24,95,165,0.08)",color:"#185FA5",border:"0.5px solid rgba(24,95,165,0.25)" }}>
+      <i className="ti ti-clock" style={{ fontSize:9,marginRight:3 }} />{label}
     </span>
   );
 }
@@ -1396,26 +1444,81 @@ function SanghaApplicantDetailModal({ applicationId, applicantName, isFamilyMemb
                         )}
                       </div>
 
-                      {/* ── PU ── */}
-                      <div style={{ padding:"12px 14px",borderRadius:10,background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)" }}>
-                        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom: d.documents.puPursued===true ? 10 : 0 }}>
-                          <span style={{ fontSize:12,color:"var(--color-text-secondary)",fontWeight:600,flex:1 }}>PU Pursued</span>
-                          <PursuedBadge value={d.documents.puPursued} />
-                        </div>
-                        {d.documents.puPursued === true && (
-                          <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
-                            <ProfileField label="College name" value={d.documents.puCollegeName} />
-                            <ProfileField label="Year of passing" value={d.documents.puYear} />
-                            <ProfileField label="Percentage" value={d.documents.puPercentage} />
-                            <DocFileChip label="PU Marks Card" url={d.documents.puMarksCardUrl} />
+                      {/* ── PU — four-state rendering ──────────────────────────────
+                          Derives the effective status from the new `puStatus` /
+                          `puFirstStatus` fields, falling back to the legacy
+                          `puPursued` boolean for older records where the new
+                          fields aren't populated yet.
+
+                            "pursued"                            → fully completed:
+                                                                    show college/year/percentage
+                                                                    plus both 1st & 2nd PU marks cards
+                            "pursuing" + firstStatus "completed" → 1st PU done, currently in 2nd PU:
+                                                                    show only the 1st PU marks card
+                            "pursuing" + firstStatus otherwise    → still pursuing 1st PU:
+                                                                    no marks cards yet
+                            "not_pursued"                        → PU not pursued at all
+                      ── */}
+                      {(() => {
+                        const docs = d.documents!;
+                        const derivedStatus: "pursued" | "pursuing" | "not_pursued" | null =
+                          docs.puStatus ?? (docs.puPursued === true ? "pursued" : docs.puPursued === false ? "not_pursued" : null);
+                        const firstStatus = docs.puFirstStatus ?? null;
+
+                        const isPursued = derivedStatus === "pursued";
+                        const isPursuing = derivedStatus === "pursuing";
+                        const isNotPursued = derivedStatus === "not_pursued";
+                        const firstPuCompleted = isPursuing && firstStatus === "completed";
+                        const stillOnFirstPu = isPursuing && firstStatus !== "completed";
+
+                        const secondPuCertUrl = docs.puSecondCertificateUrl ?? docs.puMarksCardUrl;
+
+                        return (
+                          <div style={{ padding:"12px 14px",borderRadius:10,background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)" }}>
+                            <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom: (isPursued || firstPuCompleted || stillOnFirstPu || isNotPursued) ? 10 : 0 }}>
+                              <span style={{ fontSize:12,color:"var(--color-text-secondary)",fontWeight:600,flex:1 }}>PU Status</span>
+                              <PuStatusBadge status={derivedStatus} firstStatus={firstStatus} />
+                            </div>
+
+                            {isPursued && (
+                              <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+                                <ProfileField label="College name" value={docs.puCollegeName} />
+                                <ProfileField label="Year of passing" value={docs.puYear} />
+                                <ProfileField label="Percentage" value={docs.puPercentage} />
+                                <DocFileChip label="1st PU Marks Card" url={docs.puFirstCertificateUrl} />
+                                <DocFileChip label="2nd PU Marks Card" url={secondPuCertUrl} />
+                              </div>
+                            )}
+
+                            {firstPuCompleted && (
+                              <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+                                <div style={{ fontSize:12,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
+                                  Completed 1st PU and is currently pursuing 2nd PU.
+                                </div>
+                                <DocFileChip label="1st PU Marks Card" url={docs.puFirstCertificateUrl} />
+                              </div>
+                            )}
+
+                            {stillOnFirstPu && (
+                              <div style={{ fontSize:12,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
+                                Currently pursuing 1st PU.
+                              </div>
+                            )}
+
+                            {isNotPursued && (
+                              <div style={{ fontSize:12,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
+                                Marked as not pursued by the applicant.
+                              </div>
+                            )}
+
+                            {derivedStatus === null && (
+                              <div style={{ fontSize:12,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
+                                Not specified by the applicant.
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {d.documents.puPursued === false && (
-                          <div style={{ fontSize:12,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
-                            Marked as not pursued by the applicant.
-                          </div>
-                        )}
-                      </div>
+                        );
+                      })()}
 
                       {/* ── Degree (only shown if the applicant actually provided one) ── */}
                       {(d.documents.degreeName || d.documents.degreeInstitution || d.documents.degreeCertificateUrl) && (

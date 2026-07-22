@@ -1,4 +1,3 @@
-//Community-Application\backend\src\controllers\adminschlcontroller.js
 const pool = require("../config/db");
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -472,6 +471,8 @@ async function getApplicantDetails(req, res) {
         `SELECT sslc_pursued, pu_pursued,
                 sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
                 pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
+                pu_first_status, pu_second_status,
+                pu_first_certificate_url, pu_second_certificate_url,
                 degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url,
                 employment_type, pursuing_degree
          FROM member_education_details
@@ -523,7 +524,7 @@ async function getApplicantDetails(req, res) {
             landDocCoverage: fmDoc.land_doc_coverage,
             dlCoverage: fmDoc.dl_coverage,
           } : null,
-          // NEW: SSLC / PU pursued status + certificate details
+          // SSLC / PU pursued status + certificate details
           educationStatus: fmEduDoc ? {
             sslcPursued: fmEduDoc.sslc_pursued,
             puPursued: fmEduDoc.pu_pursued,
@@ -535,6 +536,11 @@ async function getApplicantDetails(req, res) {
             puYear: fmEduDoc.pu_year,
             puPercentage: fmEduDoc.pu_percentage,
             puMarksCardUrl: fmEduDoc.pu_marks_card_url,
+            // NEW: 1st / 2nd PU status + marks cards
+            puFirstStatus: fmEduDoc.pu_first_status,
+            puSecondStatus: fmEduDoc.pu_second_status,
+            puFirstCertificateUrl: fmEduDoc.pu_first_certificate_url,
+            puSecondCertificateUrl: fmEduDoc.pu_second_certificate_url,
             degreeName: fmEduDoc.degree_name,
             degreeInstitution: fmEduDoc.degree_institution,
             degreeYear: fmEduDoc.degree_year,
@@ -634,6 +640,8 @@ async function getApplicantDetails(req, res) {
       `SELECT sslc_pursued, pu_pursued,
               sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
               pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
+              pu_first_status, pu_second_status,
+              pu_first_certificate_url, pu_second_certificate_url,
               degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url,
               employment_type, pursuing_degree
        FROM member_education_details
@@ -759,7 +767,7 @@ async function getApplicantDetails(req, res) {
           landDocCoverage: doc.land_doc_coverage,
           dlCoverage: doc.dl_coverage,
         } : null,
-        // NEW: SSLC / PU pursued status + certificate details
+        // SSLC / PU pursued status + certificate details
         educationStatus: eduDoc ? {
           sslcPursued: eduDoc.sslc_pursued,
           puPursued: eduDoc.pu_pursued,
@@ -771,6 +779,11 @@ async function getApplicantDetails(req, res) {
           puYear: eduDoc.pu_year,
           puPercentage: eduDoc.pu_percentage,
           puMarksCardUrl: eduDoc.pu_marks_card_url,
+          // NEW: 1st / 2nd PU status + marks cards
+          puFirstStatus: eduDoc.pu_first_status,
+          puSecondStatus: eduDoc.pu_second_status,
+          puFirstCertificateUrl: eduDoc.pu_first_certificate_url,
+          puSecondCertificateUrl: eduDoc.pu_second_certificate_url,
           degreeName: eduDoc.degree_name,
           degreeInstitution: eduDoc.degree_institution,
           degreeYear: eduDoc.degree_year,

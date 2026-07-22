@@ -477,6 +477,12 @@ exports.getMemberEducation = async (req, res) => {
       sslc_pursued,
       pu_pursued,
 
+      -- ── Granular PU status fields ──
+      pu_status,
+      pu_first_status,
+      pu_first_certificate_url,
+      pu_second_certificate_url,
+
       sslc_school_name,
       sslc_year,
       sslc_percentage,
@@ -509,6 +515,13 @@ exports.getMemberEducation = async (req, res) => {
         pursuingDegree:      row.pursuing_degree,
         sslcPursued: row.sslc_pursued,
         puPursued: row.pu_pursued,
+
+        // ── Granular PU status ──
+        puStatus:               row.pu_status,
+        puFirstStatus:          row.pu_first_status,
+        puFirstCertificateUrl:  row.pu_first_certificate_url,
+        puSecondCertificateUrl: row.pu_second_certificate_url,
+
         sslcSchoolName:      row.sslc_school_name,
         sslcYear:            row.sslc_year,
         sslcPercentage:      row.sslc_percentage,
@@ -555,6 +568,12 @@ exports.saveMemberEducation = async (req, res) => {
   sslcPursued = null,
   puPursued = null,
 
+  // ── Granular PU status ──
+  puStatus = null,
+  puFirstStatus = null,
+  puFirstCertificateUrl = null,
+  puSecondCertificateUrl = null,
+
   sslcSchoolName = null,
   sslcYear = null,
   sslcPercentage = null,
@@ -573,7 +592,8 @@ exports.saveMemberEducation = async (req, res) => {
 } = req.body;
 
     const existing = await pool.query(
-      `SELECT id, sslc_marks_card_url, pu_marks_card_url, degree_certificate_url
+      `SELECT id, sslc_marks_card_url, pu_marks_card_url, degree_certificate_url,
+              pu_first_certificate_url, pu_second_certificate_url
        FROM member_education_details
        WHERE profile_id = $1 AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
        LIMIT 1`,
@@ -582,9 +602,11 @@ exports.saveMemberEducation = async (req, res) => {
 
     // Preserve existing file URLs if this save doesn't include a new one
     // (so a text-field-only save via onBlur doesn't wipe out an uploaded file).
-    const finalSslcUrl   = sslcMarksCardUrl   ?? existing.rows[0]?.sslc_marks_card_url   ?? null;
-    const finalPuUrl     = puMarksCardUrl     ?? existing.rows[0]?.pu_marks_card_url     ?? null;
-    const finalDegreeUrl = degreeCertificateUrl ?? existing.rows[0]?.degree_certificate_url ?? null;
+    const finalSslcUrl       = sslcMarksCardUrl       ?? existing.rows[0]?.sslc_marks_card_url       ?? null;
+    const finalPuUrl         = puMarksCardUrl         ?? existing.rows[0]?.pu_marks_card_url         ?? null;
+    const finalDegreeUrl     = degreeCertificateUrl   ?? existing.rows[0]?.degree_certificate_url    ?? null;
+    const finalPuFirstUrl    = puFirstCertificateUrl  ?? existing.rows[0]?.pu_first_certificate_url  ?? null;
+    const finalPuSecondUrl   = puSecondCertificateUrl ?? existing.rows[0]?.pu_second_certificate_url ?? null;
 
     if (existing.rows.length) {
       await pool.query(
@@ -611,8 +633,13 @@ exports.saveMemberEducation = async (req, res) => {
    degree_percentage = $16,
    degree_certificate_url = $17,
 
+   pu_status = $18,
+   pu_first_status = $19,
+   pu_first_certificate_url = $20,
+   pu_second_certificate_url = $21,
+
    updated_at = NOW()
-WHERE id = $18`,
+WHERE id = $22`,
         [
   employmentType,
   pursuingDegree,
@@ -635,6 +662,11 @@ WHERE id = $18`,
   degreeYear,
   degreePercentage,
   finalDegreeUrl,
+
+  puStatus,
+  puFirstStatus,
+  finalPuFirstUrl,
+  finalPuSecondUrl,
 
   existing.rows[0].id
 ]
@@ -666,11 +698,16 @@ WHERE id = $18`,
  degree_institution,
  degree_year,
  degree_percentage,
- degree_certificate_url
+ degree_certificate_url,
+
+ pu_status,
+ pu_first_status,
+ pu_first_certificate_url,
+ pu_second_certificate_url
 )
 VALUES
 (
- $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+ $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23
 )`,
         [
   profileId,
@@ -696,7 +733,12 @@ VALUES
   degreeInstitution,
   degreeYear,
   degreePercentage,
-  finalDegreeUrl
+  finalDegreeUrl,
+
+  puStatus,
+  puFirstStatus,
+  finalPuFirstUrl,
+  finalPuSecondUrl,
 ]
       );
     }
@@ -709,11 +751,13 @@ VALUES
 };
 
 // ─── POST /userschl/members/:memberId/education/documents/:docType ───────────
-// docType: sslc | pu | degree
+// docType: sslc | pu | degree | pu_first | pu_second
 const DOC_TYPE_TO_COLUMN = {
-  sslc:   'sslc_marks_card_url',
-  pu:     'pu_marks_card_url',
-  degree: 'degree_certificate_url',
+  sslc:      'sslc_marks_card_url',
+  pu:        'pu_marks_card_url',
+  degree:    'degree_certificate_url',
+  pu_first:  'pu_first_certificate_url',
+  pu_second: 'pu_second_certificate_url',
 };
 
 exports.uploadMemberEducationDocument = async (req, res) => {
@@ -723,7 +767,7 @@ exports.uploadMemberEducationDocument = async (req, res) => {
 
     const { docType } = req.params;
     const column = DOC_TYPE_TO_COLUMN[docType];
-    if (!column) return res.status(400).json({ message: 'Invalid document type. Must be sslc, pu, or degree.' });
+    if (!column) return res.status(400).json({ message: 'Invalid document type. Must be sslc, pu, degree, pu_first, or pu_second.' });
 
     if (!req.file) return res.status(400).json({ message: 'No file uploaded.' });
 
