@@ -1,3 +1,4 @@
+//Community-Application\User\src\app\dashboard\profile\personal-details\page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -229,16 +230,7 @@ export default function Page() {
           </div>
 
           <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="surnameInUse">Surname in Use</Label>
-              <Input id="surnameInUse" placeholder="Current surname" value={formData.surnameInUse}
-                onChange={e => set("surnameInUse", e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="surnameAsPerGotra">Surname as per Gotra</Label>
-              <Input id="surnameAsPerGotra" placeholder="Traditional surname" value={formData.surnameAsPerGotra}
-                onChange={e => set("surnameAsPerGotra", e.target.value)} />
-            </div>
+          
             <div className="space-y-2">
               <Label htmlFor="fathersName">Father&apos;s Name</Label>
               <Input id="fathersName" placeholder="Enter father's name" value={formData.fathersName}

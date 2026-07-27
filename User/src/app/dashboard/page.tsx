@@ -1,3 +1,4 @@
+//Community-Application\User\src\app\dashboard\page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -274,17 +275,22 @@ export default function Page() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {completed && <CheckCircle2 className="h-5 w-5 text-green-600" />}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={isDisabled}
-                      onClick={() => router.push(section.href)}
-                      className="gap-1"
-                    >
-                      {completed ? "Edit" : "Start"} <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </div>
+  {completed && <CheckCircle2 className="h-5 w-5 text-green-600" />}
+  {!isDisabled ? (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => router.push(section.href)}
+      className="gap-1"
+    >
+      {completed ? "Edit" : "Start"} <ArrowRight className="h-4 w-4" />
+    </Button>
+  ) : (
+    <span className="text-xs text-muted-foreground italic px-2 text-right max-w-[160px]">
+      Editing is disabled, because the profile has been submitted
+    </span>
+  )}
+</div>
                 </div>
               );
             })}
@@ -293,40 +299,48 @@ export default function Page() {
       </Card>
 
       {/* Quick Actions */}
-      <Card className="shadow-sm">
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <Button
-              variant="outline"
-              className="h-auto flex-col gap-2 py-4"
-              disabled={isLocked}
-              onClick={() => router.push(nextStep)}
-            >
-              <Edit className="h-6 w-6 text-primary" />
-              <span>Continue Editing</span>
-            </Button>
-            <Button
-              variant="outline"
-              className="h-auto flex-col gap-2 py-4"
-              onClick={() => router.push("/dashboard/profile/review-submit")}
-            >
-              <FileText className="h-6 w-6 text-primary" />
-              <span>Review Details</span>
-            </Button>
-            <Button
-              variant="outline"
-              className="h-auto flex-col gap-2 py-4"
-              onClick={() => router.push("/dashboard/status")}
-            >
-              <Clock className="h-6 w-6 text-primary" />
-              <span>View Status</span>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+<Card className="shadow-sm">
+  <CardHeader>
+    <CardTitle>Quick Actions</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {!isLocked ? (
+        <Button
+          variant="outline"
+          className="h-auto flex-col gap-2 py-4"
+          onClick={() => router.push(nextStep)}
+        >
+          <Edit className="h-6 w-6 text-primary" />
+          <span>Continue Editing</span>
+        </Button>
+      ) : (
+        <div className="h-auto flex-col gap-2 py-4 flex items-center justify-center text-center border rounded-md border-dashed">
+          <Edit className="h-6 w-6 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground italic px-2">
+            Editing is disabled, because the profile has been submitted
+          </span>
+        </div>
+      )}
+      <Button
+        variant="outline"
+        className="h-auto flex-col gap-2 py-4"
+        onClick={() => router.push("/dashboard/profile/review-submit")}
+      >
+        <FileText className="h-6 w-6 text-primary" />
+        <span>Review Details</span>
+      </Button>
+      <Button
+        variant="outline"
+        className="h-auto flex-col gap-2 py-4"
+        onClick={() => router.push("/dashboard/status")}
+      >
+        <Clock className="h-6 w-6 text-primary" />
+        <span>View Status</span>
+      </Button>
+    </div>
+  </CardContent>
+</Card>
 
       {/* Reset Confirmation Dialog */}
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>

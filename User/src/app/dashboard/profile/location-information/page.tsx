@@ -317,17 +317,8 @@ export default function Page() {
     />
   </div>
       </div>
-      <div className="grid md:grid-cols-2 gap-4">
-  <div className="space-y-2">
-    <Label>State</Label>
-    <Input
-      placeholder="e.g. Karnataka"
-      value={address.state}
-      disabled={readOnly}
-      onChange={e => setField(setAddress, address, "state", e.target.value)}
-    />
-  </div>
-</div>
+     
+
 
       {/* Row 5: Pincode + Country */}
       <div className="grid md:grid-cols-2 gap-4">
@@ -511,7 +502,7 @@ export default function Page() {
                   </div>
                 </div>
 
-                {/* Row 4 */}
+                {/* Row 4: Taluk + District + State */}
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Taluk</Label>
@@ -522,6 +513,11 @@ export default function Page() {
                     <Label>District</Label>
                     <Input placeholder="e.g. Bengaluru Urban" value={address.district}
                       onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, district: e.target.value } : a))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>State</Label>
+                    <Input placeholder="e.g. Karnataka" value={address.state}
+                      onChange={e => setOldAddresses(prev => prev.map(a => a.id === address.id ? { ...a, state: e.target.value } : a))} />
                   </div>
                 </div>
 

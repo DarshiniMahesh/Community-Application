@@ -8,6 +8,16 @@ const getHeaders = () => {
   };
 };
 
+// ✅ NEW: headers for multipart/form-data requests.
+// Do NOT set Content-Type here — the browser sets it automatically
+// (including the multipart boundary) when the body is a FormData instance.
+const getFormHeaders = () => {
+  const token = localStorage.getItem("token");
+  return {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const api = {
   post: async (path: string, body: object): Promise<any> => {
@@ -15,6 +25,18 @@ export const api = {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify(body),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+    if (!res.ok) throw new Error(data.message || "Something went wrong");
+    return data;
+  },
+  // ✅ ADDED: POST method for multipart/form-data (file uploads)
+  postForm: async (path: string, formData: FormData): Promise<any> => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: getFormHeaders(),
+      body: formData,
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();

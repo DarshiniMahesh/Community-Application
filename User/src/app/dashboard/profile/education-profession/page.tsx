@@ -282,20 +282,28 @@ export default function Page() {
     }));
   };
 
-  // FIX: No longer resets profession, industry, briefProfile when switching to not working
-  const setCurrentlyWorking = (id: string, val: boolean) => {
-    setMembers(prev => prev.map(m => {
-      if (m.id !== id) return m;
-      return {
-        ...m,
-        isCurrentlyWorking: val,
-      };
-    }));
-    setErrors(prev => ({
-      ...prev,
-      [id]: { ...(prev[id] || {}), isCurrentlyWorking: "" },
-    }));
-  };
+ // ── FIX: clear profession fields when switching to "not working" ──
+const setCurrentlyWorking = (id: string, val: boolean) => {
+  setMembers(prev => prev.map(m => {
+    if (m.id !== id) return m;
+    return {
+      ...m,
+      isCurrentlyWorking: val,
+      profession:   val ? m.profession   : "",
+      industry:     val ? m.industry     : "",
+      briefProfile: val ? m.briefProfile : "",
+    };
+  }));
+  setErrors(prev => ({
+    ...prev,
+    [id]: {
+      ...(prev[id] || {}),
+      isCurrentlyWorking: "",
+      profession: val ? (prev[id]?.profession || "") : "",
+    },
+  }));
+};
+
 
   const toggleLanguage = (id: string, lang: string) => {
     const m = members.find(x => x.id === id)!;
@@ -322,20 +330,21 @@ export default function Page() {
     updateMember(id, "otherLanguages", m.otherLanguages.filter(l => l !== lang));
   };
 
-  // FIX: Profession is ALWAYS shown — no dependency on studying/working
-  const showProfession = (_m: MemberData): boolean => {
-    return true;
-  };
+// ── FIX: Profession only shown when currently working ──
+const showProfession = (m: MemberData): boolean => {
+  return m.isCurrentlyWorking === true;
+};
 
-  // FIX: isComplete now requires both studying AND working to be answered (independently),
-  // and profession is always required
-  const isComplete = (m: MemberData): boolean => {
-    if (!m.educations.some(e => e.degreeType.trim() !== "")) return false;
-    if (m.isCurrentlyStudying === null) return false;
-    if (m.isCurrentlyWorking === null) return false;
-    if (!m.profession) return false;
-    return true;
-  };
+// ── FIX: isComplete now only requires profession if working === true ──
+const isComplete = (m: MemberData): boolean => {
+  if (!m.educations.some(e => e.degreeType.trim() !== "")) return false;
+  if (m.isCurrentlyStudying === null) return false;
+  if (m.isCurrentlyWorking === null) return false;
+  if (m.isCurrentlyWorking === true && !m.profession) return false;
+  return true;
+};
+ 
+  
 
   // ── Payload ───────────────────────────────────────────────────────────────
 
@@ -397,7 +406,8 @@ export default function Page() {
       }
 
       // FIX: Profession always required
-      if (!m.profession) {
+      // FIX: Profession only required when currently working
+      if (m.isCurrentlyWorking === true && !m.profession) {
         e.profession = "Required";
         valid = false;
       }
@@ -561,7 +571,7 @@ export default function Page() {
                       <div className="space-y-1.5">
                         <Label className="text-sm font-medium">University / School / Institution</Label>
                         <Input
-                          placeholder="e.g. Maharaja Institute of Technology Mysore"
+                          placeholder="e.g. <college name>,<district>"
                           value={edu.university}
                           onChange={e => updateEducation(member.id, edu.id, "university", e.target.value)}
                         />
@@ -697,55 +707,60 @@ export default function Page() {
               </div>
 
               {/* ══ PROFESSION ══ — FIX: always shown, no condition */}
-              <div className="space-y-4">
-                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Profession</p>
+          {/* ══ PROFESSION ══ — FIX: only shown when currently working */}
+              {showProfession(member) && (
+                <div className="space-y-4">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Profession</p>
 
-                <div className="space-y-4 border border-border rounded-xl p-5 bg-muted/20">
+                  <div className="space-y-4 border border-border rounded-xl p-5 bg-muted/20">
 
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">
-                      Type of Profession <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={member.profession || ""}
-                      onValueChange={v => updateMember(member.id, "profession", v)}
-                    >
-                      <SelectTrigger className={errors[member.id]?.profession ? "border-destructive" : ""}>
-                        <SelectValue placeholder="Select profession type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {professionTypes.map(p => (
-                          <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors[member.id]?.profession && (
-                      <p className="text-xs text-destructive">{errors[member.id].profession}</p>
-                    )}
-                  </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">
+                        Type of Profession <span className="text-destructive">*</span>
+                      </Label>
+                      <Select
+                        value={member.profession || ""}
+                        onValueChange={v => updateMember(member.id, "profession", v)}
+                      >
+                        <SelectTrigger className={errors[member.id]?.profession ? "border-destructive" : ""}>
+                          <SelectValue placeholder="Select profession type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {professionTypes.map(p => (
+                            <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {errors[member.id]?.profession && (
+                        <p className="text-xs text-destructive">{errors[member.id].profession}</p>
+                      )}
+                    </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Industry / Field</Label>
-                    <Input
-                      placeholder="e.g. Software, Banking, Teaching"
-                      value={member.industry}
-                      onChange={e => updateMember(member.id, "industry", e.target.value)}
-                    />
-                  </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Industry / Field</Label>
+                      <Input
+                        placeholder="e.g. Software, Banking, Teaching"
+                        value={member.industry}
+                        onChange={e => updateMember(member.id, "industry", e.target.value)}
+                      />
+                    </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">
-                      Brief Profile{" "}
-                      <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
-                    </Label>
-                    <Input
-                      placeholder="Short note about work or achievements"
-                      value={member.briefProfile}
-                      onChange={e => updateMember(member.id, "briefProfile", e.target.value)}
-                    />
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">
+                        Brief Profile{" "}
+                        <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
+                      </Label>
+                      <Input
+                        placeholder="Short note about work or achievements"
+                        value={member.briefProfile}
+                        onChange={e => updateMember(member.id, "briefProfile", e.target.value)}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
+
+                
 
               {/* ══ LANGUAGES ══ */}
               <div className="space-y-3">

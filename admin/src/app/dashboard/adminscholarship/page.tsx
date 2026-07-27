@@ -90,6 +90,11 @@ interface EducationStatusDetail {
   puPursued: boolean | null;
   sslcSchoolName: string | null; sslcYear: string | null; sslcPercentage: string | null; sslcMarksCardUrl: string | null;
   puCollegeName: string | null; puYear: string | null; puPercentage: string | null; puMarksCardUrl: string | null;
+  // 1st / 2nd PU status ("completed" | "pursuing" | null) + their marks card URLs
+  puFirstStatus: string | null;
+  puSecondStatus: string | null;
+  puFirstCertificateUrl: string | null;
+  puSecondCertificateUrl: string | null;
   degreeName: string | null; degreeInstitution: string | null; degreeYear: string | null; degreePercentage: string | null; degreeCertificateUrl: string | null;
   employmentType: string | null; pursuingDegree: boolean | null;
 }
@@ -488,7 +493,7 @@ function EduDocRow({ label, url }: { label: string; url?: string | null }) {
   );
 }
 
-// One SSLC / PU stage block: pursued badge + fields (shown only when pursued) + marks card row
+// One SSLC stage block: pursued badge + fields (shown only when pursued) + marks card row
 function EduStageBlock({
   title, pursued, fields, docLabel, docUrl,
 }: {
@@ -511,6 +516,50 @@ function EduStageBlock({
           </div>
           <EduDocRow label={docLabel} url={docUrl} />
         </>
+      )}
+    </div>
+  );
+}
+
+// ── PU status block — replaces the generic pursued/not-pursued pattern for PU.
+// Rules:
+//  - 1st PU completed AND 2nd PU completed  -> "Completed", show both marks cards
+//  - 1st PU completed, 2nd PU not completed -> "1st PU Completed, Pursuing 2nd PU", show only 1st PU marks card
+//  - 1st PU not completed                   -> "Still Pursuing", show no marks card
+function PuStatusBlock({ edu }: { edu: EducationStatusDetail }) {
+  const firstCompleted = edu.puFirstStatus === "completed";
+  const secondCompleted = edu.puSecondStatus === "completed";
+
+  let statusLabel: string;
+  let statusColor: string;
+  if (firstCompleted && secondCompleted) {
+    statusLabel = "Completed";
+    statusColor = C.green700;
+  } else if (firstCompleted) {
+    statusLabel = "1st PU Completed, Pursuing 2nd PU";
+    statusColor = C.blue700;
+  } else {
+    statusLabel = "Still Pursuing";
+    statusColor = C.yellow700;
+  }
+
+  return (
+    <div style={{ padding: "14px 16px", borderRadius: 12, background: C.white, border: `1px solid ${C.gray100}`, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: C.gray800 }}>PU Status</span>
+        <span style={{
+          fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 9999,
+          background: `${statusColor}18`, color: statusColor, border: `1px solid ${statusColor}40`,
+        }}>{statusLabel}</span>
+      </div>
+
+      {firstCompleted && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <EduDocRow label="1st PU Marks Card" url={edu.puFirstCertificateUrl} />
+          {secondCompleted && (
+            <EduDocRow label="2nd PU Marks Card" url={edu.puSecondCertificateUrl} />
+          )}
+        </div>
       )}
     </div>
   );
@@ -559,17 +608,7 @@ function EducationStatusSection({ edu }: { edu: EducationStatusDetail }) {
           docLabel="SSLC Marks Card"
           docUrl={edu.sslcMarksCardUrl}
         />
-        <EduStageBlock
-          title="PU"
-          pursued={edu.puPursued}
-          fields={[
-            { label: "College Name", value: edu.puCollegeName },
-            { label: "Year of Passing", value: edu.puYear },
-            { label: "Percentage", value: edu.puPercentage },
-          ]}
-          docLabel="PU Marks Card"
-          docUrl={edu.puMarksCardUrl}
-        />
+        <PuStatusBlock edu={edu} />
         <DegreeDetailsBlock edu={edu} />
       </div>
     </div>

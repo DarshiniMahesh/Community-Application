@@ -1,3 +1,4 @@
+//Community-Application\backend\src\controllers\sanghaschlcontroller.js
 const pool = require("../config/db");
 
 async function getSanghaId(sanghaAuthId) {
@@ -1243,6 +1244,13 @@ async function getSanghaApplicantDetails(req, res) {
     // sslc_pursued / pu_pursued are read here so the applicant modal can show
     // "SSLC Pursued: Yes/No" and "PU Pursued: Yes/No" and gate the related
     // detail fields + documents on that answer, mirroring the user-side apply flow.
+    //
+    // pu_status / pu_first_status / pu_first_certificate_url / pu_second_certificate_url
+    // additionally let the modal distinguish:
+    //   - "pursued"                              → PU fully completed (show 1st + 2nd PU marks cards)
+    //   - "pursuing" + pu_first_status "completed" → 1st PU done, currently in 2nd PU (show only 1st PU marks card)
+    //   - "pursuing" + pu_first_status "pursuing"/unset → still pursuing 1st PU (no marks cards)
+    //   - "not_pursued"                          → PU not pursued at all
     async function fetchEducationAndBank(fmId) {
       const [eduRes, bankRes] = await Promise.all([
         pool.query(
@@ -1250,7 +1258,9 @@ async function getSanghaApplicantDetails(req, res) {
                   sslc_pursued,
                   sslc_school_name, sslc_year, sslc_percentage, sslc_marks_card_url,
                   pu_pursued,
+                  pu_status, pu_first_status,
                   pu_college_name, pu_year, pu_percentage, pu_marks_card_url,
+                  pu_first_certificate_url, pu_second_certificate_url,
                   degree_name, degree_institution, degree_year, degree_percentage, degree_certificate_url
            FROM member_education_details
            WHERE profile_id = $1 AND (family_member_id = $2 OR ($2 IS NULL AND family_member_id IS NULL))
@@ -1279,10 +1289,14 @@ async function getSanghaApplicantDetails(req, res) {
           sslcPercentage: e.sslc_percentage,
           sslcMarksCardUrl: e.sslc_marks_card_url,
           puPursued: e.pu_pursued,
+          puStatus: e.pu_status,
+          puFirstStatus: e.pu_first_status,
           puCollegeName: e.pu_college_name,
           puYear: e.pu_year,
           puPercentage: e.pu_percentage,
           puMarksCardUrl: e.pu_marks_card_url,
+          puFirstCertificateUrl: e.pu_first_certificate_url,
+          puSecondCertificateUrl: e.pu_second_certificate_url,
           degreeName: e.degree_name,
           degreeInstitution: e.degree_institution,
           degreeYear: e.degree_year,

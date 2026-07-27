@@ -1,4 +1,8 @@
 const pool = require('../config/db');
+const { createClient } = require('@supabase/supabase-js');
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+
+const RESUME_BUCKET = 'resumes';
 
 // ── User: Post Referral ───────────────────────────────────────
 const createReferral = async (req, res) => {
@@ -88,9 +92,13 @@ const getMyReferrals = async (req, res) => {
 const listApprovedReferrals = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT jr.*, u.email as posted_by_email
+      `SELECT jr.*,
+              u.email as posted_by_email,
+              COALESCE(pd.first_name || ' ' || pd.last_name, u.email) as posted_by_name
        FROM job_referrals jr
        JOIN users u ON u.id = jr.user_id
+       LEFT JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN personal_details pd ON pd.profile_id = p.id
        WHERE jr.status='approved'
        ORDER BY jr.created_at DESC`
     );
@@ -159,8 +167,18 @@ const rejectReferral = async (req, res) => {
 };
 
 // ── User: Apply to a referral ──────────────────────────────────
+// Accepts multipart/form-data with name, portfolio_link, and a required
+// resume file, uploaded to Supabase Storage.
 const applyToReferral = async (req, res) => {
   const { id } = req.params;
+  const { name, portfolio_link } = req.body;
+  const resumeFile = req.files?.resume?.[0];
+
+  if (!name || !name.trim())
+    return res.status(400).json({ message: 'Name is required' });
+  if (!resumeFile)
+    return res.status(400).json({ message: 'Resume is required' });
+
   try {
     const existing = await pool.query(
       `SELECT id FROM referral_applications WHERE referral_id=$1 AND user_id=$2`,
@@ -169,9 +187,28 @@ const applyToReferral = async (req, res) => {
     if (existing.rows.length > 0)
       return res.status(409).json({ message: 'Already applied' });
 
+    const referral = await pool.query(
+      `SELECT id FROM job_referrals WHERE id=$1 AND status='approved'`,
+      [id]
+    );
+    if (referral.rows.length === 0)
+      return res.status(404).json({ message: 'Referral not found or no longer active' });
+
+    // ── Upload resume to Supabase Storage ──────────────────────
+    const resumeExt = resumeFile.originalname.split('.').pop();
+    const resumePath = `referral_resume_${req.user.id}_${Date.now()}.${resumeExt}`;
+    const { error: uploadErr } = await supabase.storage
+      .from(RESUME_BUCKET)
+      .upload(resumePath, resumeFile.buffer, { contentType: resumeFile.mimetype });
+    if (uploadErr) throw uploadErr;
+    const { data: publicUrlData } = supabase.storage.from(RESUME_BUCKET).getPublicUrl(resumePath);
+    const resume_url = publicUrlData.publicUrl;
+
     await pool.query(
-      `INSERT INTO referral_applications (referral_id, user_id) VALUES ($1,$2)`,
-      [id, req.user.id]
+      `INSERT INTO referral_applications
+         (referral_id, user_id, applicant_name, portfolio_link, resume_url, status)
+       VALUES ($1,$2,$3,$4,$5,'applied')`,
+      [id, req.user.id, name.trim(), portfolio_link || null, resume_url]
     );
     return res.status(201).json({ message: 'Applied successfully' });
   } catch (err) {
@@ -181,12 +218,24 @@ const applyToReferral = async (req, res) => {
 };
 
 // ── User: Get applicants for a referral ────────────────────────
+// Verifies the requesting user actually owns this referral before
+// returning applicant data. Returns just name, portfolio link, and
+// resume URL (plus status/applied date) — no education data.
 const getReferralApplicants = async (req, res) => {
   const { id } = req.params;
   try {
+    const owns = await pool.query(
+      `SELECT id FROM job_referrals WHERE id=$1 AND user_id=$2`,
+      [id, req.user.id]
+    );
+    if (owns.rows.length === 0)
+      return res.status(403).json({ message: 'Not authorized to view applicants for this referral' });
+
     const result = await pool.query(
       `SELECT ra.id, ra.status, ra.applied_at,
-              u.email, COALESCE(pd.first_name||' '||pd.last_name, u.email) as name
+              ra.applicant_name, ra.portfolio_link, ra.resume_url,
+              u.email,
+              COALESCE(ra.applicant_name, pd.first_name||' '||pd.last_name, u.email) as name
        FROM referral_applications ra
        JOIN users u ON u.id = ra.user_id
        LEFT JOIN profiles p ON p.user_id = u.id
@@ -255,9 +304,13 @@ const getReferralModeratorDetail = async (req, res) => {
   const { id } = req.params;
   try {
     const refResult = await pool.query(
-      `SELECT jr.*, u.email as posted_by_email, u.phone as posted_by_phone
+      `SELECT jr.*,
+              u.email as posted_by_email, u.phone as posted_by_phone,
+              COALESCE(pd.first_name || ' ' || pd.last_name, u.email) as posted_by_name
        FROM job_referrals jr
        JOIN users u ON u.id = jr.user_id
+       LEFT JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN personal_details pd ON pd.profile_id = p.id
        WHERE jr.id=$1`,
       [id]
     );
@@ -266,8 +319,9 @@ const getReferralModeratorDetail = async (req, res) => {
 
     const appResult = await pool.query(
       `SELECT ra.id, ra.status, ra.applied_at,
+              ra.applicant_name, ra.portfolio_link, ra.resume_url,
               u.email, u.phone,
-              COALESCE(pd.first_name||' '||pd.last_name, u.email) as name
+              COALESCE(ra.applicant_name, pd.first_name||' '||pd.last_name, u.email) as name
        FROM referral_applications ra
        JOIN users u ON u.id = ra.user_id
        LEFT JOIN profiles p ON p.user_id = u.id

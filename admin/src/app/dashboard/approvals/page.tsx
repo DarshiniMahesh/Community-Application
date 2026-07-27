@@ -948,7 +948,7 @@ export default function ApprovalsPage() {
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flex: 1, minWidth: 0 }}>
                     <div style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0, background: 'var(--orange-pale)', color: 'var(--orange)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 17 }}>
-                      {displayName[0]?.toUpperCase() ?? '?'}
+                      {displayName?.[0]?.toUpperCase() ?? '?'}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--gray-900)' }}>{displayName}</div>

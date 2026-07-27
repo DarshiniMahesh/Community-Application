@@ -1,4 +1,3 @@
-//Community-Application\User\src\app\dashboard\userscholarship\page.tsx
 "use client";
 import { useState, useEffect, useMemo, useCallback } from "react";
 
@@ -109,7 +108,15 @@ interface FamilyMember {
 /**
  * Education details are now collected independently for SSLC and PU:
  * - sslcPursued: null (not yet answered) | true (pursued -> show + require SSLC fields) | false (not pursued -> skip)
- * - puPursued:   null (not yet answered) | true (pursued -> show + require PU fields)   | false (not pursued -> skip)
+ *
+ * PU (Pre-University) now follows a three-way status model:
+ * - puStatus: null (not yet answered) | "pursuing" | "pursued" | "not_pursued"
+ *   - "pursuing": student is currently in PU. Collects PU college name +
+ *     a nested "1st PU status" (completed | pursuing). If 1st PU is
+ *     completed, collects 1st PU passing year/percentage/certificate.
+ *   - "pursued": student has completed PU. Collects PU college name +
+ *     PU passing year/percentage/certificate (2nd PU certificate).
+ *   - "not_pursued": no further PU fields required.
  *
  * `employmentType` / `pursuingDegree` are retained to gate the "highest degree"
  * section (used for members who are employed or pursuing a degree beyond PU).
@@ -124,11 +131,15 @@ interface EducationDetails {
   sslcPercentage?: string;
   sslcMarksCardUrl?: string;
 
-  puPursued?: boolean | null;
+  puStatus?: "pursuing" | "pursued" | "not_pursued" | null;
   puCollegeName?: string;
+  puFirstStatus?: "completed" | "pursuing" | null;
+  puFirstYear?: string;
+  puFirstPercentage?: string;
+  puFirstCertificateUrl?: string;
   puYear?: string;
   puPercentage?: string;
-  puMarksCardUrl?: string;
+  puSecondCertificateUrl?: string;
 
   degreeName?: string;
   degreeInstitution?: string;
@@ -146,7 +157,6 @@ interface BankDetails {
 }
 
 const SSLC_FIELDS: (keyof EducationDetails)[] = ["sslcSchoolName", "sslcYear", "sslcPercentage", "sslcMarksCardUrl"];
-const PU_FIELDS: (keyof EducationDetails)[] = ["puCollegeName", "puYear", "puPercentage", "puMarksCardUrl"];
 const DEGREE_FIELDS: (keyof EducationDetails)[] = ["degreeName", "degreeInstitution", "degreeYear", "degreePercentage", "degreeCertificateUrl"];
 
 const EDUCATION_FIELD_LABELS: Record<keyof EducationDetails, string> = {
@@ -157,11 +167,15 @@ const EDUCATION_FIELD_LABELS: Record<keyof EducationDetails, string> = {
   sslcYear: "SSLC year of passing",
   sslcPercentage: "SSLC percentage",
   sslcMarksCardUrl: "SSLC marks card upload",
-  puPursued: "PU pursued",
+  puStatus: "PU status",
   puCollegeName: "PU college name",
-  puYear: "PU year of passing",
+  puFirstStatus: "1st PU status",
+  puFirstYear: "1st PU passing year",
+  puFirstPercentage: "1st PU percentage",
+  puFirstCertificateUrl: "1st PU study certificate upload",
+  puYear: "PU passing year",
   puPercentage: "PU percentage",
-  puMarksCardUrl: "PU marks card upload",
+  puSecondCertificateUrl: "PU study certificate upload",
   degreeName: "Degree name",
   degreeInstitution: "Degree institution",
   degreeYear: "Degree year of passing",
@@ -174,11 +188,16 @@ const EDUCATION_FIELD_LABELS: Record<keyof EducationDetails, string> = {
  * - If SSLC pursued hasn't been answered yet -> that's the only thing missing (blocks progress).
  * - If SSLC pursued === true -> all SSLC_FIELDS are required.
  * - If SSLC pursued === false -> no SSLC fields required.
- * - Same pattern for PU.
- * - Degree fields required only if pursuing a degree (employed track) or pursuingDegree is checked (student track).
+ * - PU:
+ *   - If PU status hasn't been answered yet -> blocks progress.
+ *   - If PU status === "pursuing" -> PU college name + 1st PU status required.
+ *     If 1st PU status === "completed" -> 1st PU year/percentage/certificate required.
+ *     If 1st PU status === "pursuing" -> nothing further required.
+ *   - If PU status === "pursued" -> PU college name + PU year/percentage/certificate required.
+ *   - If PU status === "not_pursued" -> no PU fields required.
  */
 function getMissingEducationFields(edu: EducationDetails | undefined): string[] {
-  if (!edu) return ["SSLC pursued", "PU pursued"];
+  if (!edu) return ["SSLC pursued", "PU status"];
 
   const missing: string[] = [];
 
@@ -190,12 +209,22 @@ function getMissingEducationFields(edu: EducationDetails | undefined): string[] 
     });
   }
 
-  if (edu.puPursued === null || edu.puPursued === undefined) {
-    missing.push(EDUCATION_FIELD_LABELS.puPursued);
-  } else if (edu.puPursued === true) {
-    PU_FIELDS.forEach(f => {
-      if (!edu[f] || String(edu[f]).trim() === "") missing.push(EDUCATION_FIELD_LABELS[f]);
-    });
+  if (edu.puStatus === null || edu.puStatus === undefined) {
+    missing.push(EDUCATION_FIELD_LABELS.puStatus);
+  } else if (edu.puStatus === "pursuing") {
+    if (!edu.puCollegeName || edu.puCollegeName.trim() === "") missing.push(EDUCATION_FIELD_LABELS.puCollegeName);
+    if (edu.puFirstStatus === null || edu.puFirstStatus === undefined) {
+      missing.push(EDUCATION_FIELD_LABELS.puFirstStatus);
+    } else if (edu.puFirstStatus === "completed") {
+      if (!edu.puFirstYear || String(edu.puFirstYear).trim() === "") missing.push(EDUCATION_FIELD_LABELS.puFirstYear);
+      if (!edu.puFirstPercentage || String(edu.puFirstPercentage).trim() === "") missing.push(EDUCATION_FIELD_LABELS.puFirstPercentage);
+      if (!edu.puFirstCertificateUrl) missing.push(EDUCATION_FIELD_LABELS.puFirstCertificateUrl);
+    }
+  } else if (edu.puStatus === "pursued") {
+    if (!edu.puCollegeName || edu.puCollegeName.trim() === "") missing.push(EDUCATION_FIELD_LABELS.puCollegeName);
+    if (!edu.puYear || String(edu.puYear).trim() === "") missing.push(EDUCATION_FIELD_LABELS.puYear);
+    if (!edu.puPercentage || String(edu.puPercentage).trim() === "") missing.push(EDUCATION_FIELD_LABELS.puPercentage);
+    if (!edu.puSecondCertificateUrl) missing.push(EDUCATION_FIELD_LABELS.puSecondCertificateUrl);
   }
 
   const needsDegree = edu.employmentType === "employed" || (edu.employmentType === "student" && edu.pursuingDegree);
@@ -220,7 +249,7 @@ function getBankWarnings(bank: BankDetails | undefined): string[] {
   return warnings;
 }
 
-async function uploadEducationDocument(memberId: string, docType: "sslc" | "pu" | "degree", file: File): Promise<string> {
+async function uploadEducationDocument(memberId: string, docType: "sslc" | "pu_first" | "pu_second" | "degree", file: File): Promise<string> {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const formData = new FormData();
   formData.append("file", file);
@@ -414,10 +443,10 @@ function FileUploadField({
 }: {
   label: string;
   memberId: string;
-  docType: "sslc" | "pu" | "degree";
+  docType: "sslc" | "pu_first" | "pu_second" | "degree";
   value?: string;
   uploadingKey: string | null;
-  onUpload: (memberId: string, docType: "sslc" | "pu" | "degree", file: File) => void;
+  onUpload: (memberId: string, docType: "sslc" | "pu_first" | "pu_second" | "degree", file: File) => void;
   required?: boolean;
 }) {
   const key = `${memberId}:${docType}`;
@@ -447,7 +476,7 @@ function FileUploadField({
   );
 }
 
-// ─── Pursued Toggle (SSLC / PU) ───────────────────────────────────────────────
+// ─── Pursued Toggle (SSLC) ─────────────────────────────────────────────────────
 
 function PursuedToggle({
   label, value, onChange, color,
@@ -471,6 +500,35 @@ function PursuedToggle({
           style={{ flex:1,padding:"9px",borderRadius:10,border:`1.5px solid ${value===false?color:"#ebebf0"}`,background:value===false?`${color}10`:"#fff",color:"#000",fontWeight:600,fontSize:13,cursor:"pointer" }}>
           Not pursued
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Generic multi-option choice toggle (used for PU status / 1st PU status) ──
+
+function ChoiceToggle<T extends string>({
+  label, value, options, onChange, color, required,
+}: {
+  label: string;
+  value: T | null | undefined;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+  color: string;
+  required?: boolean;
+}) {
+  return (
+    <div>
+      <label style={{ fontSize:12,fontWeight:700,color:"#000",marginBottom:6,display:"block" }}>
+        {label}{required && (value === null || value === undefined) && <span style={{ color:"#C0392B" }}> *</span>}
+      </label>
+      <div style={{ display:"flex",gap:10 }}>
+        {options.map(opt => (
+          <button key={opt.value} type="button" onClick={() => onChange(opt.value)}
+            style={{ flex:1,padding:"9px",borderRadius:10,border:`1.5px solid ${value===opt.value?color:"#ebebf0"}`,background:value===opt.value?`${color}10`:"#fff",color:"#000",fontWeight:600,fontSize:13,cursor:"pointer" }}>
+            {opt.label}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -572,7 +630,7 @@ const currentMember = selectedList[viewingMemberIdx];
         ]);
         setEducationStates(prev => ({
           ...prev,
-          [m.id]: edu ?? { employmentType: null, sslcPursued: null, puPursued: null },
+          [m.id]: edu ?? { employmentType: null, sslcPursued: null, puStatus: null },
         }));
         setBankStates(prev => ({ ...prev, [m.id]: bank ?? {} }));
         setLoadedMemberData(prev => new Set(prev).add(m.id));
@@ -611,7 +669,7 @@ const currentMember = selectedList[viewingMemberIdx];
 
   const updateEducation = (memberId: string, patch: Partial<EducationDetails>) => {
     setEducationStates(prev => {
-      const existing = prev[memberId] ?? { employmentType: null, sslcPursued: null, puPursued: null };
+      const existing = prev[memberId] ?? { employmentType: null, sslcPursued: null, puStatus: null };
       return { ...prev, [memberId]: { ...existing, ...patch } };
     });
   };
@@ -620,12 +678,16 @@ const currentMember = selectedList[viewingMemberIdx];
     setBankStates(prev => ({ ...prev, [memberId]: { ...prev[memberId], ...patch } }));
   };
 
-  const handleDocUpload = async (memberId: string, docType: "sslc" | "pu" | "degree", file: File) => {
+  const handleDocUpload = async (memberId: string, docType: "sslc" | "pu_first" | "pu_second" | "degree", file: File) => {
     const key = `${memberId}:${docType}`;
     setUploadingKey(key);
     try {
       const url = await uploadEducationDocument(memberId, docType, file);
-      const field = docType === "sslc" ? "sslcMarksCardUrl" : docType === "pu" ? "puMarksCardUrl" : "degreeCertificateUrl";
+      const field =
+        docType === "sslc" ? "sslcMarksCardUrl" :
+        docType === "pu_first" ? "puFirstCertificateUrl" :
+        docType === "pu_second" ? "puSecondCertificateUrl" :
+        "degreeCertificateUrl";
       updateEducation(memberId, { [field]: url } as Partial<EducationDetails>);
     } catch (e) {
       console.error(e);
@@ -863,7 +925,7 @@ const currentMember = selectedList[viewingMemberIdx];
               </div>
             )}
 
-            {/* ── STEP 3: Education details (SSLC / PU pursued-gated) ── */}
+            {/* ── STEP 3: Education details (SSLC / PU status-gated) ── */}
             {step === 3 && currentMember && (
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                 {selectedList.length > 1 && (
@@ -929,24 +991,62 @@ const currentMember = selectedList[viewingMemberIdx];
                     {/* ── PU block ── */}
                     <div style={{ display:"flex",flexDirection:"column",gap:12,padding:"14px",borderRadius:12,background:"#fafafd",border:"1px solid #ebebf0" }}>
                       <div className="drawer-section-label" style={{ marginBottom:0 }}>PU (Pre-University)</div>
-                      <PursuedToggle
-                        label="Has this member pursued PU?"
-                        value={educationStates[currentMember.id]?.puPursued}
-                        onChange={(v) => updateEducation(currentMember.id, { puPursued: v })}
+                      <ChoiceToggle
+                        label="PU Status"
+                        value={educationStates[currentMember.id]?.puStatus}
+                        options={[
+                          { value: "pursuing", label: "Pursuing" },
+                          { value: "pursued", label: "Pursued" },
+                          { value: "not_pursued", label: "Not Pursued" },
+                        ]}
+                        onChange={(v) => updateEducation(currentMember.id, { puStatus: v })}
                         color={color}
+                        required
                       />
-                      {educationStates[currentMember.id]?.puPursued === true && (
+
+                      {educationStates[currentMember.id]?.puStatus === "pursuing" && (
                         <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-                          <TextField label="College name" required value={educationStates[currentMember.id]?.puCollegeName} onChange={v => updateEducation(currentMember.id, { puCollegeName: v })} onBlur={() => saveEducation(currentMember.id)} />
-                          <div style={{ display:"flex",gap:10 }}>
-                            <TextField label="Year of passing" required value={educationStates[currentMember.id]?.puYear} onChange={v => updateEducation(currentMember.id, { puYear: v })} onBlur={() => saveEducation(currentMember.id)} />
-                            <TextField label="Percentage" required value={educationStates[currentMember.id]?.puPercentage} onChange={v => updateEducation(currentMember.id, { puPercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
-                          </div>
-                          <FileUploadField label="PU marks card" required memberId={currentMember.id} docType="pu"
-                            value={educationStates[currentMember.id]?.puMarksCardUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+                          <TextField label="PU college name" required value={educationStates[currentMember.id]?.puCollegeName} onChange={v => updateEducation(currentMember.id, { puCollegeName: v })} onBlur={() => saveEducation(currentMember.id)} />
+                          <ChoiceToggle
+                            label="1st PU status"
+                            value={educationStates[currentMember.id]?.puFirstStatus}
+                            options={[
+                              { value: "completed", label: "Completed" },
+                              { value: "pursuing", label: "Pursuing" },
+                            ]}
+                            onChange={(v) => updateEducation(currentMember.id, { puFirstStatus: v })}
+                            color={color}
+                            required
+                          />
+                          {educationStates[currentMember.id]?.puFirstStatus === "completed" && (
+                            <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                              <div style={{ display:"flex",gap:10 }}>
+                                <TextField label="1st PU year of passing" required value={educationStates[currentMember.id]?.puFirstYear} onChange={v => updateEducation(currentMember.id, { puFirstYear: v })} onBlur={() => saveEducation(currentMember.id)} />
+                                <TextField label="1st PU percentage" required value={educationStates[currentMember.id]?.puFirstPercentage} onChange={v => updateEducation(currentMember.id, { puFirstPercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
+                              </div>
+                              <FileUploadField label="1st PU Markscard" required memberId={currentMember.id} docType="pu_first"
+                                value={educationStates[currentMember.id]?.puFirstCertificateUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+                            </div>
+                          )}
+                          {educationStates[currentMember.id]?.puFirstStatus === "pursuing" && (
+                            <div style={{ fontSize:12,color:"#000",fontStyle:"italic" }}>Currently studying 1st PU — no further details needed yet.</div>
+                          )}
                         </div>
                       )}
-                      {educationStates[currentMember.id]?.puPursued === false && (
+
+                      {educationStates[currentMember.id]?.puStatus === "pursued" && (
+                        <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                          <TextField label="PU college name" required value={educationStates[currentMember.id]?.puCollegeName} onChange={v => updateEducation(currentMember.id, { puCollegeName: v })} onBlur={() => saveEducation(currentMember.id)} />
+                          <div style={{ display:"flex",gap:10 }}>
+                            <TextField label="PU year of passing" required value={educationStates[currentMember.id]?.puYear} onChange={v => updateEducation(currentMember.id, { puYear: v })} onBlur={() => saveEducation(currentMember.id)} />
+                            <TextField label="PU percentage" required value={educationStates[currentMember.id]?.puPercentage} onChange={v => updateEducation(currentMember.id, { puPercentage: v })} onBlur={() => saveEducation(currentMember.id)} />
+                          </div>
+                          <FileUploadField label="PU Marks card" required memberId={currentMember.id} docType="pu_second"
+                            value={educationStates[currentMember.id]?.puSecondCertificateUrl} uploadingKey={uploadingKey} onUpload={handleDocUpload} />
+                        </div>
+                      )}
+
+                      {educationStates[currentMember.id]?.puStatus === "not_pursued" && (
                         <div style={{ fontSize:12,color:"#000",fontStyle:"italic" }}>Marked as not pursued — no further details needed.</div>
                       )}
                     </div>

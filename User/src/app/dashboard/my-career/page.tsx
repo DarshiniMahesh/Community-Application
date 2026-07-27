@@ -1,8 +1,9 @@
+//Community-Application\User\src\app\dashboard\my-career\page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { Search, MapPin, Briefcase, Clock, Users, Bookmark, BookmarkCheck, Filter, ChevronRight } from "lucide-react";
+import { Search, MapPin, Briefcase, Clock, Users, Bookmark, BookmarkCheck, Filter, ChevronRight, X, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface Job {
@@ -27,9 +28,22 @@ interface Referral {
   location: string;
   work_type: string;
   employment_type: string;
+  contract_duration?: string;
   job_posting_url: string;
+  job_reference_number: string;
+  job_description: string;
+  application_deadline?: string;
   message_for_applicants: string;
+  experience_level_required?: string;
+  salary_range?: string;
+  key_skills_required?: string;
+  benefits_highlights?: string;
+  why_join?: string;
+  who_to_contact?: string;
+  personal_note?: string;
+  tags?: string[];
   posted_by_email: string;
+  posted_by_name?: string;
   created_at: string;
 }
 
@@ -41,6 +55,13 @@ interface ReferralApplication {
 const WORK_SETTINGS = ["On-site", "Hybrid", "Remote"];
 const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Internship", "Volunteer", "Contract"];
 
+const displayVal = (v: unknown): string => {
+  if (v === null || v === undefined) return "-";
+  if (typeof v === "string" && v.trim() === "") return "-";
+  if (Array.isArray(v)) return v.length ? v.join(", ") : "-";
+  return String(v);
+};
+
 export default function MyCareerPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"jobs" | "referrals">("jobs");
@@ -51,7 +72,17 @@ export default function MyCareerPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [appliedJobIds, setAppliedJobIds] = useState<Set<string>>(new Set());
   const [referralAppStatus, setReferralAppStatus] = useState<Record<string, string>>({});
-  const [applyingReferralId, setApplyingReferralId] = useState<string | null>(null);
+
+  // Apply modal state
+  const [applyModalReferral, setApplyModalReferral] = useState<Referral | null>(null);
+  const [applyName, setApplyName] = useState("");
+  const [applyPortfolio, setApplyPortfolio] = useState("");
+  const [applyResumeFile, setApplyResumeFile] = useState<File | null>(null);
+  const [applySubmitting, setApplySubmitting] = useState(false);
+  const [applyError, setApplyError] = useState("");
+
+  // View details modal state
+  const [detailsReferral, setDetailsReferral] = useState<Referral | null>(null);
 
   // Filters
   const [title, setTitle] = useState("");
@@ -129,15 +160,40 @@ export default function MyCareerPage() {
     finally { setSavingId(null); }
   };
 
-  const handleApplyReferral = async (referralId: string) => {
-    setApplyingReferralId(referralId);
+  const openApplyModal = (referral: Referral) => {
+    setApplyModalReferral(referral);
+    setApplyName("");
+    setApplyPortfolio("");
+    setApplyResumeFile(null);
+    setApplyError("");
+  };
+
+  const closeApplyModal = () => {
+    if (applySubmitting) return;
+    setApplyModalReferral(null);
+  };
+
+  const handleSubmitReferralApplication = async () => {
+    if (!applyModalReferral) return;
+    if (!applyName.trim()) { setApplyError("Name is required"); return; }
+    if (!applyResumeFile) { setApplyError("Resume is required"); return; }
+
+    setApplySubmitting(true);
+    setApplyError("");
     try {
-      await api.post(`/referrals/${referralId}/apply`, {});
-      setReferralAppStatus((prev) => ({ ...prev, [referralId]: "applied" }));
-    } catch (err) {
-      console.error(err);
+      const formData = new FormData();
+      formData.append("name", applyName.trim());
+      formData.append("portfolio_link", applyPortfolio.trim());
+      formData.append("resume", applyResumeFile);
+
+      await api.postForm(`/referrals/${applyModalReferral.id}/apply`, formData);
+
+      setReferralAppStatus((prev) => ({ ...prev, [applyModalReferral.id]: "applied" }));
+      setApplyModalReferral(null);
+    } catch (err: unknown) {
+      setApplyError(err instanceof Error ? err.message : "Failed to submit application");
     } finally {
-      setApplyingReferralId(null);
+      setApplySubmitting(false);
     }
   };
 
@@ -374,14 +430,34 @@ export default function MyCareerPage() {
                 return (
                   <div key={r.id} style={styles.jobCard}>
                     <div style={styles.companyAvatar}>{r.company_name?.charAt(0) || "?"}</div>
+
                     <div style={{ flex: 1, minWidth: 0 }}>
+                      {/* 1) Job role — bold */}
                       <h3 style={styles.jobTitle}>{r.job_title}</h3>
-                      <p style={styles.companyName}>{r.company_name} · {r.location}</p>
-                      <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 6px" }}>{r.message_for_applicants}</p>
-                      <p style={{ fontSize: 11, color: "#9ca3af", margin: 0 }}>Referred by {r.posted_by_email}</p>
+
+                      {/* Grey details block: company / location / description / referred by */}
+                      <div style={styles.referralGreyBox}>
+                        <p style={styles.referralGreyLine}>
+                          <span style={styles.referralGreyLabel}>Company Name:</span> {displayVal(r.company_name)}
+                        </p>
+                        <p style={styles.referralGreyLine}>
+                          <span style={styles.referralGreyLabel}>Job Location:</span> {displayVal(r.location)}
+                        </p>
+                        <p style={styles.referralGreyLine}>{displayVal(r.job_description)}</p>
+                        <p style={styles.referralGreyLine}>
+                          <span style={styles.referralGreyLabel}>Referred by:</span> {displayVal(r.posted_by_name || r.posted_by_email)}
+                        </p>
+                      </div>
                     </div>
 
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+                      <button
+                        style={styles.viewDetailsBtn}
+                        onClick={() => setDetailsReferral(r)}
+                      >
+                        View Details
+                      </button>
+
                       {appStatus ? (
                         <span style={{ ...styles.referralStatusBadge, ...referralStatusStyle(appStatus) }}>
                           {appStatus === "applied" ? "✓ Applied" : appStatus === "approved" ? "✓ Approved" : "✗ Rejected"}
@@ -389,10 +465,9 @@ export default function MyCareerPage() {
                       ) : (
                         <button
                           style={styles.applyBtn}
-                          disabled={applyingReferralId === r.id}
-                          onClick={() => handleApplyReferral(r.id)}
+                          onClick={() => openApplyModal(r)}
                         >
-                          {applyingReferralId === r.id ? "Applying..." : "Apply"}
+                          Apply
                         </button>
                       )}
                     </div>
@@ -402,6 +477,116 @@ export default function MyCareerPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Apply Modal ─────────────────────────────────────── */}
+      {applyModalReferral && (
+        <div style={styles.modalOverlay} onClick={closeApplyModal}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Apply for {applyModalReferral.job_title}</h3>
+              <button style={styles.modalCloseBtn} onClick={closeApplyModal}><X size={18} /></button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <div style={styles.formGroup}>
+                <label style={styles.formLabel}>Name *</label>
+                <input
+                  style={styles.formInput}
+                  value={applyName}
+                  onChange={(e) => setApplyName(e.target.value)}
+                  placeholder="Your full name"
+                />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.formLabel}>Portfolio Link</label>
+                <input
+                  style={styles.formInput}
+                  value={applyPortfolio}
+                  onChange={(e) => setApplyPortfolio(e.target.value)}
+                  placeholder="https://your-portfolio.com"
+                />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.formLabel}>Resume *</label>
+                <label style={styles.fileUploadBox}>
+                  <Upload size={16} color="#6b7280" />
+                  <span style={{ fontSize: 13, color: applyResumeFile ? "#1a1a2e" : "#9ca3af" }}>
+                    {applyResumeFile ? applyResumeFile.name : "Click to upload resume (PDF/DOC)"}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx"
+                    style={{ display: "none" }}
+                    onChange={(e) => setApplyResumeFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+              </div>
+
+              {applyError && <p style={styles.formError}>{applyError}</p>}
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button style={styles.modalCancelBtn} onClick={closeApplyModal} disabled={applySubmitting}>
+                Cancel
+              </button>
+              <button style={styles.modalSubmitBtn} onClick={handleSubmitReferralApplication} disabled={applySubmitting}>
+                {applySubmitting ? "Submitting..." : "Submit Application"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── View Details Modal ──────────────────────────────── */}
+      {detailsReferral && (
+        <div style={styles.modalOverlay} onClick={() => setDetailsReferral(null)}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Referral Details</h3>
+              <button style={styles.modalCloseBtn} onClick={() => setDetailsReferral(null)}><X size={18} /></button>
+            </div>
+
+            <div style={styles.modalBody}>
+              {[
+                ["Job Title", detailsReferral.job_title],
+                ["Company Name", detailsReferral.company_name],
+                ["Location", detailsReferral.location],
+                ["Work Type", detailsReferral.work_type],
+                ["Employment Type", detailsReferral.employment_type],
+                ...(detailsReferral.employment_type === "Contract"
+                  ? [["Contract Duration", detailsReferral.contract_duration]]
+                  : []),
+                ["Job Posting Link / URL", detailsReferral.job_posting_url],
+                ["Job ID / Reference Number", detailsReferral.job_reference_number],
+                ["Job Description", detailsReferral.job_description],
+                ["Application Deadline", detailsReferral.application_deadline],
+                ["Message for Applicants", detailsReferral.message_for_applicants],
+                ["Experience Level Required", detailsReferral.experience_level_required],
+                ["Salary Range", detailsReferral.salary_range],
+                ["Key Skills Required", detailsReferral.key_skills_required],
+                ["Benefits Highlights", detailsReferral.benefits_highlights],
+                ["Why Join This Role?", detailsReferral.why_join],
+                ["Who to Contact", detailsReferral.who_to_contact],
+                ["Personal Note / Endorsement", detailsReferral.personal_note],
+                ["Tags / Keywords", detailsReferral.tags],
+              ].map(([label, value]) => (
+                <div key={label as string} style={styles.detailRow}>
+                  <span style={styles.detailLabel}>{label}</span>
+                  <span style={styles.detailValue}>{displayVal(value)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button style={styles.modalCancelBtn} onClick={() => setDetailsReferral(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -508,4 +693,73 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600, whiteSpace: "nowrap",
   },
   viewPostingLink: { fontSize: 11, color: "#1a56db", textDecoration: "none", whiteSpace: "nowrap" },
+
+  // ── Referral card grey box ─────────────────────────────
+  referralGreyBox: {
+    background: "#f3f4f6", borderRadius: 8, padding: "10px 12px",
+    marginTop: 4,
+  },
+  referralGreyLine: {
+    fontSize: 12.5, color: "#4b5563", margin: "0 0 4px", lineHeight: 1.5,
+  },
+  referralGreyLabel: { fontWeight: 600, color: "#374151" },
+  viewDetailsBtn: {
+    padding: "8px 14px", background: "#fff",
+    color: "#374151", border: "1.5px solid #d1d5db",
+    borderRadius: 8, fontSize: 12, fontWeight: 600,
+    cursor: "pointer", whiteSpace: "nowrap",
+  },
+
+  // ── Modal ───────────────────────────────────────────────
+  modalOverlay: {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    zIndex: 1000, padding: 16,
+  },
+  modalCard: {
+    background: "#fff", borderRadius: 12, width: "100%", maxWidth: 480,
+    maxHeight: "85vh", display: "flex", flexDirection: "column",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+  },
+  modalHeader: {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    padding: "18px 20px", borderBottom: "1px solid #e5e7eb",
+  },
+  modalTitle: { fontSize: 16, fontWeight: 700, color: "#1a1a2e", margin: 0 },
+  modalCloseBtn: {
+    background: "none", border: "none", cursor: "pointer",
+    color: "#6b7280", padding: 4, display: "flex",
+  },
+  modalBody: { padding: "18px 20px", overflowY: "auto", flex: 1 },
+  modalFooter: {
+    display: "flex", justifyContent: "flex-end", gap: 10,
+    padding: "14px 20px", borderTop: "1px solid #e5e7eb",
+  },
+  modalCancelBtn: {
+    padding: "9px 16px", background: "#f3f4f6", color: "#374151",
+    border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+  },
+  modalSubmitBtn: {
+    padding: "9px 18px", background: "#1a56db", color: "#fff",
+    border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+  },
+  formGroup: { marginBottom: 16 },
+  formLabel: { display: "block", fontSize: 12.5, fontWeight: 600, color: "#374151", marginBottom: 6 },
+  formInput: {
+    width: "100%", boxSizing: "border-box", padding: "10px 12px",
+    border: "1.5px solid #d1d5db", borderRadius: 8, fontSize: 13.5,
+    color: "#1a1a2e", outline: "none",
+  },
+  fileUploadBox: {
+    display: "flex", alignItems: "center", gap: 8,
+    padding: "12px", border: "1.5px dashed #d1d5db", borderRadius: 8,
+    cursor: "pointer", background: "#fafafa",
+  },
+  formError: { fontSize: 12.5, color: "#dc2626", margin: "4px 0 0" },
+  detailRow: {
+    display: "flex", flexDirection: "column", gap: 2,
+    padding: "10px 0", borderBottom: "1px solid #f3f4f6",
+  },
+  detailLabel: { fontSize: 11.5, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 0.3 },
+  detailValue: { fontSize: 13.5, color: "#1a1a2e", lineHeight: 1.5, wordBreak: "break-word" },
 };
