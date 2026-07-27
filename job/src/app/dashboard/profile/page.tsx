@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { COMPANY_TYPES } from "@/lib/constants";
@@ -52,7 +52,7 @@ const EMPTY_FORM: ProfileForm = {
   contact_phone: "",
 };
 
-export default function CompanyProfilePage() {
+function CompanyProfilePageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const isSetup = searchParams.get("setup") === "true";
@@ -549,6 +549,14 @@ export default function CompanyProfilePage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function CompanyProfilePage() {
+  return (
+    <Suspense fallback={<div style={styles.loading}>Loading profile...</div>}>
+      <CompanyProfilePageInner />
+    </Suspense>
   );
 }
 
