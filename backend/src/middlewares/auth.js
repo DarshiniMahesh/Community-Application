@@ -1,3 +1,4 @@
+//Community-Application\backend\src\middlewares\auth.js
 const { verifyToken } = require('../utils/jwt');
 const pool = require('../config/db');
 
@@ -53,4 +54,26 @@ const requireRole = (...roles) => (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, requireRole };
+// ─── NEW: gate scholarship / career features behind profile approval ──
+// Must run AFTER `authenticate` (needs req.user.id) and typically after
+// requireRole('user'). Blocks anyone whose profile status isn't 'approved'.
+const requireApprovedProfile = async (req, res, next) => {
+  try {
+    const { id: userId } = req.user;
+    const result = await pool.query(
+      'SELECT status FROM profiles WHERE user_id=$1',
+      [userId]
+    );
+    if (result.rows.length === 0 || result.rows[0].status !== 'approved') {
+      return res.status(403).json({
+        message: 'This feature is available only after your profile is approved.',
+      });
+    }
+    next();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+module.exports = { authenticate, requireRole, requireApprovedProfile };

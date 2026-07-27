@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Send, Edit, CheckCircle2, Loader2, Lock, Calendar, Minus } from "lucide-react";
+import { ArrowLeft, Send, Edit, CheckCircle2, Loader2, Lock, Calendar, Minus, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { INCOME_SLAB_REVERSE } from "@/lib/constants";
@@ -26,6 +26,26 @@ const steps = [
   { id: "6", name: "Economic",  href: "/dashboard/profile/economic-details" },
   { id: "7", name: "Review",    href: "/dashboard/profile/review-submit" },
 ];
+
+// Ordered list of step definitions used to derive completion status from
+// profileMeta (GET /users/profile), which returns step1_completed..step6_completed
+// and step1_personal_pct..step6_economic_pct.
+const STEP_DEFINITIONS = [
+  { key: "step1", label: "Personal Details",       pctField: "step1_personal_pct",  completedField: "step1_completed", href: "/dashboard/profile/personal-details" },
+  { key: "step2", label: "Religious Details",       pctField: "step2_religious_pct", completedField: "step2_completed", href: "/dashboard/profile/religious-details" },
+  { key: "step3", label: "Family Information",      pctField: "step3_family_pct",    completedField: "step3_completed", href: "/dashboard/profile/family-information" },
+  { key: "step4", label: "Location",                pctField: "step4_location_pct",  completedField: "step4_completed", href: "/dashboard/profile/location-information" },
+  { key: "step5", label: "Education & Profession",  pctField: "step5_education_pct", completedField: "step5_completed", href: "/dashboard/profile/education-profession" },
+  { key: "step6", label: "Economic Details",        pctField: "step6_economic_pct",  completedField: "step6_completed", href: "/dashboard/profile/economic-details" },
+] as const;
+
+interface StepCompletion {
+  key: string;
+  label: string;
+  href: string;
+  pct: number;
+  completed: boolean;
+}
 
 function formatDate(raw?: string | null): string | null {
   if (!raw) return null;
@@ -254,6 +274,51 @@ function EduBlock({ edu }: { edu: Record<string, unknown> }) {
   );
 }
 
+/**
+ * IncompleteStepsAlert — lists every step that is not yet 100% complete,
+ * each with a direct link to go finish it. Hidden entirely once every
+ * step reports 100%.
+ */
+function IncompleteStepsAlert({ steps }: { steps: StepCompletion[] }) {
+  const router = useRouter();
+  const incomplete = steps.filter(s => s.pct < 100);
+
+  if (incomplete.length === 0) return null;
+
+  return (
+    <Card className="border-l-4 border-l-amber-500 bg-amber-50 shadow-sm">
+      <CardContent className="pt-4 pb-4">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 space-y-2">
+            <p className="font-medium text-amber-800">
+              {incomplete.length === 1
+                ? "1 section needs your attention before you can submit"
+                : `${incomplete.length} sections need your attention before you can submit`}
+            </p>
+            <ul className="space-y-1.5">
+              {incomplete.map((s) => (
+                <li key={s.key} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-amber-700">
+                    {s.label} <span className="text-amber-600/70">({s.pct}% complete)</span>
+                  </span>
+                  <Button
+                    variant="ghost" size="sm"
+                    className="h-7 gap-1.5 text-amber-800 hover:bg-amber-100"
+                    onClick={() => router.push(s.href)}
+                  >
+                    Complete now <Edit className="h-3.5 w-3.5" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Page() {
   const router = useRouter();
   const [confirmed, setConfirmed]               = useState(false);
@@ -284,8 +349,29 @@ export default function Page() {
   const isLocked    = ["submitted", "under_review"].includes(status);
   const submittedAt = typeof profileMeta?.submitted_at === "string" ? profileMeta.submitted_at : null;
 
+  // Derived per-step completion, sourced from profileMeta (GET /users/profile),
+  // which already returns step1_completed..step6_completed and
+  // step1_personal_pct..step6_economic_pct.
+  const stepCompletionList: StepCompletion[] = STEP_DEFINITIONS.map((def) => {
+    const rawPct = profileMeta?.[def.pctField];
+    const pct = typeof rawPct === "number" ? rawPct : Number(rawPct) || 0;
+    const rawCompleted = profileMeta?.[def.completedField];
+    return {
+      key: def.key,
+      label: def.label,
+      href: def.href,
+      pct,
+      completed: rawCompleted === true,
+    };
+  });
+
+  const step1Pct = stepCompletionList.find(s => s.key === "step1")?.pct ?? 0;
+
   const handleSubmit = () => {
     const newErrors: Record<string, string> = {};
+    if (step1Pct !== 100) {
+      newErrors.step1 = "Personal Details must be fully completed (100%) before you can submit.";
+    }
     if (!selectedSangha) newErrors.sangha = "Please select a Sangha";
     if (!confirmed) newErrors.confirmation = "Please confirm that all details are accurate";
     if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
@@ -402,6 +488,8 @@ export default function Page() {
             </CardContent>
           </Card>
         )}
+
+        {!isLocked && <IncompleteStepsAlert steps={stepCompletionList} />}
 
         {/* ── Your Information ── */}
         <Card className="shadow-sm border-l-4 border-l-primary">
@@ -760,6 +848,10 @@ export default function Page() {
                 </div>
               </CardContent>
             </Card>
+
+            {errors.step1 && (
+              <p className="text-xs text-destructive text-right">{errors.step1}</p>
+            )}
 
             <div className="flex justify-between items-center pt-4 border-t border-border">
               <Button variant="outline" onClick={() => router.push("/dashboard/profile/economic-details")} className="gap-2">

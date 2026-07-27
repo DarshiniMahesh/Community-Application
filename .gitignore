@@ -56,3 +56,12 @@ next-env.d.ts
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 /coverage
+
+# ── Job app ───────────────────────────────────────────────────────────────────
+job/node_modules
+job/.next
+job/out
+job/build
+job/.env.local
+job/next-env.d.ts
+job/*.tsbuildinfo

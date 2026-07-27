@@ -1,19 +1,21 @@
+// backend\src\config\db.js
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+//                                              src/config → src → backend/.env
+
 const { Pool } = require('pg');
-require('dotenv').config();
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
-  max: 3,                // maximum connections in pool
-  min: 0,                // minimum connections
-  idleTimeoutMillis: 10000,    // close idle connections after 30s
-  connectionTimeoutMillis: 10000, // timeout if can't connect in 10s
+  max: 3,
+  min: 0,
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 10000,
   allowExitOnIdle: true,
 });
 
 pool.on('connect', () => console.log('Connected to PostgreSQL'));
-pool.on('error', (err) => { 
-  console.error('PostgreSQL error:', err); 
-});
+pool.on('error', (err) => console.error('PostgreSQL error:', err));
 
 module.exports = pool;

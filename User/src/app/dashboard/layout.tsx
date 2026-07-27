@@ -1,25 +1,30 @@
+//Community-Application\User\src\app\dashboard\layout.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { LayoutDashboard, User, Users, CheckCircle, Menu, X, LogOut } from "lucide-react";
+import { LayoutDashboard, User, Users, CheckCircle, Menu, X, LogOut, Briefcase, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { clearAuth, getToken, api } from "@/lib/api";
+import { ScholarshipIcon } from "@/components/ui/ScholarshipIcon";
 
 type ProfileStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "changes_requested";
 
+// requiresApproval: true → tab is locked until profile.status === "approved"
 const baseNavigation = [
-  { name: "Dashboard",  href: "/dashboard",        icon: LayoutDashboard },
-  { name: "My Profile", href: "/dashboard/profile", icon: User },
-  { name: "Status",     href: "/dashboard/status",  icon: CheckCircle },
-  { name:"apply to scholarship", href:"dashboard/userscholarship", icon: CheckCircle },
+  { name: "Dashboard",             href: "/dashboard",                 icon: LayoutDashboard, requiresApproval: false },
+  { name: "My Profile",            href: "/dashboard/profile",         icon: User,             requiresApproval: false },
+  { name: "Status",                href: "/dashboard/status",          icon: CheckCircle,      requiresApproval: false },
+  { name: "apply to scholarships", href: "/dashboard/userscholarship", icon: ScholarshipIcon,  requiresApproval: true },
+  { name: "My Career",             href: "/dashboard/my-career",       icon: Briefcase,        requiresApproval: true },
 ];
 
 const sanghaNav = {
   name: "Sangha Membership",
   href: "/dashboard/sangha-membership",
   icon: Users,
+  requiresApproval: false,
 };
 
 const statusBadge = (status: ProfileStatus) => {
@@ -33,6 +38,7 @@ const statusBadge = (status: ProfileStatus) => {
     default:                  return null;
   }
 };
+
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
@@ -62,8 +68,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push("/auth/login");
   };
 
-  // Build navigation: show Sangha Membership tab only when profile is approved
   const navigation = [...baseNavigation, sanghaNav];
+  const isApproved = profileStatus === "approved";
 
   return (
     <div className="min-h-screen bg-background">
@@ -104,6 +110,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <nav className="p-4 space-y-2">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
+              const isLocked = item.requiresApproval && !isApproved;
+
+              if (isLocked) {
+                return (
+                  <button
+                    key={item.name}
+                    type="button"
+                    disabled
+                    title="Available after your profile is approved"
+                    aria-disabled="true"
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground/60 cursor-not-allowed bg-muted/40"
+                  >
+                    <item.icon className="h-5 w-5 flex-shrink-0" />
+                    <span className="font-medium">{item.name}</span>
+                    <Lock className="h-3.5 w-3.5 ml-auto flex-shrink-0" />
+                  </button>
+                );
+              }
+
               return (
                 <button
                   key={item.name}
@@ -116,7 +141,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 >
                   <item.icon className="h-5 w-5 flex-shrink-0" />
                   <span className="font-medium">{item.name}</span>
-                  {/* Green dot indicator for newly unlocked Sangha tab */}
                   {item.href === "/dashboard/sangha-membership" && (
                     <span className="ml-auto h-2 w-2 rounded-full bg-green-500" />
                   )}

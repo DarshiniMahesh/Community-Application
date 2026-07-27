@@ -1,39 +1,33 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// ADD TO: Community-Application/backend/src/routes/sangha.js
-//
-// Add this route BEFORE the existing /reports/export route:
-//
-//   router.post('/reports/export/full', requireRole('sangha', 'admin'), sc.getFullExportData);
-//
-// And update the require at the top to include getFullExportData:
-//   const sc = require('../controllers/sanghaController');
-//   (no change needed — it will auto-include when you add to module.exports)
-//
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// FULL sangha.js with the new route added:
-
+//Community-Application\backend\src\routes\sangha.js
 const express   = require('express');
 const router    = express.Router();
 const multer    = require('multer');
 const { authenticate, requireRole } = require('../middlewares/auth');
 const sc        = require('../controllers/sanghaController');
 
+// multer — memory storage for logo uploads
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
-// ── Public ───────────────────────────────────────────────────
+// ── Public: Register OTP flow ────────────────────────────────
 router.post('/register/send-otp',    sc.registerSendOtp);
 router.post('/register/verify-otp',  sc.registerVerifyOtp);
+
+// ── Public: Login OTP flow ───────────────────────────────────
 router.post('/login/send-otp',       sc.loginSendOtp);
 router.post('/login/verify-otp',     sc.loginVerifyOtp);
+
+// ── Public: Forgot password flow ─────────────────────────────
 router.post('/forgot-password/send-otp',   sc.forgotSendOtp);
 router.post('/forgot-password/verify-otp', sc.forgotVerifyOtp);
 router.post('/forgot-password/reset',      sc.forgotReset);
+
+// ── Public: Approved sangha list (for user dropdown) ─────────
 router.get('/approved-list', sc.getApprovedSanghas);
 
+// ── All routes below require authentication ──────────────────
 router.use(authenticate);
 
-// Profile
+// Sangha profile
 router.get('/profile',             requireRole('sangha'),          sc.getSanghaProfile);
 router.put('/profile',             requireRole('sangha'),          sc.updateSanghaProfile);
 router.post('/profile/logo',       requireRole('sangha'),          upload.single('logo'), sc.uploadSanghaLogo);
@@ -50,28 +44,24 @@ router.get('/member-requests',     requireRole('sangha', 'admin'), sc.getMemberR
 router.post('/approve-request',    requireRole('sangha', 'admin'), sc.approveMemberRequest);
 router.post('/reject-request',     requireRole('sangha', 'admin'), sc.rejectMemberRequest);
 
-// Scholarships
-router.get('/scholarships',                  requireRole('sangha', 'admin'), sc.listScholarships);
-router.post('/scholarships',                 requireRole('sangha', 'admin'), sc.createScholarship);
-router.put('/scholarships/:id',              requireRole('sangha', 'admin'), sc.updateScholarship);
-router.delete('/scholarships/:id',           requireRole('sangha', 'admin'), sc.deleteScholarship);
-router.get('/scholarships/:id/eligible-members', requireRole('sangha', 'admin'), sc.getEligibleMembers);
-
 // Actions
 router.post('/approve',            requireRole('sangha', 'admin'), sc.approveUser);
 router.post('/reject',             requireRole('sangha', 'admin'), sc.rejectUser);
 router.post('/request-changes',    requireRole('sangha', 'admin'), sc.requestChanges);
 router.post('/block-user',         requireRole('sangha'), sc.blockUser);
 
-// ── Reports (delegated to separate router) ──────────────────
-router.use('/reports', require('./sanghareport'));
+// Reports & logs
+router.get('/reports',             requireRole('sangha', 'admin'), sc.getReports);
+router.get('/activity-logs',       requireRole('sangha', 'admin'), sc.getActivityLogs);
 
 // Team members
 router.get('/team-members',              requireRole('sangha', 'admin'), sc.getTeamMembers);
 router.post('/team-members',             requireRole('sangha', 'admin'), sc.addTeamMember);
 router.delete('/team-members/:memberId', requireRole('sangha', 'admin'), sc.deleteTeamMember);
 
-// Admin only
+const sanghaSchlRoutes = require('./sanghaschl');
+router.use('/scholarships', sanghaSchlRoutes);
+// Admin only — keep /:id LAST to avoid swallowing other routes
 router.get('/all',  requireRole('admin'), sc.getAllSanghas);
 router.get('/:id',  requireRole('admin'), sc.getSanghaById);
 

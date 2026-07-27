@@ -12,6 +12,12 @@ router.use('/reports', require('./adminreport'));
 // ── All routes below require admin auth ──────────────────────
 router.use(authenticate);
 router.use(requireRole('admin'));
+// Job Moderator management
+router.post('/job-moderators',              ac.addJobModerator);
+router.get('/job-moderators',               ac.getJobModerators);
+router.post('/job-moderators/:id/block',    ac.blockJobModerator);
+router.post('/job-moderators/:id/unblock',  ac.unblockJobModerator);
+router.delete('/job-moderators/:id',        ac.deleteJobModerator);
 
 // Dashboard
 router.get('/dashboard', ac.getDashboard);
@@ -39,11 +45,15 @@ router.post('/users/reject',                ac.rejectUser);
 // otherwise Express matches 'pending-detail' as the :id param
 router.get('/users/:id/pending-detail',     ac.getUserPendingDetail);
 router.get('/users/:id/profile',            ac.getUserProfile);
+router.get('/users/:id/scholarships',    ac.getUserScholarships);
 router.put('/users/:id/profile',            ac.updateUserProfile);
 
 // Activity logs
 router.get('/activity-logs',          ac.getActivityLogs);
 
+// Scholarship management (admin) – mounted at root to allow routes like /scholarships, /sanghas
+const adminSchlRoutes = require('./adminschl');
+router.use(adminSchlRoutes);
 
 // Blocklist — search-based
 router.get('/blocklist/users',            ac.getBlocklistUsers);

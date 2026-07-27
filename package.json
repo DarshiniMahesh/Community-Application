@@ -5,9 +5,13 @@
   "scripts": {
     "user": "concurrently \"cd backend && npm run dev\" \"cd User && npm run dev\"",
     "admin": "concurrently \"cd backend && npm run dev\" \"cd admin && npm run dev\"",
-    "sangha": "concurrently \"cd backend && npm run dev\" \"cd sangha && npm run dev\""
+    "sangha": "concurrently \"cd backend && npm run dev\" \"cd sangha && npm run dev\"",
+    "job":"concurrently \"cd backend && npm run dev\" \"cd  && npm run dev\""
   },
   "devDependencies": {
+    "@types/node": "^25.8.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "concurrently": "^8.2.2"
   },
   "dependencies": {

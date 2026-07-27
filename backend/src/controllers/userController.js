@@ -1,4 +1,3 @@
-//Community-Application\backend\src\controllers\userController.js
 const pool = require('../config/db');
 
 function parsePgArray(val) {
@@ -26,6 +25,11 @@ const cleanDOB = (d) => {
   }
   return val;
 };
+
+// ─── NEW: profile lock helper ─────────────────────────────────
+// Statuses in which the user's step data must not be editable.
+const LOCKED_STATUSES = ['submitted', 'under_review'];
+const isProfileLocked = (status) => LOCKED_STATUSES.includes(status);
 
 const getOrCreateProfile = async (userId) => {
   let res = await pool.query('SELECT * FROM profiles WHERE user_id=$1', [userId]);
@@ -136,7 +140,6 @@ const getFullProfile = async (req, res) => {
     const deduplicatedDocuments = deduplicateMembers(s6doc.rows);
     const normalizedDocuments = deduplicatedDocuments.map(row => ({
       ...row,
-      // Return scalar strings directly — no array parsing needed
       aadhaar_coverage:   row.aadhaar_coverage   ?? null,
       pan_coverage:       row.pan_coverage       ?? null,
       voter_id_coverage:  row.voter_id_coverage  ?? null,
@@ -172,6 +175,11 @@ const saveStep1 = async (req, res) => {
     const { id: userId } = req.user;
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
+
+    // ✅ NEW: block edits while submitted / under review
+    if (isProfileLocked(profile.status)) {
+      return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
+    }
 
     const {
       first_name, middle_name, last_name,
@@ -249,6 +257,11 @@ const saveStep2 = async (req, res) => {
     const { id: userId } = req.user;
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
+
+    // ✅ NEW
+    if (isProfileLocked(profile.status)) {
+      return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
+    }
 
     const {
       gotra, pravara,
@@ -333,6 +346,11 @@ const saveStep3 = async (req, res) => {
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
+    // ✅ NEW
+    if (isProfileLocked(profile.status)) {
+      return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
+    }
+
     const { family_type, members = [] } = req.body;
 
     const fi = await pool.query('SELECT id FROM family_info WHERE profile_id=$1', [pid]);
@@ -384,6 +402,11 @@ const saveStep4 = async (req, res) => {
     const { id: userId } = req.user;
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
+
+    // ✅ NEW
+    if (isProfileLocked(profile.status)) {
+      return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
+    }
 
     const { addresses = [] } = req.body;
     await pool.query(
@@ -451,6 +474,11 @@ const saveStep5 = async (req, res) => {
     const { id: userId } = req.user;
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
+
+    // ✅ NEW
+    if (isProfileLocked(profile.status)) {
+      return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
+    }
 
     let { members = [] } = req.body;
 
@@ -572,6 +600,11 @@ const saveStep6 = async (req, res) => {
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
+    // ✅ NEW
+    if (isProfileLocked(profile.status)) {
+      return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
+    }
+
     let { economic = {}, insurance = [], documents = [] } = req.body;
 
     insurance = deduplicateMembersPayload(insurance);
@@ -649,7 +682,6 @@ const saveStep6 = async (req, res) => {
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i];
 
-      // Helper: accept string 'yes'/'no'/null OR boolean true/false/null
       const toDocEnum = (val) => {
         if (val === null || val === undefined) return null;
         if (val === true  || val === 'yes') return 'yes';
@@ -921,19 +953,25 @@ const submitApplication = async (req, res) => {
       return res.status(400).json({ message: 'Please select a Sangha before submitting' });
 
     const profile = await pool.query(
-      'SELECT id, status, step1_completed FROM profiles WHERE user_id=$1',
+      'SELECT id, status, step1_personal_pct FROM profiles WHERE user_id=$1',
       [userId]
     );
     if (profile.rows.length === 0)
       return res.status(404).json({ message: 'Profile not found' });
 
-    const { id: pid, status, step1_completed } = profile.rows[0];
+    const { id: pid, status, step1_personal_pct } = profile.rows[0];
 
     if (['submitted', 'under_review'].includes(status))
       return res.status(409).json({ message: 'Application already submitted and under review' });
 
-    if (!step1_completed)
-      return res.status(400).json({ message: 'Complete at least Step 1 before submitting' });
+    // ✅ CHANGED: require Step 1 to be fully complete (100%), not just the
+    // looser 80% "completed" threshold used to unlock navigation elsewhere.
+    if (step1_personal_pct !== 100) {
+      return res.status(400).json({
+        message: 'Please complete Step 1 (Personal Details) fully before submitting.',
+        incompleteStep: 'step1',
+      });
+    }
 
     const sanghaCheck = await pool.query(
       `SELECT id FROM sanghas WHERE id = $1 AND status = 'approved'`,
@@ -942,8 +980,6 @@ const submitApplication = async (req, res) => {
     if (sanghaCheck.rows.length === 0)
       return res.status(400).json({ message: 'Selected Sangha is not valid or not yet approved' });
 
-    // ✅ FIX: Use NOW() AT TIME ZONE 'UTC' so timestamp is always stored as UTC
-    // Frontend uses new Date() which correctly converts UTC → IST for display
     await pool.query(
       "UPDATE profiles SET status='submitted', submitted_at=(NOW() AT TIME ZONE 'UTC'), sangha_id=$1 WHERE id=$2",
       [sangha_id, pid]

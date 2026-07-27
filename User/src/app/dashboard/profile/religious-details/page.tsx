@@ -534,7 +534,7 @@ export default function Page() {
 
           {/* ── SECTION 1: Surname & Priest ─────────────────────── */}
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-foreground tracking-wide uppercase text-muted-foreground">
+            <h3 className="text-sm font-semibold text-foreground tracking-wide uppercase">
               Surname &amp; Priest Information
             </h3>
             <div className="grid md:grid-cols-2 gap-4">
@@ -580,7 +580,7 @@ export default function Page() {
           {/* ── SECTION 2: Religious Lineage ────────────────────── */}
           <div className="space-y-6">
             <div>
-              <h3 className="text-sm font-semibold text-foreground tracking-wide uppercase text-muted-foreground">
+              <h3 className="text-sm font-semibold text-foreground tracking-wide uppercase">
                 Religious Lineage
               </h3>
               <p className="text-xs text-muted-foreground mt-1">

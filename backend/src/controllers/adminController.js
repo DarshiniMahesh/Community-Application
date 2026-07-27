@@ -4,6 +4,8 @@ const bcrypt = require('bcrypt');
 const { signToken } = require('../utils/jwt');
 const { generateOtp }  = require('../utils/otp');
 const { sendOtpEmail } = require('../config/mailer');
+const crypto = require('crypto');
+const { sendModeratorSetupEmail } = require('../config/mailer');
 
 // ─── POST /admin/login/send-otp ───────────────────────────────────
 const loginSendOtp = async (req, res) => {
@@ -15,6 +17,17 @@ const loginSendOtp = async (req, res) => {
     // ── Check against .env credentials first ──
 const envEmail    = process.env.ADMIN_EMAIL;
 const envPassword = process.env.ADMIN_PASSWORD;
+
+
+console.log("=== LOGIN DEBUG ===");
+console.log("ENV EMAIL:", envEmail);
+console.log("ENV PASSWORD:", envPassword);
+
+console.log("REQ EMAIL:", email);
+console.log("REQ PASSWORD:", password);
+
+console.log("EMAIL MATCH:", email === envEmail);
+console.log("PASSWORD MATCH:", password === envPassword);
 
 if (!envEmail || !envPassword)
   return res.status(500).json({ message: 'Admin credentials not configured' });
@@ -44,6 +57,7 @@ if (userRes.rows.length === 0) {
   await pool.query(
     `UPDATE users SET password_hash=$1, is_active=true WHERE id=$2`,
     [password_hash, userRes.rows[0].id]
+    
   );
 }
 
@@ -942,6 +956,166 @@ const getUserPendingDetail = async (req, res) => {
   }
 };
 
+// ─── GET /admin/users/:id/scholarships ───────────────────────
+const getUserScholarships = async (req, res) => {
+  try {
+    const { id } = req.params; // user id (uuid)
+
+    // Resolve profile_id from user id
+    const profileRes = await pool.query(
+      `SELECT id FROM profiles WHERE user_id = $1`,
+      [id]
+    );
+
+    if (profileRes.rows.length === 0)
+      return res.status(404).json({ message: 'Profile not found for this user' });
+
+    const profileId = profileRes.rows[0].id;
+
+    const result = await pool.query(
+      `SELECT
+         sa.id                  AS application_id,
+         -- Member name: family member name if family_member_id set, else applicant's own name
+         COALESCE(fm.name, pd.first_name || ' ' || pd.last_name)
+                                AS member_name,
+         fm.relation            AS member_relation,
+         sc.name                AS scholarship_name,
+         sc.id                  AS scholarship_id,
+         sa.status,
+         sa.applied_at,
+         sa.reviewed_at,
+         sa.review_comment,
+         sc.base_amount,
+         sg.sangha_name
+       FROM scholarship_applications sa
+       JOIN scholarships     sc ON sc.id  = sa.scholarship_id
+       JOIN sanghas          sg ON sg.id  = sa.sangha_id
+       JOIN profiles          p ON p.id   = sa.profile_id
+       JOIN personal_details pd ON pd.profile_id = p.id
+       LEFT JOIN family_members fm ON fm.id = sa.family_member_id
+       WHERE sa.profile_id = $1
+       ORDER BY sa.applied_at DESC`,
+      [profileId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('getUserScholarships error:', err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /admin/job-moderators ───────────────────────────────
+const addJobModerator = async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    if (!name?.trim() || !email?.trim()) {
+      return res.status(400).json({ message: 'Name and email are required' });
+    }
+
+    const existing = await pool.query('SELECT id FROM users WHERE email=$1', [email.trim()]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ message: 'An account with this email already exists' });
+    }
+
+    const setupToken = crypto.randomBytes(32).toString('hex');
+    const setupTokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+
+    const result = await pool.query(
+      `INSERT INTO users (name, email, role, is_active, is_email_verified, setup_token, setup_token_expires_at)
+       VALUES ($1, $2, 'job_moderator', true, false, $3, $4)
+       RETURNING id, name, email, created_at`,
+      [name.trim(), email.trim(), setupToken, setupTokenExpiresAt]
+    );
+
+    const setupLink = `${process.env.JOB_MODERATOR_FRONTEND_URL}/set-password?token=${setupToken}`;
+    await sendModeratorSetupEmail(email.trim(), name.trim(), setupLink);
+
+    res.status(201).json({ message: 'Job moderator added and setup email sent', moderator: result.rows[0] });
+  } catch (err) {
+    console.error('addJobModerator error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── GET /admin/job-moderators ─────────────────────────────────
+const getJobModerators = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, email, is_active, is_blocked,
+              (password_hash IS NOT NULL) AS setup_complete,
+              last_login_at, created_at
+       FROM users
+       WHERE role='job_moderator' AND is_deleted=false
+       ORDER BY created_at DESC`
+    );
+    res.json({ moderators: result.rows });
+  } catch (err) {
+    console.error('getJobModerators error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /admin/job-moderators/:id/block ─────────────────────
+const blockJobModerator = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const check = await pool.query(
+      `SELECT password_hash FROM users WHERE id=$1 AND role='job_moderator'`,
+      [id]
+    );
+    if (check.rows.length === 0)
+      return res.status(404).json({ message: 'Job moderator not found' });
+
+    if (!check.rows[0].password_hash)
+      return res.status(400).json({ message: 'Cannot block a moderator who has not completed account setup' });
+
+    const result = await pool.query(
+      `UPDATE users SET is_blocked=true WHERE id=$1 AND role='job_moderator' RETURNING id, name, email, is_blocked`,
+      [id]
+    );
+    res.json({ message: 'Job moderator blocked successfully', moderator: result.rows[0] });
+  } catch (err) {
+    console.error('blockJobModerator error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── POST /admin/job-moderators/:id/unblock ───────────────────
+const unblockJobModerator = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `UPDATE users SET is_blocked=false WHERE id=$1 AND role='job_moderator' RETURNING id, name, email, is_blocked`,
+      [id]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'Job moderator not found' });
+    res.json({ message: 'Job moderator unblocked successfully', moderator: result.rows[0] });
+  } catch (err) {
+    console.error('unblockJobModerator error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// ─── DELETE /admin/job-moderators/:id ──────────────────────────
+const deleteJobModerator = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `DELETE FROM users WHERE id=$1 AND role='job_moderator' RETURNING id`,
+      [id]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: 'Job moderator not found' });
+    res.json({ message: 'Job moderator deleted permanently' });
+  } catch (err) {
+    console.error('deleteJobModerator error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = {
   loginSendOtp,
   loginVerifyOtp,
@@ -972,4 +1146,10 @@ module.exports = {
   updateUserProfile,
   getAllBlocklistUsers,
   getAllBlocklistSanghas,
+  getUserScholarships,
+  addJobModerator,
+  getJobModerators,
+  blockJobModerator,
+  unblockJobModerator,
+  deleteJobModerator,
 };
