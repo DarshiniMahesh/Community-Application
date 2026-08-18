@@ -3,6 +3,12 @@ const { signToken: generateToken } = require('../utils/jwt');
 const { generateOtp } = require('../utils/otp');
 const { sendOtpEmail } = require('../config/mailer');
 const bcrypt = require('bcrypt');
+const { createClient } = require('@supabase/supabase-js');
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
 // ── Register ──────────────────────────────────────────────────
 const register = async (req, res) => {
@@ -167,18 +173,37 @@ const getProfile = async (req, res) => {
   }
 };
 
-// ── Upload Logo (standalone) ────────────────────────────────────
+// ── Upload Logo (Supabase storage) ─────────────────────────────
 const uploadLogo = async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No logo file uploaded' });
+
   try {
-    const logo_url = `/uploads/logos/${req.file.filename}`;
-    // If a company row already exists (edit mode), persist immediately.
-    // On first-time setup this simply matches zero rows and no-ops;
-    // createProfile saves logo_url itself right after this call returns.
+    const fileExt = req.file.originalname.split('.').pop();
+    const filename = `company_${req.user.id}_${Date.now()}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('company-logos') // your Supabase bucket name
+      .upload(filename, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Supabase upload error:', uploadError);
+      return res.status(500).json({ message: 'Failed to upload logo' });
+    }
+
+    const { data } = supabase.storage
+      .from('company-logos')
+      .getPublicUrl(filename);
+
+    const logo_url = data.publicUrl;
+
     await pool.query(
       `UPDATE companies SET logo_url=$1, updated_at=now() WHERE company_auth_id=$2`,
       [logo_url, req.user.id]
     );
+
     return res.json({ logo_url });
   } catch (err) {
     console.error('uploadLogo:', err);
