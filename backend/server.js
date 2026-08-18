@@ -1,7 +1,7 @@
 // Community-Application\backend\server.js
-const path = require('path');         // ← must come first
+const path = require('path');
 const dotenv = require('dotenv');
-dotenv.config({ path: path.resolve(__dirname, '.env') }); // .env is right next to server.js
+dotenv.config({ path: path.resolve(__dirname, '.env') }); // no-op on Vercel; env vars come from dashboard there
 
 console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'loaded ✓' : 'MISSING ✗');
 
@@ -11,8 +11,12 @@ const cors = require("cors");
 const app = express();
 
 // ─── MIDDLEWARE ───────────────────────────────────────────────
+// Single CORS config only — having two app.use(cors()) calls sends two
+// conflicting Access-Control-Allow-Origin headers, which browsers reject
+// outright (shows as a failed request, not a 4xx/5xx).
 app.use(cors({
-  origin: "*",
+  origin: ['https://community-application-adimin.vercel.app'],
+  credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
@@ -45,7 +49,6 @@ app.use('/api/jobs',          jobRoutes);
 app.use('/api/referrals',     referralRoutes);
 app.use('/api/job-moderator', jobModeratorRoutes);
 
-
 // ─── HEALTH CHECK ─────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -66,7 +69,7 @@ app.use((err, req, res, next) => {
 const pg = require('pg');
 pg.types.setTypeParser(1082, val => val);
 
-// ─── START ────────────────────────────────────────────────────
+// ─── START (local dev only — Vercel sets NODE_ENV=production and never runs this) ───
 const PORT = process.env.PORT || 8000;
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, "0.0.0.0", () => {
