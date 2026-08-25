@@ -33,6 +33,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/auth',   require('./routes/auth'));
 app.use('/api/users',  require('./routes/users'));
 app.use('/api/sangha', require('./routes/sangha'));
+app.use('/api/sangha/reports', require('./routes/sanghareport'));
 app.use('/api/admin',  require('./routes/admin'));
 
 // ── Health check ──────────────────────────────────────────────────────────────
