@@ -22,6 +22,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // ─── ROUTES ───────────────────────────────────────────────────
 const adminRoutes        = require('./src/routes/admin');
+const adminReportRoutes  = require('./src/routes/adminreport');
 const authRoutes         = require("./src/routes/auth");
 const userRoutes         = require("./src/routes/users");
 const sanghaRoutes       = require("./src/routes/sangha");
@@ -35,6 +36,8 @@ const jobModeratorRoutes = require('./src/routes/jobModerator');
 console.log('userschl routes loaded ✓');
 
 app.use('/api/admin',         adminRoutes);
+// Backward-compatible alias for older deployed admin clients.
+app.use('/admin/reports',     adminReportRoutes);
 app.use("/api/auth",          authRoutes);
 app.use("/api/users",         userRoutes);
 app.use("/api/sangha",        sanghaRoutes);

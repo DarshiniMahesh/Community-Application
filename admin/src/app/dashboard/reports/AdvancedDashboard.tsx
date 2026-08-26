@@ -2057,7 +2057,7 @@ export default function AdminAdvancedDashboard({
   const loadUsers = useCallback(async () => {
     setUserLoading(true); setUserError(null);
     try {
-      const data = await api.get('/admin/reports/advanced');
+      const data = await api.get('/api/admin/reports/advanced');
       setUserReport(data);
     } catch (e: any) {
       setUserError(e.message ?? "Failed to load user report");
@@ -2067,7 +2067,7 @@ export default function AdminAdvancedDashboard({
   const loadSanghas = useCallback(async () => {
     setSanghaLoading(true); setSanghaError(null);
     try {
-      const data = await api.get('/admin/reports/sanghas');
+      const data = await api.get('/api/admin/reports/sanghas');
       setSanghaReport(data);
     } catch (e: any) {
       setSanghaError(e.message ?? "Failed to load sangha report");

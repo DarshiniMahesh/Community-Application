@@ -30,10 +30,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.use('/api/auth',   require('./routes/auth'));
-app.use('/api/users',  require('./routes/users'));
-app.use('/api/sangha', require('./routes/sangha'));
-app.use('/api/admin',  require('./routes/admin'));
+app.use('/api/auth',           require('./routes/auth'));
+app.use('/api/users',          require('./routes/users'));
+app.use('/api/sangha/reports', require('./routes/sanghareport'));
+app.use('/api/sangha',         require('./routes/sangha'));
+app.use('/api/admin',          require('./routes/admin'));
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ status: 'ok', message: 'Census API running' }));

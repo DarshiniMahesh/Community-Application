@@ -50,10 +50,6 @@ router.post('/reject',             requireRole('sangha', 'admin'), sc.rejectUser
 router.post('/request-changes',    requireRole('sangha', 'admin'), sc.requestChanges);
 router.post('/block-user',         requireRole('sangha'), sc.blockUser);
 
-// Reports & logs
-router.get('/reports',             requireRole('sangha', 'admin'), sc.getReports);
-router.get('/activity-logs',       requireRole('sangha', 'admin'), sc.getActivityLogs);
-
 // Team members
 router.get('/team-members',              requireRole('sangha', 'admin'), sc.getTeamMembers);
 router.post('/team-members',             requireRole('sangha', 'admin'), sc.addTeamMember);
