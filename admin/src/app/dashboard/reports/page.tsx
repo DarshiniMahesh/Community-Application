@@ -124,7 +124,7 @@ export default function AdminReportsPage() {
       const params = (r.preset === "allTime" || !from || !to)
         ? ""
         : `?dateFrom=${from}&dateTo=${to}`;
-      const result = await api.get(`/admin/reports/general${params}`);
+      const result = await api.get(`/api/admin/reports/general${params}`);
       setGeneralData(result);
     } catch {
       setError(true); setGeneralData(null);
@@ -143,7 +143,7 @@ export default function AdminReportsPage() {
       const params = (r.preset === "allTime" || !from || !to)
         ? ""
         : `?dateFrom=${from}&dateTo=${to}`;
-      const result = await api.get(`/admin/reports/advanced${params}`);
+      const result = await api.get(`/api/admin/reports/advanced${params}`);
       setAdvancedData(result);
     } catch {
       setAdvancedData(null);

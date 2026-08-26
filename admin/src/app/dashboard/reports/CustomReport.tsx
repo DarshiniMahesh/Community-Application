@@ -1295,7 +1295,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
       const exportSections = selectedSections.filter(
         s => s !== FAMILY_SECTION_ID && s !== SANGHA_MEMBERSHIP_SECTION_ID && s !== SANGHA_USER_TABLE_SECTION_ID
       );
-      const endpoint = mode === "user" ? "/admin/reports/custom/users" : "/admin/reports/custom/sanghas";
+      const endpoint = mode === "user" ? "/api/admin/reports/custom/users" : "/api/admin/reports/custom/sanghas";
       const result = await api.post(endpoint, {
         sections: exportSections.length > 0 ? exportSections : (mode === "user" ? ["personal-details"] : ["sangha-details"]),
         includeAll, includeAllStatuses: includeAll,
@@ -1373,7 +1373,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     if (!profileIds.length) return;
     setFamilyLoading(true); setFamilyError(null);
     try {
-      const result = await api.post("/admin/reports/custom/family-members", { profileIds });
+      const result = await api.post("/api/admin/reports/custom/family-members", { profileIds });
       const newRows = Array.isArray(result) ? result : [];
       setFamilyEntries(prev => {
         const idx = prev.findIndex(e => e.label === label);
@@ -1390,7 +1390,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     if (!profileIds.length) return;
     setMembershipLoading(true); setMembershipError(null);
     try {
-      const result = await api.post("/admin/reports/custom/sangha-memberships", { profileIds });
+      const result = await api.post("/api/admin/reports/custom/sangha-memberships", { profileIds });
       const newRows = Array.isArray(result) ? result : [];
       setMembershipEntries(prev => {
         const idx = prev.findIndex(e => e.label === label);
@@ -1407,7 +1407,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
     if (!sanghaIds.length) return;
     setSanghaUserLoading(true); setSanghaUserError(null);
     try {
-      const result = await api.post("/admin/reports/custom/sangha-users", { sanghaIds });
+      const result = await api.post("/api/admin/reports/custom/sangha-users", { sanghaIds });
       const newRows = Array.isArray(result) ? result : [];
       const groupMap = new Map<string, { sanghaId: string; sanghaName: string; rows: TableRow[] }>();
       newRows.forEach(row => {

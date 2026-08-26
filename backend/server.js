@@ -11,11 +11,22 @@ const cors = require("cors");
 const app = express();
 
 // ─── MIDDLEWARE ───────────────────────────────────────────────
-// Single CORS config only — having two app.use(cors()) calls sends two
-// conflicting Access-Control-Allow-Origin headers, which browsers reject
-// outright (shows as a failed request, not a 4xx/5xx).
+// Allow local development and the deployed portal applications.
+const allowedOrigins = new Set([
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'https://community-application-adimin.vercel.app',
+  'https://community-application-admin.vercel.app',
+  'https://community-application.vercel.app',
+  'https://community-app-sangha.vercel.app',
+]);
+
 app.use(cors({
-  origin: ['https://community-application-adimin.vercel.app'],
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error(`CORS origin not allowed: ${origin}`));
+  },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
@@ -26,6 +37,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // ─── ROUTES ───────────────────────────────────────────────────
 const adminRoutes        = require('./src/routes/admin');
+const adminReportRoutes  = require('./src/routes/adminreport');
 const authRoutes         = require("./src/routes/auth");
 const userRoutes         = require("./src/routes/users");
 const sanghaRoutes       = require("./src/routes/sangha");
@@ -40,9 +52,14 @@ const jobModeratorRoutes = require('./src/routes/jobModerator');
 console.log('userschl routes loaded ✓');
 
 app.use('/api/admin',         adminRoutes);
+// Backward-compatible alias for older deployed admin clients.
+app.use('/admin/reports',     adminReportRoutes);
 app.use("/api/auth",          authRoutes);
 app.use("/api/users",         userRoutes);
-app.use("/api/sangha",        sanghaRoutes);app.use('/api/sangha/reports', sanghaReportRoutes);app.use('/api/userschl',      userschlRoutes);
+// Register the specific reports path before the broader sangha router.
+app.use('/api/sangha/reports', sanghaReportRoutes);
+app.use("/api/sangha",        sanghaRoutes);
+app.use('/api/userschl',      userschlRoutes);
 app.use('/api/admin',         adminSchlRoutes);
 app.use('/api/company',       companyRoutes);
 app.use('/api/jobs',          jobRoutes);
