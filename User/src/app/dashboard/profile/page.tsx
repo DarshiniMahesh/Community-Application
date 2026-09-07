@@ -194,11 +194,14 @@ export default function Page() {
   ];
 
   const fac: string[] = [];
-  if (s6eco?.fac_rented_house)      fac.push("Staying in Rented House");
-  if (s6eco?.fac_own_house)         fac.push("Own a House");
-  if (s6eco?.fac_agricultural_land) fac.push("Own Agricultural Land");
-  if (s6eco?.fac_two_wheeler)       fac.push("Own a Two Wheeler");
-  if (s6eco?.fac_car)               fac.push("Own a Car");
+  if (s6eco?.fac_rented_house)             fac.push("Staying in Rented House");
+  if (s6eco?.fac_own_house)                fac.push("Own a House");
+  if (s6eco?.fac_two_or_more_houses)       fac.push("Own 2 or more Houses");
+  if (s6eco?.fac_agricultural_land)        fac.push("Own Agricultural Land");
+  if (s6eco?.fac_two_wheeler)              fac.push("Own a Two Wheeler");
+  if (s6eco?.fac_two_or_more_two_wheelers) fac.push("Own 2 or more 2Wheelers");
+  if (s6eco?.fac_car)                      fac.push("Own a Car");
+  if (s6eco?.fac_two_or_more_cars)         fac.push("Own 2 or more Cars");
 
   const inv: string[] = [];
   if (s6eco?.inv_fixed_deposits)   inv.push("Fixed Deposits");
@@ -243,7 +246,9 @@ export default function Page() {
         {s1 ? (
           <div className="grid grid-cols-2 gap-x-8 gap-y-5">
             <InfoField icon={User}     label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
-            <InfoField icon={Calendar} label="Date of Birth"        value={formatDate(s1.date_of_birth)} />
+            <InfoField icon={FileText} label="Email"                value={s1.email} />
+            <InfoField icon={FileText} label="Mobile Number"        value={s1.phone} />
+            <InfoField icon={Calendar} label="Date of Birth"        value={formatDate(s1.date_of_birth || s1.dob)} />
             <InfoField icon={User}     label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
             <InfoField icon={Users} label="Marital Status" value={
   s1.marital_status === "single_never_married" ? "Single (Never Married)" :
@@ -256,7 +261,10 @@ export default function Page() {
             <InfoField icon={User}     label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
             {s1.fathers_name && <InfoField icon={User} label="Father's Name" value={s1.fathers_name} />}
             {s1.mothers_name && <InfoField icon={User} label="Mother's Name" value={s1.mothers_name} />}
-            <InfoField icon={User} label="Disability" value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
+            <InfoField icon={User} label="Disability" value={s1.has_disability === "yes" || s1.has_disability === "true" || s1.disability === "yes" ? "Yes" : "No"} />
+            {(s1.has_disability === "yes" || s1.disability === "yes") && Boolean(s1.disability_details) && (
+              <InfoField icon={FileText} label="Disability Details" value={s1.disability_details} />
+            )}
           </div>
         ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
       </Section>
@@ -279,6 +287,17 @@ export default function Page() {
                   ? s2.kuladevata_other
                   : typeof s2.kuladevata === "string" ? s2.kuladevata : null
               } />
+              <InfoField
+                icon={FileText}
+                label="Naga Moola Sthana Known"
+                value={s2.has_naga_moola_sthana === true ? "Yes" : s2.has_naga_moola_sthana === false ? "No" : null}
+              />
+              {s2.has_naga_moola_sthana === true && (
+                <InfoField icon={MapPin} label="Naga Moola Sthana Address" value={typeof s2.naga_moola_sthana_address === "string" ? s2.naga_moola_sthana_address : null} />
+              )}
+              {s2.has_naga_moola_sthana === false && Boolean(s2.naga_moola_sthana_info) && (
+                <InfoField icon={FileText} label="Naga Moola Sthana Info" value={typeof s2.naga_moola_sthana_info === "string" ? s2.naga_moola_sthana_info : null} />
+              )}
               <InfoField
                 icon={FileText}
                 label="Ancestral Tracing Challenge"
@@ -514,6 +533,7 @@ export default function Page() {
                             { label: "Aadhaar",   key: "aadhaar_coverage" },
                             { label: "PAN",       key: "pan_coverage" },
                             { label: "Voter ID",  key: "voter_id_coverage" },
+                            { label: "Passport",  key: "passport_coverage" },
                             { label: "Land Docs", key: "land_doc_coverage" },
                             { label: "DL",        key: "dl_coverage" },
                           ].map(({ label, key }) => (

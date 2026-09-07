@@ -293,8 +293,8 @@ function IncompleteStepsAlert({ steps }: { steps: StepCompletion[] }) {
           <div className="flex-1 space-y-2">
             <p className="font-medium text-amber-800">
               {incomplete.length === 1
-                ? "1 section needs your attention before you can submit"
-                : `${incomplete.length} sections need your attention before you can submit`}
+                ? "1 section is not yet 100% complete. You can still submit for approval or complete it now."
+                : `${incomplete.length} sections are not yet 100% complete. You can still submit for approval or complete them now.`}
             </p>
             <ul className="space-y-1.5">
               {incomplete.map((s) => (
@@ -365,13 +365,8 @@ export default function Page() {
     };
   });
 
-  const step1Pct = stepCompletionList.find(s => s.key === "step1")?.pct ?? 0;
-
   const handleSubmit = () => {
     const newErrors: Record<string, string> = {};
-    if (step1Pct !== 100) {
-      newErrors.step1 = "Personal Details must be fully completed (100%) before you can submit.";
-    }
     if (!selectedSangha) newErrors.sangha = "Please select a Sangha";
     if (!confirmed) newErrors.confirmation = "Please confirm that all details are accurate";
     if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
@@ -438,11 +433,14 @@ export default function Page() {
     null;
 
   const fac: string[] = [];
-  if (s6eco?.fac_rented_house)      fac.push("Staying in Rented House");
-  if (s6eco?.fac_own_house)         fac.push("Own a House");
-  if (s6eco?.fac_agricultural_land) fac.push("Own Agricultural Land");
-  if (s6eco?.fac_two_wheeler)       fac.push("Own a Two Wheeler");
-  if (s6eco?.fac_car)               fac.push("Own a Car");
+  if (s6eco?.fac_rented_house)             fac.push("Staying in Rented House");
+  if (s6eco?.fac_own_house)                fac.push("Own a House");
+  if (s6eco?.fac_two_or_more_houses)       fac.push("Own 2 or more Houses");
+  if (s6eco?.fac_agricultural_land)        fac.push("Own Agricultural Land");
+  if (s6eco?.fac_two_wheeler)              fac.push("Own a Two Wheeler");
+  if (s6eco?.fac_two_or_more_two_wheelers) fac.push("Own 2 or more 2Wheelers");
+  if (s6eco?.fac_car)                      fac.push("Own a Car");
+  if (s6eco?.fac_two_or_more_cars)         fac.push("Own 2 or more Cars");
 
   const inv: string[] = [];
   if (s6eco?.inv_fixed_deposits)   inv.push("Fixed Deposits");
@@ -504,8 +502,10 @@ export default function Page() {
               {s1 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <Field label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
+                  <Field label="Email"                value={s1.email} />
+                  <Field label="Mobile Number"        value={s1.phone} />
                   <Field label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
-                  <Field label="Date of Birth"        value={formatDate(s1.date_of_birth)} />
+                  <Field label="Date of Birth"        value={formatDate(s1.date_of_birth || s1.dob)} />
                   <Field label="Marital Status" value={
   s1.marital_status === "single_never_married" ? "Single (Never Married)" :
   s1.marital_status === "married"              ? "Married" :
@@ -517,7 +517,10 @@ export default function Page() {
                   <Field label="Mother's Name"        value={s1.mothers_name} />
                   <Field label="Surname in Use"       value={s1.surname_in_use} />
                   <Field label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
-                  <Field label="Disability"           value={s1.has_disability === "yes" || s1.has_disability === "true" ? "Yes" : "No"} />
+                  <Field label="Disability"           value={s1.has_disability === "yes" || s1.has_disability === "true" || s1.disability === "yes" ? "Yes" : "No"} />
+                  {(s1.has_disability === "yes" || s1.disability === "yes") && Boolean(s1.disability_details) && (
+                    <Field label="Disability Details" value={s1.disability_details} />
+                  )}
                 </div>
               ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
             </div>
@@ -543,6 +546,16 @@ export default function Page() {
                         ? s2.kuladevata_other
                         : typeof s2.kuladevata === "string" ? s2.kuladevata : null
                     } />
+                                        <Field
+                      label="Naga Moola Sthana Known"
+                      value={s2.has_naga_moola_sthana === "yes" ? "Yes" : s2.has_naga_moola_sthana === "no" ? "No" : null}
+                    />
+                    {s2.has_naga_moola_sthana === "yes" && (
+                      <Field label="Naga Moola Sthana Address" value={typeof s2.naga_moola_sthana_address === "string" ? s2.naga_moola_sthana_address : null} />
+                    )}
+                    {s2.has_naga_moola_sthana === "no" && Boolean(s2.naga_moola_sthana_info) && (
+                      <Field label="Naga Moola Sthana Info" value={typeof s2.naga_moola_sthana_info === "string" ? s2.naga_moola_sthana_info : null} />
+                    )}
                     <Field
                       label="Ancestral Tracing Challenge"
                       value={s2.ancestral_challenge === "yes" ? "Yes" : s2.ancestral_challenge === "no" ? "No" : null}
@@ -706,6 +719,7 @@ export default function Page() {
                         <CoverageRow label="Aadhaar"   value={hasCovScalar(userDoc, "aadhaar_coverage")} />
                         <CoverageRow label="PAN"       value={hasCovScalar(userDoc, "pan_coverage")} />
                         <CoverageRow label="Voter ID"  value={hasCovScalar(userDoc, "voter_id_coverage")} />
+                        <CoverageRow label="Passport"  value={hasCovScalar(userDoc, "passport_coverage")} />
                         <CoverageRow label="Land Docs" value={hasCovScalar(userDoc, "land_doc_coverage")} />
                         <CoverageRow label="DL"        value={hasCovScalar(userDoc, "dl_coverage")} />
                       </div>
@@ -787,6 +801,7 @@ export default function Page() {
                                 <CoverageRow label="Aadhaar"   value={hasCovScalar(memberDoc, "aadhaar_coverage")} />
                                 <CoverageRow label="PAN"       value={hasCovScalar(memberDoc, "pan_coverage")} />
                                 <CoverageRow label="Voter ID"  value={hasCovScalar(memberDoc, "voter_id_coverage")} />
+                                <CoverageRow label="Passport"  value={hasCovScalar(memberDoc, "passport_coverage")} />
                                 <CoverageRow label="Land Docs" value={hasCovScalar(memberDoc, "land_doc_coverage")} />
                                 <CoverageRow label="DL"        value={hasCovScalar(memberDoc, "dl_coverage")} />
                               </div>
@@ -807,7 +822,7 @@ export default function Page() {
           <>
             <Card className="shadow-sm">
               <CardHeader>
-                <CardTitle className="text-lg">Select Sangha</CardTitle>
+                <CardTitle className="text-lg">Select Sangha for Approval</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 <Label htmlFor="sangha">Submit application to</Label>

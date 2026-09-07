@@ -29,7 +29,16 @@ const incomeSlabs = [
   "Less than ₹1 Lakh", "₹1 – 2 Lakh", "₹2 – 3 Lakh", "₹3 – 5 Lakh",
   "₹5 – 10 Lakh", "₹10 – 25 Lakh", "₹25 Lakh+",
 ];
-const familyFacilities  = ["Staying in Rented House", "Own a House", "Own Agricultural Land", "Own a Two Wheeler", "Own a Car"];
+const familyFacilities  = [
+  "Staying in Rented House",
+  "Own a House",
+  "Own 2 or more Houses",
+  "Own Agricultural Land",
+  "Own a Two Wheeler",
+  "Own 2 or more 2Wheelers",
+  "Own a Car",
+  "Own 2 or more Cars",
+];
 const investmentOptions = ["Fixed Deposits", "Mutual Funds / SIP", "Trading in Shares / Demat Account", "Investment - Others"];
 
 interface MemberCoverage {
@@ -41,6 +50,7 @@ interface MemberCoverage {
   aadhaar: boolean | null;
   pan: boolean | null;
   voterId: boolean | null;
+  passport: boolean | null;
   landDocuments: boolean | null;
   drivingLicense: boolean | null;
 }
@@ -55,6 +65,7 @@ function blankMember(id: string, name = "", relation = ""): MemberCoverage {
     aadhaar: null,
     pan: null,
     voterId: null,
+    passport: null,
     landDocuments: null,
     drivingLicense: null,
   };
@@ -133,7 +144,7 @@ function SelectCell({
       }}
     >
       <SelectTrigger
-        className={`w-[80px] mx-auto text-xs h-7 px-1 ${
+        className={`w-[105px] mx-auto text-xs h-7 px-1.5 ${
           value === true
             ? "border-green-400 bg-green-50 text-green-700 focus:ring-green-300"
             : value === false
@@ -141,11 +152,11 @@ function SelectCell({
             : "border-border bg-background text-muted-foreground"
         }`}
       >
-        <SelectValue placeholder="—" />
+        <SelectValue placeholder="Not Applicable" />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="not_selected">
-          <span className="text-muted-foreground">—</span>
+          <span className="text-muted-foreground text-xs">Not Applicable</span>
         </SelectItem>
         <SelectItem value="yes">
           <span className="text-green-700 font-medium">Yes</span>
@@ -192,11 +203,14 @@ export default function Page() {
         if (eco.self_income)   setSelfIncome(INCOME_SLAB_REVERSE[eco.self_income as string] || "");
         if (eco.family_income) setFamilyIncome(INCOME_SLAB_REVERSE[eco.family_income as string] || "");
         const fac: string[] = [];
-        if (eco.fac_rented_house)      fac.push("Staying in Rented House");
-        if (eco.fac_own_house)         fac.push("Own a House");
-        if (eco.fac_agricultural_land) fac.push("Own Agricultural Land");
-        if (eco.fac_two_wheeler)       fac.push("Own a Two Wheeler");
-        if (eco.fac_car)               fac.push("Own a Car");
+        if (eco.fac_rented_house)             fac.push("Staying in Rented House");
+        if (eco.fac_own_house)                fac.push("Own a House");
+        if (eco.fac_two_or_more_houses)       fac.push("Own 2 or more Houses");
+        if (eco.fac_agricultural_land)        fac.push("Own Agricultural Land");
+        if (eco.fac_two_wheeler)              fac.push("Own a Two Wheeler");
+        if (eco.fac_two_or_more_two_wheelers) fac.push("Own 2 or more 2Wheelers");
+        if (eco.fac_car)                      fac.push("Own a Car");
+        if (eco.fac_two_or_more_cars)         fac.push("Own 2 or more Cars");
         setSelectedFacilities(fac);
         const inv: string[] = [];
         if (eco.inv_fixed_deposits)   inv.push("Fixed Deposits");
@@ -250,11 +264,12 @@ export default function Page() {
           termInsurance:   hasCovArray(ins, "term_coverage"),
           konkaniCard:     hasCovArray(ins, "konkani_card_coverage"),
           // Documents — scalar enum ('yes' | 'no' | null)
-          aadhaar:       hasCovScalar(doc, "aadhaar_coverage"),
-          pan:           hasCovScalar(doc, "pan_coverage"),
-          voterId:       hasCovScalar(doc, "voter_id_coverage"),
-          landDocuments: hasCovScalar(doc, "land_doc_coverage"),
-          drivingLicense:hasCovScalar(doc, "dl_coverage"),
+          aadhaar:        hasCovScalar(doc, "aadhaar_coverage"),
+          pan:            hasCovScalar(doc, "pan_coverage"),
+          voterId:        hasCovScalar(doc, "voter_id_coverage"),
+          passport:       hasCovScalar(doc, "passport_coverage"),
+          landDocuments:  hasCovScalar(doc, "land_doc_coverage"),
+          drivingLicense: hasCovScalar(doc, "dl_coverage"),
         };
       }));
 
@@ -299,17 +314,20 @@ export default function Page() {
 
   const buildPayload = () => ({
     economic: {
-      self_income:           INCOME_SLAB_MAP[selfIncome]   || null,
-      family_income:         INCOME_SLAB_MAP[familyIncome] || null,
-      fac_rented_house:      selectedFacilities.includes("Staying in Rented House"),
-      fac_own_house:         selectedFacilities.includes("Own a House"),
-      fac_agricultural_land: selectedFacilities.includes("Own Agricultural Land"),
-      fac_two_wheeler:       selectedFacilities.includes("Own a Two Wheeler"),
-      fac_car:               selectedFacilities.includes("Own a Car"),
-      inv_fixed_deposits:    selectedInvestments.includes("Fixed Deposits"),
-      inv_mutual_funds_sip:  selectedInvestments.includes("Mutual Funds / SIP"),
-      inv_shares_demat:      selectedInvestments.includes("Trading in Shares / Demat Account"),
-      inv_others:            selectedInvestments.includes("Investment - Others"),
+      self_income:                  INCOME_SLAB_MAP[selfIncome]   || null,
+      family_income:                INCOME_SLAB_MAP[familyIncome] || null,
+      fac_rented_house:             selectedFacilities.includes("Staying in Rented House"),
+      fac_own_house:                selectedFacilities.includes("Own a House"),
+      fac_two_or_more_houses:       selectedFacilities.includes("Own 2 or more Houses"),
+      fac_agricultural_land:        selectedFacilities.includes("Own Agricultural Land"),
+      fac_two_wheeler:              selectedFacilities.includes("Own a Two Wheeler"),
+      fac_two_or_more_two_wheelers: selectedFacilities.includes("Own 2 or more 2Wheelers"),
+      fac_car:                      selectedFacilities.includes("Own a Car"),
+      fac_two_or_more_cars:         selectedFacilities.includes("Own 2 or more Cars"),
+      inv_fixed_deposits:           selectedInvestments.includes("Fixed Deposits"),
+      inv_mutual_funds_sip:         selectedInvestments.includes("Mutual Funds / SIP"),
+      inv_shares_demat:             selectedInvestments.includes("Trading in Shares / Demat Account"),
+      inv_others:                   selectedInvestments.includes("Investment - Others"),
     },
     insurance: members.map((m, i) => ({
       member_name:           m.name     || null,
@@ -325,11 +343,12 @@ export default function Page() {
       member_relation:   m.relation || null,
       sort_order:        i,
       // Scalar strings — matches doc_coverage enum in DB
-      aadhaar_coverage:  docToPayload(m.aadhaar),
-      pan_coverage:      docToPayload(m.pan),
-      voter_id_coverage: docToPayload(m.voterId),
-      land_doc_coverage: docToPayload(m.landDocuments),
-      dl_coverage:       docToPayload(m.drivingLicense),
+      aadhaar_coverage:   docToPayload(m.aadhaar),
+      pan_coverage:       docToPayload(m.pan),
+      voter_id_coverage:  docToPayload(m.voterId),
+      passport_coverage:  docToPayload(m.passport),
+      land_doc_coverage:  docToPayload(m.landDocuments),
+      dl_coverage:        docToPayload(m.drivingLicense),
     })),
   });
 
@@ -584,6 +603,7 @@ export default function Page() {
                     <TableHead className="text-center min-w-[110px]">Aadhaar</TableHead>
                     <TableHead className="text-center min-w-[90px]">PAN</TableHead>
                     <TableHead className="text-center min-w-[110px]">Voter ID</TableHead>
+                    <TableHead className="text-center min-w-[110px]">Passport</TableHead>
                     <TableHead className="text-center min-w-[110px]">Land Docs</TableHead>
                     <TableHead className="text-center min-w-[90px]">DL</TableHead>
                   </TableRow>
@@ -601,6 +621,9 @@ export default function Page() {
                       </TableCell>
                       <TableCell className="text-center py-3">
                         <SelectCell value={m.voterId} onChange={val => setMemberField(m.id, "voterId", val)} />
+                      </TableCell>
+                      <TableCell className="text-center py-3">
+                        <SelectCell value={m.passport} onChange={val => setMemberField(m.id, "passport", val)} />
                       </TableCell>
                       <TableCell className="text-center py-3">
                         <SelectCell value={m.landDocuments} onChange={val => setMemberField(m.id, "landDocuments", val)} />

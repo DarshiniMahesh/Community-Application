@@ -254,7 +254,7 @@ export default function Page() {
   const [resetting, setResetting]           = useState(false);
   const [canReset, setCanReset]             = useState(false);
 
-  // ── NEW: separate input state for the tag input field ──
+  // ── separate input state for the tag input field ──
   const [demiGodInput, setDemiGodInput] = useState("");
   const demiGodInputRef = useRef<HTMLInputElement>(null);
 
@@ -270,10 +270,12 @@ export default function Page() {
     kuladevata:               "",
     kuladevataOther:          "",
     demiGods:                 [] as string[],
-    // ── Changed: now an array of tag strings ──
     demiGodOtherTags:         [] as string[],
     ancestralChallenge:       "",
     ancestralChallengeNotes:  "",
+    hasNagaMoolaSthana:       "",
+    nagaMoolaSthanaAddress:   "",
+    nagaMoolaSthanaInfo:      "",
   });
 
   const [pravaraOptions, setPravaraOptions]               = useState<string[]>([]);
@@ -311,7 +313,6 @@ export default function Page() {
         ? s.demi_gods
         : (s.demi_gods ? String(s.demi_gods).split(",").map((d: string) => d.trim()) : []);
 
-      // Parse stored demi_god_other back into tags array
       const storedOtherTags: string[] = s.demi_god_other
         ? String(s.demi_god_other).split(",").map((t: string) => t.trim()).filter(Boolean)
         : [];
@@ -331,12 +332,14 @@ export default function Page() {
         demiGodOtherTags:        storedOtherTags,
         ancestralChallenge:      s.ancestral_challenge || "",
         ancestralChallengeNotes: s.ancestral_challenge_notes || "",
+        hasNagaMoolaSthana:      s.has_naga_moola_sthana === "yes" ? "yes" : s.has_naga_moola_sthana === "no" ? "no" : "",
+        nagaMoolaSthanaAddress:  s.naga_moola_sthana_address || "",
+        nagaMoolaSthanaInfo:     s.naga_moola_sthana_info || "",
       });
     }).catch(() => {});
   }, []);
 
   // ── Payload ───────────────────────────────────────────────────
-  // demi_god_other is sent as a comma-separated string for backend compatibility
   const buildPayload = () => ({
     surname_in_use:             formData.surnameInUse,
     surname_as_per_gotra:       formData.surnameAsPerGotra || null,
@@ -354,6 +357,9 @@ export default function Page() {
                                   : null,
     ancestral_challenge:        formData.ancestralChallenge,
     ancestral_challenge_notes:  formData.ancestralChallenge === "yes" ? formData.ancestralChallengeNotes : null,
+    has_naga_moola_sthana:      formData.hasNagaMoolaSthana === "yes" ? "yes" : formData.hasNagaMoolaSthana === "no" ? "no" : null,
+    naga_moola_sthana_address:  formData.hasNagaMoolaSthana === "yes" ? formData.nagaMoolaSthanaAddress : null,
+    naga_moola_sthana_info:     formData.hasNagaMoolaSthana === "no" ? formData.nagaMoolaSthanaInfo : null,
   });
 
   useAutoSave("/users/profile/step2", buildPayload, [formData]);
@@ -403,7 +409,6 @@ export default function Page() {
       return {
         ...prev,
         demiGods:         updated,
-        // Clear tags when "Other" is unchecked
         demiGodOtherTags: god === "Other" && already ? [] : prev.demiGodOtherTags,
       };
     });
@@ -411,13 +416,12 @@ export default function Page() {
     setErrors(e => ({ ...e, demiGods: "" }));
   };
 
-  // ── NEW: Tag add / remove handlers ───────────────────────────
+  // ── Tag add / remove handlers ───────────────────────────
   const handleDemiGodInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
       const trimmed = demiGodInput.trim();
       if (!trimmed) return;
-      // Avoid duplicate tags
       if (formData.demiGodOtherTags.includes(trimmed)) {
         setDemiGodInput("");
         return;
@@ -455,8 +459,13 @@ export default function Page() {
       e.demiGodOther = "Please add at least one Demi God name (press Enter to add)";
     if (!formData.ancestralChallenge)
       e.ancestralChallenge = "Please answer this question";
-    if (formData.ancestralChallenge === "yes" && !formData.ancestralChallengeNotes.trim())
-      e.ancestralChallengeNotes = "Please enter Common Relative Known Names";
+    
+    // Naga Moola Sthana validation only applies when ancestralChallenge is "yes"
+    if (formData.ancestralChallenge === "yes" && !formData.hasNagaMoolaSthana)
+      e.hasNagaMoolaSthana = "Please answer whether you know your Naga Moola Sthana";
+    if (formData.hasNagaMoolaSthana === "yes" && !formData.nagaMoolaSthanaAddress.trim())
+      e.nagaMoolaSthanaAddress = "Please enter the address / location of your Naga Moola Sthana";
+      
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -487,6 +496,7 @@ export default function Page() {
         kuladevata: "", kuladevataOther: "",
         demiGods: [], demiGodOtherTags: [],
         ancestralChallenge: "", ancestralChallengeNotes: "",
+        hasNagaMoolaSthana: "", nagaMoolaSthanaAddress: "", nagaMoolaSthanaInfo: "",
       });
       setDemiGodInput("");
       setPravaraOptions([]);
@@ -755,13 +765,12 @@ export default function Page() {
             {errors.demiGods && <p className="text-xs text-destructive">{errors.demiGods}</p>}
           </div>
 
-          {/* ── NEW: Tag input for "Other" ─────────────────────── */}
+          {/* ── Tag input for "Other" ─────────────────────── */}
           {formData.demiGods.includes("Other") && (
             <div className="space-y-2">
               <Label>Enter Demi God Name(s) <span className="text-destructive">*</span></Label>
               <p className="text-xs text-muted-foreground">Type a name and press <kbd className="px-1 py-0.5 text-xs bg-muted border border-border rounded">Enter</kbd> to add it as a tag.</p>
 
-              {/* Tag chips display */}
               {formData.demiGodOtherTags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 p-2 bg-muted/40 rounded-md border border-border min-h-[36px]">
                   {formData.demiGodOtherTags.map(tag => (
@@ -783,7 +792,6 @@ export default function Page() {
                 </div>
               )}
 
-              {/* Input field */}
               <Input
                 ref={demiGodInputRef}
                 placeholder="Type a Demi God name and press Enter..."
@@ -799,7 +807,6 @@ export default function Page() {
             </div>
           )}
 
-          {/* Selected summary pills — all demi gods including "Other" tags */}
           {(formData.demiGods.filter(d => d !== "Other").length > 0 || formData.demiGodOtherTags.length > 0) && (
             <div className="rounded-md bg-orange-50 border border-orange-200 p-3">
               <p className="text-xs font-semibold text-orange-700 mb-1">Selected:</p>
@@ -839,8 +846,16 @@ export default function Page() {
                 type="button"
                 variant={formData.ancestralChallenge === "no" ? "default" : "outline"}
                 onClick={() => {
-                  setFormData(p => ({ ...p, ancestralChallenge: "no", ancestralChallengeNotes: "" }));
-                  setErrors(e => ({ ...e, ancestralChallenge: "" }));
+                  setFormData(p => ({
+                    ...p,
+                    ancestralChallenge: "no",
+                    ancestralChallengeNotes: "",
+                    demiGods: p.demiGods.filter(d => d !== NAGA_DEFAULT),
+                    hasNagaMoolaSthana: "",
+                    nagaMoolaSthanaAddress: "",
+                    nagaMoolaSthanaInfo: "",
+                  }));
+                  setErrors(e => ({ ...e, ancestralChallenge: "", hasNagaMoolaSthana: "", nagaMoolaSthanaAddress: "" }));
                 }}
               >
                 No
@@ -849,8 +864,16 @@ export default function Page() {
                 type="button"
                 variant={formData.ancestralChallenge === "yes" ? "default" : "outline"}
                 onClick={() => {
-                  setFormData(p => ({ ...p, ancestralChallenge: "yes" }));
-                  setErrors(e => ({ ...e, ancestralChallenge: "" }));
+                  setFormData(p => ({
+                    ...p,
+                    ancestralChallenge: "yes",
+                    demiGods: p.demiGods.includes(NAGA_DEFAULT) ? p.demiGods : [...p.demiGods, NAGA_DEFAULT],
+                  }));
+                  setErrors(e => ({
+                    ...e,
+                    ancestralChallenge: "",
+                    demiGods: "",
+                  }));
                 }}
               >
                 Yes
@@ -861,23 +884,72 @@ export default function Page() {
 
           {formData.ancestralChallenge === "yes" && (
             <div className="space-y-4">
-              <div className="rounded-md bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
-                <span className="font-semibold">Default Demi God assigned: </span>{NAGA_DEFAULT}
-              </div>
               <div className="space-y-2">
-                <Label>Common Relative Known Names <span className="text-destructive">*</span></Label>
-                <Textarea
-                  placeholder="Enter known relative names to help trace lineage..."
-                  rows={3}
-                  value={formData.ancestralChallengeNotes}
-                  onChange={e => {
-                    setFormData(p => ({ ...p, ancestralChallengeNotes: e.target.value }));
-                    setErrors(ev => ({ ...ev, ancestralChallengeNotes: "" }));
-                  }}
-                  className={`resize-none${errors.ancestralChallengeNotes ? " border-destructive" : ""}`}
-                />
-                {errors.ancestralChallengeNotes && <p className="text-xs text-destructive">{errors.ancestralChallengeNotes}</p>}
+                <Label>
+                  Do you know where is your Naga Moola Sthana?{" "}
+                  <span className="text-destructive">*</span>
+                </Label>
+                <div className="flex gap-3 mt-2">
+                  <Button
+                    type="button"
+                    variant={formData.hasNagaMoolaSthana === "yes" ? "default" : "outline"}
+                    onClick={() => {
+                      setFormData(p => ({ ...p, hasNagaMoolaSthana: "yes" }));
+                      setErrors(e => ({ ...e, hasNagaMoolaSthana: "" }));
+                    }}
+                  >
+                    Yes
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={formData.hasNagaMoolaSthana === "no" ? "default" : "outline"}
+                    onClick={() => {
+                      setFormData(p => ({ ...p, hasNagaMoolaSthana: "no", nagaMoolaSthanaAddress: "" }));
+                      setErrors(e => ({ ...e, hasNagaMoolaSthana: "", nagaMoolaSthanaAddress: "" }));
+                    }}
+                  >
+                    No
+                  </Button>
+                </div>
+                {errors.hasNagaMoolaSthana && <p className="text-xs text-destructive">{errors.hasNagaMoolaSthana}</p>}
               </div>
+
+              {formData.hasNagaMoolaSthana === "yes" && (
+                <div className="space-y-2">
+                  <Label>Address / Location of Naga Moola Sthana <span className="text-destructive">*</span></Label>
+                  <Textarea
+                    placeholder="Enter complete address / location details of your Naga Moola Sthana..."
+                    rows={3}
+                    value={formData.nagaMoolaSthanaAddress}
+                    onChange={e => {
+                      setFormData(p => ({ ...p, nagaMoolaSthanaAddress: e.target.value }));
+                      setErrors(ev => ({ ...ev, nagaMoolaSthanaAddress: "" }));
+                    }}
+                    className={`resize-none${errors.nagaMoolaSthanaAddress ? " border-destructive" : ""}`}
+                  />
+                  {errors.nagaMoolaSthanaAddress && <p className="text-xs text-destructive">{errors.nagaMoolaSthanaAddress}</p>}
+                </div>
+              )}
+
+              {formData.hasNagaMoolaSthana === "no" && (
+                <div className="space-y-3">
+                  <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+                    If you don't know the exact location right now, that's completely okay. You can provide any known information below or leave it blank.
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Any Known Details or Family Clues (Optional)</Label>
+                    <Textarea
+                      placeholder="Enter any approximate area, elder names, or notes if known..."
+                      rows={2}
+                      value={formData.nagaMoolaSthanaInfo}
+                      onChange={e => {
+                        setFormData(p => ({ ...p, nagaMoolaSthanaInfo: e.target.value }));
+                      }}
+                      className="resize-none"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

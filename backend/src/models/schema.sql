@@ -115,6 +115,7 @@ CREATE TABLE public.personal_details (
   surname_in_use character varying,
   surname_as_per_gotra character varying,
   has_disability character varying,
+  disability_details text,
   is_part_of_sangha character varying,
   sangha_name character varying,
   sangha_tenure character varying,
@@ -145,6 +146,9 @@ CREATE TABLE public.religious_details (
   demi_god_other text,
   ancestral_challenge character varying,
   ancestral_challenge_notes text,
+  has_naga_moola_sthana character varying,
+  naga_moola_sthana_address text,
+  naga_moola_sthana_info text,
   CONSTRAINT religious_details_pkey PRIMARY KEY (id),
   CONSTRAINT religious_details_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
@@ -248,6 +252,9 @@ CREATE TABLE public.economic_details (
   fac_agricultural_land boolean DEFAULT false,
   fac_two_wheeler boolean DEFAULT false,
   fac_car boolean DEFAULT false,
+  fac_two_or_more_houses boolean DEFAULT false,
+  fac_two_or_more_cars boolean DEFAULT false,
+  fac_two_or_more_two_wheelers boolean DEFAULT false,
   created_at timestamp without time zone DEFAULT now(),
   updated_at timestamp without time zone DEFAULT now(),
   CONSTRAINT economic_details_pkey PRIMARY KEY (id),
@@ -277,6 +284,7 @@ CREATE TABLE public.member_documents (
   voter_id_coverage USER-DEFINED,
   land_doc_coverage USER-DEFINED,
   dl_coverage USER-DEFINED,
+  passport_coverage USER-DEFINED,
   CONSTRAINT member_documents_pkey PRIMARY KEY (id),
   CONSTRAINT member_documents_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );

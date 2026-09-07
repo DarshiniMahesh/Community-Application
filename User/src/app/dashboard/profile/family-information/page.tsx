@@ -263,17 +263,23 @@ export default function Page() {
         {/* Date of Birth */}
         <TableCell>
           <Input
-  type="date"
-  value={member.dob}
-  min="1000-01-01" max="9999-12-31"
-  onChange={(e) => {
-    const val = e.target.value;
-    if (val && val.split("-")[0].length !== 4) return;
-    isSelf ? updateSelf("dob", val) : update(member.id, "dob", val);
-  }}
-  className="h-9"
-  readOnly={isSelf}
-/>
+            type="date"
+            value={member.dob}
+            min="1900-01-01"
+            max={new Date().toISOString().split("T")[0]}
+            onClick={(e) => {
+              if (!isSelf) {
+                try { (e.currentTarget as HTMLInputElement).showPicker?.(); } catch {}
+              }
+            }}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val && val.split("-")[0].length !== 4) return;
+              isSelf ? updateSelf("dob", val) : update(member.id, "dob", val);
+            }}
+            className={`h-9 ${isSelf ? "" : "cursor-pointer"}`}
+            readOnly={isSelf}
+          />
         </TableCell>
 
         {/* Gender */}
@@ -409,7 +415,7 @@ export default function Page() {
               >
                 <RadioGroupItem value="joint" id="joint" />
                 <Label htmlFor="joint" className="font-normal cursor-pointer">
-                  Joint Family <span className="text-xs text-muted-foreground ml-1">(All members)</span>
+                  Joint Family <span className="text-xs text-muted-foreground ml-1">(Larger Family with Grandparents/Uncles/Aunts/Cousins)</span>
                 </Label>
               </div>
             </RadioGroup>

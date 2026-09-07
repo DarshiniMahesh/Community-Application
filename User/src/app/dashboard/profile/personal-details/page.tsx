@@ -31,7 +31,9 @@ export default function Page() {
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting]           = useState(false);
   const [canReset, setCanReset]             = useState(false);
-  const [userContact, setUserContact]       = useState({ email: "", phone: "" });
+  const [registeredContact, setRegisteredContact] = useState({ email: "", phone: "" });
+
+  const todayStr = new Date().toISOString().split("T")[0];
 
   const [formData, setFormData] = useState({
     firstName: "", middleName: "", lastName: "",
@@ -40,6 +42,9 @@ export default function Page() {
     fathersName: "", mothersName: "",
     maritalStatus: "",
     hasDisability: "",
+    disabilityDetails: "",
+    email: "",
+    phone: "",
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -51,11 +56,15 @@ export default function Page() {
     ]).then(([full, meta]) => {
       const s      = full.step1;
       const status = meta.status as string;
+      const metaEmail = (meta as Record<string, string>).email || "";
+      const metaPhone = (meta as Record<string, string>).phone || "";
+
       setCanReset(status === "draft" || status === "changes_requested" || status === "approved");
-      setUserContact({
-        email: (meta as Record<string, string>).email || "",
-        phone: (meta as Record<string, string>).phone || "",
+      setRegisteredContact({
+        email: metaEmail,
+        phone: metaPhone,
       });
+
       if (s) {
         setFormData({
           firstName:         s.first_name || "",
@@ -63,15 +72,24 @@ export default function Page() {
           lastName:          s.last_name || "",
           gender:            s.gender || "",
           dateOfBirth: s.date_of_birth
-          ? String(s.date_of_birth).slice(0, 10)
-          : "",
+            ? String(s.date_of_birth).slice(0, 10)
+            : "",
           surnameInUse:      s.surname_in_use || "",
           surnameAsPerGotra: s.surname_as_per_gotra || "",
           fathersName:       s.fathers_name || "",
           mothersName:       s.mothers_name || "",
           maritalStatus:     s.marital_status || "",
-          hasDisability:     s.has_disability ? "yes" : "no",
+          hasDisability:     s.has_disability ? (s.has_disability === "yes" || s.has_disability === true ? "yes" : "no") : "",
+          disabilityDetails: s.disability_details || "",
+          email:             metaEmail,
+          phone:             metaPhone,
         });
+      } else {
+        setFormData(p => ({
+          ...p,
+          email: metaEmail,
+          phone: metaPhone,
+        }));
       }
     }).catch(() => {});
   }, []);
@@ -87,7 +105,10 @@ export default function Page() {
     fathers_name:         formData.fathersName || undefined,
     mothers_name:         formData.mothersName || undefined,
     marital_status:       formData.maritalStatus,
-    has_disability:       formData.hasDisability === "yes",
+    has_disability:       formData.hasDisability === "yes" ? "yes" : formData.hasDisability === "no" ? "no" : undefined,
+    disability_details:   formData.hasDisability === "yes" ? formData.disabilityDetails : undefined,
+    email:                formData.email || undefined,
+    phone:                formData.phone || undefined,
   });
 
   useAutoSave("/users/profile/step1", buildPayload, [formData]);
@@ -100,6 +121,9 @@ export default function Page() {
     if (!formData.dateOfBirth)       e.dateOfBirth    = "Date of birth is required";
     if (!formData.maritalStatus)     e.maritalStatus  = "Please select marital status";
     if (!formData.hasDisability)     e.hasDisability  = "Please select disability status";
+    if (formData.hasDisability === "yes" && !formData.disabilityDetails.trim()) {
+      e.disabilityDetails = "Please describe the disability";
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -129,7 +153,9 @@ export default function Page() {
         gender: "", dateOfBirth: "",
         surnameInUse: "", surnameAsPerGotra: "",
         fathersName: "", mothersName: "",
-        maritalStatus: "", hasDisability: "",
+        maritalStatus: "", hasDisability: "", disabilityDetails: "",
+        email: registeredContact.email,
+        phone: registeredContact.phone,
       });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
@@ -164,6 +190,58 @@ export default function Page() {
 
       <Stepper steps={steps} currentStep={0} />
 
+      {/* ── Contact Information ── */}
+      <Card className="shadow-sm border-l-4 border-l-primary">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <User className="h-5 w-5 text-primary" />
+            <CardTitle>Contact Information</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="contactEmail">Email Address</Label>
+                {registeredContact.email && (
+                  <span className="text-[11px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                    Login Email
+                  </span>
+                )}
+              </div>
+              <Input
+                id="contactEmail"
+                type="email"
+                placeholder="Enter email address"
+                value={formData.email}
+                onChange={e => set("email", e.target.value)}
+                readOnly={!!registeredContact.email}
+                className={registeredContact.email ? "bg-muted/50 cursor-not-allowed" : ""}
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="contactPhone">Phone Number</Label>
+                {registeredContact.phone && (
+                  <span className="text-[11px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                    Login Phone
+                  </span>
+                )}
+              </div>
+              <Input
+                id="contactPhone"
+                type="tel"
+                placeholder="Enter 10-digit mobile number"
+                value={formData.phone}
+                onChange={e => set("phone", e.target.value)}
+                readOnly={!!registeredContact.phone}
+                className={registeredContact.phone ? "bg-muted/50 cursor-not-allowed" : ""}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="shadow-sm border-l-4 border-l-primary">
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -172,23 +250,6 @@ export default function Page() {
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          {(userContact.email || userContact.phone) && (
-            <div className="p-3 bg-muted/50 rounded-lg grid md:grid-cols-2 gap-4">
-              {userContact.email && (
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Registered Email</Label>
-                  <p className="text-sm font-medium text-foreground">{userContact.email}</p>
-                </div>
-              )}
-              {userContact.phone && (
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Registered Phone</Label>
-                  <p className="text-sm font-medium text-foreground">{userContact.phone}</p>
-                </div>
-              )}
-            </div>
-          )}
-
           <div className="grid md:grid-cols-3 gap-4">
             {([["firstName","First Name",true],["middleName","Middle Name",false],["lastName","Last Name",true]] as [string,string,boolean][]).map(([key, label, req]) => (
               <div key={key} className="space-y-2">
@@ -216,21 +277,29 @@ export default function Page() {
               {errors.gender && <p className="text-xs text-destructive">{errors.gender}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="dateOfBirth">Date of Birth <span className="text-destructive">*</span></Label>
-              <Input id="dateOfBirth" type="date" value={formData.dateOfBirth}
-  min="1000-01-01" max="9999-12-31"
-  onChange={e => {
-    const val = e.target.value;
-    if (val && val.split("-")[0].length !== 4) return;
-    set("dateOfBirth", val);
-  }}
-  className={errors.dateOfBirth ? "border-destructive" : ""} />
+              <div className="flex items-center justify-between">
+                <Label htmlFor="dateOfBirth">Date of Birth <span className="text-destructive">*</span></Label>
+                <span className="text-[11px] text-muted-foreground font-normal">DD/MM/YYYY</span>
+              </div>
+              <Input
+                id="dateOfBirth"
+                type="date"
+                value={formData.dateOfBirth}
+                min="1900-01-01"
+                max={todayStr}
+                onClick={(e) => e.currentTarget.showPicker?.()}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val && val.split("-")[0].length !== 4) return;
+                  set("dateOfBirth", val);
+                }}
+                className={errors.dateOfBirth ? "border-destructive cursor-pointer" : "cursor-pointer"}
+              />
               {errors.dateOfBirth && <p className="text-xs text-destructive">{errors.dateOfBirth}</p>}
             </div>
           </div>
 
           <div className="grid md:grid-cols-2 gap-4">
-          
             <div className="space-y-2">
               <Label htmlFor="fathersName">Father&apos;s Name</Label>
               <Input id="fathersName" placeholder="Enter father's name" value={formData.fathersName}
@@ -259,11 +328,11 @@ export default function Page() {
               onValueChange={v => { setFormData(p => ({ ...p, maritalStatus: v })); setErrors(e => ({ ...e, maritalStatus: "" })); }}
               className="flex gap-6">
               {[
-  { label: "Single (Never Married)", value: "single_never_married" },
-  { label: "Married",                value: "married" },
-  { label: "Single / Divorced",      value: "single_divorced" },
-  { label: "Single / Widowed",       value: "single_widowed" },
-].map(opt => (
+                { label: "Single (Never Married)", value: "single_never_married" },
+                { label: "Married",                value: "married" },
+                { label: "Single / Divorced",      value: "single_divorced" },
+                { label: "Single / Widowed",       value: "single_widowed" },
+              ].map(opt => (
                 <div key={opt.value}
                   className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 cursor-pointer transition-all ${formData.maritalStatus === opt.value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
                   onClick={() => { setFormData(p => ({ ...p, maritalStatus: opt.value })); setErrors(e => ({ ...e, maritalStatus: "" })); }}>
@@ -284,7 +353,7 @@ export default function Page() {
             <CardTitle>Disability Status</CardTitle>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="space-y-3">
             <Label>Do you have any disability? <span className="text-destructive">*</span></Label>
             <RadioGroup value={formData.hasDisability} onValueChange={v => set("hasDisability", v)} className="flex gap-6">
@@ -299,6 +368,23 @@ export default function Page() {
             </RadioGroup>
             {errors.hasDisability && <p className="text-xs text-destructive">{errors.hasDisability}</p>}
           </div>
+
+          {/* Textbox shown only when Yes is clicked */}
+          {formData.hasDisability === "yes" && (
+            <div className="space-y-2 pt-2 border-t border-border">
+              <Label htmlFor="disabilityDetails">
+                Please describe the type of disability <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="disabilityDetails"
+                placeholder="e.g. Visual impairment, Physical disability, Hearing impairment, etc."
+                value={formData.disabilityDetails}
+                onChange={e => set("disabilityDetails", e.target.value)}
+                className={errors.disabilityDetails ? "border-destructive" : ""}
+              />
+              {errors.disabilityDetails && <p className="text-xs text-destructive">{errors.disabilityDetails}</p>}
+            </div>
+          )}
         </CardContent>
       </Card>
 

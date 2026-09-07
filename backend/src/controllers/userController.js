@@ -51,6 +51,17 @@ const updateProfilePct = async (profileId, stepKey, pct, completed) => {
      WHERE id=$3`,
     [pct, completed, profileId]
   );
+
+  const p = await pool.query(
+    'SELECT step1_personal_pct, step2_religious_pct, step3_family_pct, step4_location_pct, step5_education_pct, step6_economic_pct FROM profiles WHERE id=$1',
+    [profileId]
+  );
+  if (p.rows.length > 0) {
+    const row = p.rows[0];
+    const sum = (row.step1_personal_pct || 0) + (row.step2_religious_pct || 0) + (row.step3_family_pct || 0) + (row.step4_location_pct || 0) + (row.step5_education_pct || 0) + (row.step6_economic_pct || 0);
+    const overall = Math.round(sum / 6);
+    await pool.query('UPDATE profiles SET overall_completion_pct=$1 WHERE id=$2', [overall, profileId]);
+  }
 };
 
 // ─── GET /users/profile ──────────────────────────────────────
@@ -145,6 +156,7 @@ const getFullProfile = async (req, res) => {
       voter_id_coverage:  row.voter_id_coverage  ?? null,
       land_doc_coverage:  row.land_doc_coverage  ?? null,
       dl_coverage:        row.dl_coverage        ?? null,
+      passport_coverage:  row.passport_coverage  ?? null,
     }));
 
     res.json({
@@ -188,11 +200,24 @@ const saveStep1 = async (req, res) => {
       fathers_name, mothers_name, mothers_maiden_name,
       marital_status,
       wife_name, wife_maiden_name, husbands_name,
-      has_disability,
+      has_disability, disability_details,
+      email, phone,
     } = req.body;
 
     if (!first_name || !last_name || !gender) {
       return res.status(400).json({ message: 'first_name, last_name and gender are required' });
+    }
+
+    // Sync contact info with users table if updated
+    if (email || phone) {
+      await pool.query(
+        `UPDATE users SET
+           email = COALESCE(NULLIF($1, ''), email),
+           phone = COALESCE(NULLIF($2, ''), phone),
+           updated_at = NOW()
+         WHERE id = $3`,
+        [email ? email.trim() : null, phone ? phone.trim() : null, userId]
+      );
     }
 
     const exists = await pool.query(
@@ -207,9 +232,9 @@ const saveStep1 = async (req, res) => {
            surname_in_use=$6, surname_as_per_gotra=$7,
            fathers_name=$8, mothers_name=$9, mothers_maiden_name=$10,
            marital_status=$11, wife_name=$12, wife_maiden_name=$13, husbands_name=$14,
-           has_disability=$15,
+           has_disability=$15, disability_details=$16,
            updated_at=NOW()
-         WHERE profile_id=$16`,
+         WHERE profile_id=$17`,
         [
           first_name, middle_name || null, last_name,
           gender, cleanDOB(date_of_birth),
@@ -217,6 +242,7 @@ const saveStep1 = async (req, res) => {
           fathers_name || null, mothers_name || null, mothers_maiden_name || null,
           marital_status || null, wife_name || null, wife_maiden_name || null, husbands_name || null,
           has_disability || null,
+          has_disability === 'yes' || has_disability === true ? (disability_details || null) : null,
           pid,
         ]
       );
@@ -228,8 +254,8 @@ const saveStep1 = async (req, res) => {
             surname_in_use, surname_as_per_gotra,
             fathers_name, mothers_name, mothers_maiden_name,
             marital_status, wife_name, wife_maiden_name, husbands_name,
-            has_disability)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+            has_disability, disability_details)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
         [
           pid,
           first_name, middle_name || null, last_name,
@@ -238,6 +264,7 @@ const saveStep1 = async (req, res) => {
           fathers_name || null, mothers_name || null, mothers_maiden_name || null,
           marital_status || null, wife_name || null, wife_maiden_name || null, husbands_name || null,
           has_disability || null,
+          has_disability === 'yes' || has_disability === true ? (disability_details || null) : null,
         ]
       );
     }
@@ -271,6 +298,7 @@ const saveStep2 = async (req, res) => {
       priest_name, priest_location,
       demi_god_challenge, demi_gods, demi_god_other,
       ancestral_challenge, ancestral_challenge_notes,
+      has_naga_moola_sthana, naga_moola_sthana_address, naga_moola_sthana_info,
     } = req.body;
 
     const exists = await pool.query(
@@ -287,8 +315,9 @@ const saveStep2 = async (req, res) => {
            priest_name=$9, priest_location=$10,
            demi_god_challenge=$11, demi_gods=$12, demi_god_other=$13,
            ancestral_challenge=$14, ancestral_challenge_notes=$15,
+           has_naga_moola_sthana=$16, naga_moola_sthana_address=$17, naga_moola_sthana_info=$18,
            updated_at=NOW()
-         WHERE profile_id=$16`,
+         WHERE profile_id=$19`,
         [
           gotra || null, pravara || null,
           upanama_general || null, upanama_proper || null,
@@ -300,6 +329,9 @@ const saveStep2 = async (req, res) => {
           demi_god_challenge === 'yes' ? (demi_god_other || null) : null,
           ancestral_challenge || null,
           ancestral_challenge === 'yes' ? (ancestral_challenge_notes || null) : null,
+          has_naga_moola_sthana || null,
+          has_naga_moola_sthana === 'yes' ? (naga_moola_sthana_address || null) : null,
+          has_naga_moola_sthana === 'no' ? (naga_moola_sthana_info || null) : null,
           pid,
         ]
       );
@@ -312,8 +344,9 @@ const saveStep2 = async (req, res) => {
             surname_in_use, surname_as_per_gotra,
             priest_name, priest_location,
             demi_god_challenge, demi_gods, demi_god_other,
-            ancestral_challenge, ancestral_challenge_notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+            ancestral_challenge, ancestral_challenge_notes,
+            has_naga_moola_sthana, naga_moola_sthana_address, naga_moola_sthana_info)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
         [
           pid,
           gotra || null, pravara || null,
@@ -326,6 +359,9 @@ const saveStep2 = async (req, res) => {
           demi_god_challenge === 'yes' ? (demi_god_other || null) : null,
           ancestral_challenge || null,
           ancestral_challenge === 'yes' ? (ancestral_challenge_notes || null) : null,
+          has_naga_moola_sthana || null,
+          has_naga_moola_sthana === 'yes' ? (naga_moola_sthana_address || null) : null,
+          has_naga_moola_sthana === 'no' ? (naga_moola_sthana_info || null) : null,
         ]
       );
     }
@@ -621,15 +657,18 @@ const saveStep6 = async (req, res) => {
            self_income=$1, family_income=$2,
            fac_rented_house=$3, fac_own_house=$4, fac_agricultural_land=$5,
            fac_two_wheeler=$6, fac_car=$7,
-           inv_fixed_deposits=$8, inv_mutual_funds_sip=$9,
-           inv_shares_demat=$10, inv_others=$11,
+           fac_two_or_more_houses=$8, fac_two_or_more_cars=$9, fac_two_or_more_two_wheelers=$10,
+           inv_fixed_deposits=$11, inv_mutual_funds_sip=$12,
+           inv_shares_demat=$13, inv_others=$14,
            updated_at=NOW()
-         WHERE profile_id=$12`,
+         WHERE profile_id=$15`,
         [
           economic.self_income || null, economic.family_income || null,
           economic.fac_rented_house || false, economic.fac_own_house || false,
           economic.fac_agricultural_land || false, economic.fac_two_wheeler || false,
           economic.fac_car || false,
+          economic.fac_two_or_more_houses || false, economic.fac_two_or_more_cars || false,
+          economic.fac_two_or_more_two_wheelers || false,
           economic.inv_fixed_deposits || false, economic.inv_mutual_funds_sip || false,
           economic.inv_shares_demat || false, economic.inv_others || false,
           pid,
@@ -641,15 +680,18 @@ const saveStep6 = async (req, res) => {
            (profile_id, self_income, family_income,
             fac_rented_house, fac_own_house, fac_agricultural_land,
             fac_two_wheeler, fac_car,
+            fac_two_or_more_houses, fac_two_or_more_cars, fac_two_or_more_two_wheelers,
             inv_fixed_deposits, inv_mutual_funds_sip,
             inv_shares_demat, inv_others)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [
           pid,
           economic.self_income || null, economic.family_income || null,
           economic.fac_rented_house || false, economic.fac_own_house || false,
           economic.fac_agricultural_land || false, economic.fac_two_wheeler || false,
           economic.fac_car || false,
+          economic.fac_two_or_more_houses || false, economic.fac_two_or_more_cars || false,
+          economic.fac_two_or_more_two_wheelers || false,
           economic.inv_fixed_deposits || false, economic.inv_mutual_funds_sip || false,
           economic.inv_shares_demat || false, economic.inv_others || false,
         ]
@@ -693,8 +735,8 @@ const saveStep6 = async (req, res) => {
         `INSERT INTO member_documents
           (profile_id, member_name, member_relation, sort_order,
            aadhaar_coverage, pan_coverage,
-           voter_id_coverage, land_doc_coverage, dl_coverage)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+           voter_id_coverage, land_doc_coverage, dl_coverage, passport_coverage)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [
           pid,
           doc.member_name     || null,
@@ -705,6 +747,7 @@ const saveStep6 = async (req, res) => {
           toDocEnum(doc.voter_id_coverage),
           toDocEnum(doc.land_doc_coverage),
           toDocEnum(doc.dl_coverage),
+          toDocEnum(doc.passport_coverage),
         ]
       );
     }
@@ -963,15 +1006,6 @@ const submitApplication = async (req, res) => {
 
     if (['submitted', 'under_review'].includes(status))
       return res.status(409).json({ message: 'Application already submitted and under review' });
-
-    // ✅ CHANGED: require Step 1 to be fully complete (100%), not just the
-    // looser 80% "completed" threshold used to unlock navigation elsewhere.
-    if (step1_personal_pct !== 100) {
-      return res.status(400).json({
-        message: 'Please complete Step 1 (Personal Details) fully before submitting.',
-        incompleteStep: 'step1',
-      });
-    }
 
     const sanghaCheck = await pool.query(
       `SELECT id FROM sanghas WHERE id = $1 AND status = 'approved'`,
@@ -1242,16 +1276,22 @@ const getUserActivityLogs = async (req, res) => {
 // ─── HELPERS ─────────────────────────────────────────────────
 
 function calcStep1Pct(data) {
-  const required = ['first_name', 'last_name', 'gender'];
-  const optional = ['date_of_birth', 'fathers_name', 'mothers_name', 'surname_in_use'];
-  const r = required.filter(f => data[f]).length;
-  const o = optional.filter(f => data[f]).length;
-  return Math.round((r / required.length) * 70 + (o / optional.length) * 30);
+  const fields = ['first_name', 'last_name', 'gender', 'date_of_birth', 'marital_status'];
+  const r = fields.filter(f => data[f] !== undefined && data[f] !== null && String(data[f]).trim() !== '').length;
+  const hasDisability = data.has_disability !== undefined && data.has_disability !== null && data.has_disability !== '';
+  const total = fields.length + 1;
+  const filled = r + (hasDisability ? 1 : 0);
+  return Math.round((filled / total) * 100);
 }
 
 function calcStep2Pct(data) {
-  const fields = ['gotra', 'pravara', 'upanama_general', 'upanama_proper', 'kuladevata', 'demi_god_challenge'];
-  return Math.round((fields.filter(f => data[f]).length / fields.length) * 100);
+  const fields = ['surname_in_use', 'gotra', 'pravara', 'upanama_general', 'upanama_proper', 'kuladevata', 'ancestral_challenge'];
+  const r = fields.filter(f => data[f] !== undefined && data[f] !== null && String(data[f]).trim() !== '').length;
+  const hasDemiGods = Array.isArray(data.demi_gods) && data.demi_gods.length > 0;
+  const hasNaga = data.has_naga_moola_sthana !== undefined && data.has_naga_moola_sthana !== null && String(data.has_naga_moola_sthana).trim() !== '';
+  const total = fields.length + 2;
+  const filled = r + (hasDemiGods ? 1 : 0) + (hasNaga ? 1 : 0);
+  return Math.round((filled / total) * 100);
 }
 
 function deduplicateMembers(rows) {

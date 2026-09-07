@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Stepper } from "../Stepper";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -583,7 +584,11 @@ const isComplete = (m: MemberData): boolean => {
                           <Input
                             type="date"
                             value={edu.startDate}
+                            min="1900-01-01"
+                            max={new Date().toISOString().split("T")[0]}
+                            onClick={(e) => { try { (e.currentTarget as HTMLInputElement).showPicker?.(); } catch {} }}
                             onChange={e => updateEducation(member.id, edu.id, "startDate", e.target.value)}
+                            className="cursor-pointer"
                           />
                         </div>
                         <div className="space-y-1.5">
@@ -591,7 +596,11 @@ const isComplete = (m: MemberData): boolean => {
                           <Input
                             type="date"
                             value={edu.endDate}
+                            min="1900-01-01"
+                            max="2099-12-31"
+                            onClick={(e) => { try { (e.currentTarget as HTMLInputElement).showPicker?.(); } catch {} }}
                             onChange={e => updateEducation(member.id, edu.id, "endDate", e.target.value)}
+                            className="cursor-pointer"
                           />
                         </div>
                       </div>
@@ -672,7 +681,7 @@ const isComplete = (m: MemberData): boolean => {
                 {/* Q2: Currently Working? — FIX: always shown, fully independent */}
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">
-                    Are you currently working / have a profession? <span className="text-destructive">*</span>
+                    Are you currently working / have a business? <span className="text-destructive">*</span>
                   </Label>
                   {errors[member.id]?.isCurrentlyWorking && (
                     <p className="text-xs text-destructive">{errors[member.id].isCurrentlyWorking}</p>
@@ -706,8 +715,7 @@ const isComplete = (m: MemberData): boolean => {
                 </div>
               </div>
 
-              {/* ══ PROFESSION ══ — FIX: always shown, no condition */}
-          {/* ══ PROFESSION ══ — FIX: only shown when currently working */}
+              {/* ══ PROFESSION ══ — FIX: only shown when currently working */}
               {showProfession(member) && (
                 <div className="space-y-4">
                   <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground border-b pb-2">Profession</p>
@@ -750,10 +758,12 @@ const isComplete = (m: MemberData): boolean => {
                         Brief Profile{" "}
                         <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
                       </Label>
-                      <Input
+                      <Textarea
                         placeholder="Short note about work or achievements"
+                        rows={3}
                         value={member.briefProfile}
                         onChange={e => updateMember(member.id, "briefProfile", e.target.value)}
+                        className="resize-none"
                       />
                     </div>
                   </div>
