@@ -16,7 +16,7 @@ const baseNavigation = [
   { name: "Dashboard",             href: "/dashboard",                 icon: LayoutDashboard, requiresApproval: false },
   { name: "My Profile",            href: "/dashboard/profile",         icon: User,             requiresApproval: false },
   { name: "Status",                href: "/dashboard/status",          icon: CheckCircle,      requiresApproval: false },
-  { name: "apply to scholarships", href: "/dashboard/userscholarship", icon: ScholarshipIcon,  requiresApproval: true },
+  { name: "Apply to scholarships", href: "/dashboard/userscholarship", icon: ScholarshipIcon,  requiresApproval: true },
   { name: "My Career",             href: "/dashboard/my-career",       icon: Briefcase,        requiresApproval: true },
 ];
 
