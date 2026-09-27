@@ -43,6 +43,7 @@ export default function SanghaLoginPage() {
 
   // Login OTP state
   const [loginOtp, setLoginOtp]               = useState("");
+  const [loginOtpSentTo, setLoginOtpSentTo]   = useState("");
   const [loginOtpError, setLoginOtpError]     = useState("");
   const [loginOtpLoading, setLoginOtpLoading] = useState(false);
 
@@ -50,6 +51,7 @@ export default function SanghaLoginPage() {
   const [fpId, setFpId]                   = useState("");
   const [fpIdError, setFpIdError]         = useState("");
   const [fpOtp, setFpOtp]                 = useState("");
+  const [fpOtpSentTo, setFpOtpSentTo]     = useState("");
   const [fpOtpError, setFpOtpError]       = useState("");
   const [fpNewPw, setFpNewPw]             = useState("");
   const [fpConfirmPw, setFpConfirmPw]     = useState("");
@@ -82,11 +84,12 @@ export default function SanghaLoginPage() {
     if (!validateLogin()) return;
     setLoginLoading(true);
     try {
-      await api.post("/sangha/login/send-otp", {
+      const result = await api.post("/sangha/login/send-otp", {
         identifier: identifier.trim(),
         password,
       });
-      toast.success("Credentials verified! OTP sent.");
+      setLoginOtpSentTo(result.sentTo || identifier.trim());
+      toast.success(`Credentials verified! OTP sent to ${result.sentTo || identifier.trim()}`);
       setStep("login-otp");
     } catch (err: any) {
       toast.error(err.message || "Login failed");
@@ -122,11 +125,12 @@ export default function SanghaLoginPage() {
 
   const handleResendLoginOtp = async () => {
     try {
-      await api.post("/sangha/login/send-otp", {
+      const result = await api.post("/sangha/login/send-otp", {
         identifier: identifier.trim(),
         password,
       });
-      toast.success("OTP resent!");
+      setLoginOtpSentTo(result.sentTo || identifier.trim());
+      toast.success(`OTP resent to ${result.sentTo || identifier.trim()}`);
     } catch (err: any) {
       toast.error(err.message || "Failed to resend OTP");
     }
@@ -143,8 +147,9 @@ export default function SanghaLoginPage() {
     setFpIdError("");
     setFpLoading(true);
     try {
-      await api.post("/sangha/forgot-password/send-otp", { identifier: val });
-      toast.success("OTP sent!");
+      const result = await api.post("/sangha/forgot-password/send-otp", { identifier: val });
+      setFpOtpSentTo(result.sentTo || val);
+      toast.success(`OTP sent to ${result.sentTo || val}`);
       setStep("forgot-otp");
     } catch (err: any) {
       toast.error(err.message || "Failed to send OTP");
@@ -282,7 +287,7 @@ export default function SanghaLoginPage() {
               </div>
               <CardTitle className="text-2xl">Enter OTP</CardTitle>
               <CardDescription>
-                OTP sent to <span className="font-medium text-foreground">{identifier}</span>
+                OTP sent to <span className="font-medium text-foreground">{loginOtpSentTo || identifier}</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -365,7 +370,7 @@ export default function SanghaLoginPage() {
               </div>
               <CardTitle className="text-2xl">Verify OTP</CardTitle>
               <CardDescription>
-                OTP sent to <span className="font-medium text-foreground">{fpId}</span>
+                OTP sent to <span className="font-medium text-foreground">{fpOtpSentTo || fpId}</span>
               </CardDescription>
             </CardHeader>
             <CardContent>

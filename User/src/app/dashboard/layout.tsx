@@ -148,12 +148,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               );
             })}
           </nav>
-          <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-border bg-secondary/50">
-            <div className="text-xs text-muted-foreground text-center">
-              <p className="font-medium">Community Portal</p>
-              <p className="mt-1">Version 1.0</p>
-            </div>
-          </div>
         </aside>
 
         {sidebarOpen && (

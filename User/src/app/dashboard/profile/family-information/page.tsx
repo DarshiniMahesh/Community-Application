@@ -15,6 +15,7 @@ import { ArrowLeft, ArrowRight, Plus, Trash2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
+import { useProfileFocus } from "@/lib/useProfileFocus";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -61,6 +62,7 @@ const calcAge = (dob: string) => {
 };
 
 export default function Page() {
+  useProfileFocus();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [familyType, setFamilyType] = useState("");
@@ -394,7 +396,7 @@ export default function Page() {
       <Stepper steps={steps} currentStep={2} />
 
       {/* Family Type Card */}
-      <Card className="shadow-sm">
+      <Card id="section-family-type" className="shadow-sm">
         <CardHeader><CardTitle>Family Type</CardTitle></CardHeader>
         <CardContent>
           <div className="space-y-3">
@@ -437,7 +439,7 @@ export default function Page() {
 
       {/* Family Members Table — shown only after type is selected */}
       {familyType && (
-        <Card className="shadow-sm">
+        <Card id="section-family-members" className="shadow-sm">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Family Members</CardTitle>

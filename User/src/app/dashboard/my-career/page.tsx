@@ -53,7 +53,7 @@ interface ReferralApplication {
 }
 
 const WORK_SETTINGS = ["On-site", "Hybrid", "Remote"];
-const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Internship", "Volunteer", "Contract"];
+const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Internship", "Volunteer", "Contract", "Freelance Consultant"];
 
 const displayVal = (v: unknown): string => {
   if (v === null || v === undefined) return "-";

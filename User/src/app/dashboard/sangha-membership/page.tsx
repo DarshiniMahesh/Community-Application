@@ -49,6 +49,7 @@ const sanghaRoles = [
   "Hon. President",
   "Advisor",
   "Legal Advisor",
+  "Freelance Consultant",
 ];
 
 interface SanghaEntry {
@@ -455,6 +456,7 @@ export default function Page() {
                       <SelectContent>
                         <SelectItem value="part_time">Part Time</SelectItem>
                         <SelectItem value="full_time">Full Time</SelectItem>
+                        <SelectItem value="freelance_consultant">Freelance Consultant</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

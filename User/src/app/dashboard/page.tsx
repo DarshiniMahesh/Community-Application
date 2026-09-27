@@ -14,12 +14,12 @@ import { toast } from "sonner";
 
 // ── Profile steps (Steps 1–6 only; Sangha is a separate sidebar tab) ──
 const profileSections = [
-  { name: "Personal Details",       stepKey: "step1_completed", href: "/dashboard/profile/personal-details",     icon: User },
-  { name: "Religious Details",      stepKey: "step2_completed", href: "/dashboard/profile/religious-details",    icon: FileText },
-  { name: "Family Information",     stepKey: "step3_completed", href: "/dashboard/profile/family-information",   icon: Users },
-  { name: "Location Information",   stepKey: "step4_completed", href: "/dashboard/profile/location-information", icon: MapPin },
-  { name: "Education & Profession", stepKey: "step5_completed", href: "/dashboard/profile/education-profession", icon: GraduationCap },
-  { name: "Economic Details",       stepKey: "step6_completed", href: "/dashboard/profile/economic-details",     icon: Wallet },
+  { name: "Personal Details",       stepKey: "step1_completed", href: "/dashboard/profile/personal-details",     focusTarget: "section-basic-info", icon: User },
+  { name: "Religious Details",      stepKey: "step2_completed", href: "/dashboard/profile/religious-details",    focusTarget: "section-surname-priest", icon: FileText },
+  { name: "Family Information",     stepKey: "step3_completed", href: "/dashboard/profile/family-information",   focusTarget: "section-family-type", icon: Users },
+  { name: "Location Information",   stepKey: "step4_completed", href: "/dashboard/profile/location-information", focusTarget: "section-current-address", icon: MapPin },
+  { name: "Education & Profession", stepKey: "step5_completed", href: "/dashboard/profile/education-profession", focusTarget: "self", icon: GraduationCap },
+  { name: "Economic Details",       stepKey: "step6_completed", href: "/dashboard/profile/economic-details",     focusTarget: "section-income", icon: Wallet },
   { name: "Review & Submit",        stepKey: null,              href: "/dashboard/profile/review-submit",        icon: CheckCircle2 },
 ];
 
@@ -51,8 +51,10 @@ export default function Page() {
       ? profile.overall_completion_pct
       : 0;
   const completedCount = profileSections.filter(s => s.stepKey && profile?.[s.stepKey]).length;
-  const nextStep = profileSections.find(s => s.stepKey && !profile?.[s.stepKey])?.href
-    || "/dashboard/profile/review-submit";
+  const nextSection = profileSections.find(s => s.stepKey && !profile?.[s.stepKey]);
+  const nextStep = nextSection
+    ? `${nextSection.href}?focus=${nextSection.focusTarget}`
+    : "/dashboard/profile/review-submit";
 
   const handleReset = async () => {
     setResetting(true);
@@ -280,7 +282,9 @@ export default function Page() {
     <Button
       variant="ghost"
       size="sm"
-      onClick={() => router.push(section.href)}
+      onClick={() => router.push(section.focusTarget && !completed
+        ? `${section.href}?focus=${section.focusTarget}`
+        : section.href)}
       className="gap-1"
     >
       {completed ? "Edit" : "Start"} <ArrowRight className="h-4 w-4" />

@@ -15,6 +15,9 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { Country } from "country-state-city";
+
+const countryOptions = Country.getAllCountries().filter(country => country.phonecode);
 
 interface MemberForm {
   first_name: string;
@@ -22,6 +25,7 @@ interface MemberForm {
   last_name: string;
   gender: string;
   phone: string;
+  phone_country_code: string;
   email: string;
   dob: string;
   role: string;
@@ -39,6 +43,7 @@ const roles = [
   "Hon. President",
   "Advisor",
   "Legal Advisor",
+  "Freelance Consultant",
 ];
 
 export default function AddMemberPage() {
@@ -49,6 +54,7 @@ export default function AddMemberPage() {
     last_name: "",
     gender: "",
     phone: "",
+    phone_country_code: "+91",
     email: "",
     dob: "",
     role: "",
@@ -90,6 +96,7 @@ export default function AddMemberPage() {
         lastName:   formData.last_name,
         gender:     formData.gender,
         phone:      formData.phone || null,
+        phone_country_code: formData.phone_country_code,
         email:      formData.email || null,
         dob:        formData.dob,
         role:       formData.role,
@@ -211,15 +218,29 @@ export default function AddMemberPage() {
 
             {/* Phone */}
             <div className="space-y-2">
-              <Label htmlFor="phone">Phone</Label>
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="Enter phone number"
-                value={formData.phone}
-                onChange={(e) => handleChange("phone")(e.target.value)}
-                className={errors.phone ? "border-destructive" : ""}
-              />
+              <Label htmlFor="phone">Primary Phone</Label>
+              <div className="flex gap-2">
+                <select
+                  aria-label="Primary phone country code"
+                  value={formData.phone_country_code}
+                  onChange={e => handleChange("phone_country_code")(e.target.value)}
+                  className="w-28 rounded-md border border-input bg-background px-2 text-sm"
+                >
+                  {countryOptions.map(country => {
+                    const code = `+${country.phonecode.replace(/^\+/, "")}`;
+                    return <option key={country.isoCode} value={code}>{code} {country.name}</option>;
+                  })}
+                </select>
+                <Input
+                  id="phone"
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="Enter phone number"
+                  value={formData.phone}
+                  onChange={(e) => handleChange("phone")(e.target.value)}
+                  className={errors.phone ? "border-destructive" : ""}
+                />
+              </div>
               {errors.phone && (
                 <p className="text-xs text-destructive">{errors.phone}</p>
               )}
@@ -283,6 +304,7 @@ export default function AddMemberPage() {
                 <SelectContent>
                   <SelectItem value="Full Time">Full Time</SelectItem>
                   <SelectItem value="Part Time">Part Time</SelectItem>
+                  <SelectItem value="Freelance Consultant">Freelance Consultant</SelectItem>
                 </SelectContent>
               </Select>
               {errors.memberType && (

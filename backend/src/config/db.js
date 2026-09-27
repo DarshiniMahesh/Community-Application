@@ -1,7 +1,7 @@
 // backend\src\config\db.js
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
-//                                              src/config → src → backend/.env
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+//                                              src/config → backend/src/.env
 
 const { Pool } = require('pg');
 

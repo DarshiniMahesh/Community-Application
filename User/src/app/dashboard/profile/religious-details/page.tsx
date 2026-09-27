@@ -15,6 +15,7 @@ import { ArrowLeft, ArrowRight, ArrowDown, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
+import { useProfileFocus } from "@/lib/useProfileFocus";
 
 // ─── Demi God list ────────────────────────────────────────────────────────────
 const demiGodList = [
@@ -248,6 +249,7 @@ const steps = [
 ];
 
 export default function Page() {
+  useProfileFocus();
   const router = useRouter();
   const [loading, setLoading]               = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
@@ -543,7 +545,7 @@ export default function Page() {
         <CardContent className="space-y-8">
 
           {/* ── SECTION 1: Surname & Priest ─────────────────────── */}
-          <div className="space-y-4">
+          <div id="section-surname-priest" className="space-y-4">
             <h3 className="text-sm font-semibold text-foreground tracking-wide uppercase">
               Surname &amp; Priest Information
             </h3>
@@ -588,7 +590,7 @@ export default function Page() {
           <div className="border-t border-border" />
 
           {/* ── SECTION 2: Religious Lineage ────────────────────── */}
-          <div className="space-y-6">
+          <div id="section-lineage" className="space-y-6">
             <div>
               <h3 className="text-sm font-semibold text-foreground tracking-wide uppercase">
                 Religious Lineage
@@ -729,7 +731,7 @@ export default function Page() {
       </Card>
 
       {/* ── Demi God ─────────────────────────────────────────────── */}
-      <Card className="shadow-sm border-l-4 border-l-orange-400">
+      <Card id="section-demigod" className="shadow-sm border-l-4 border-l-orange-400">
         <CardHeader>
           <CardTitle>Demi God Details</CardTitle>
           <CardDescription>Select all ancestral Demi Gods (Daiva) that apply to your family.</CardDescription>
@@ -829,7 +831,7 @@ export default function Page() {
       </Card>
 
       {/* ── Ancestral Challenge ───────────────────────────────────── */}
-      <Card className="shadow-sm border-l-4 border-l-blue-400">
+      <Card id="section-ancestral" className="shadow-sm border-l-4 border-l-blue-400">
         <CardHeader>
           <CardTitle>Ancestral Family Tracing</CardTitle>
           <CardDescription>Help us understand if you need assistance finding your ancestral lineage.</CardDescription>

@@ -10,12 +10,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Users, Lock, Eye, EyeOff, AtSign } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { api, saveAuth } from "@/lib/api"
+import { COUNTRY_CODES } from "@/lib/constants"
 
 export default function RegisterPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [phoneCountryCode, setPhoneCountryCode] = useState("+91")
   const [formData, setFormData] = useState({ identifier: "", password: "", confirmPassword: "" })
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -57,7 +59,7 @@ export default function RegisterPage() {
       const isEmail = formData.identifier.includes("@")
       const body = isEmail
         ? { email: formData.identifier, password: formData.password }
-        : { phone: formData.identifier, password: formData.password }
+        : { phone: formData.identifier, phone_country_code: phoneCountryCode, password: formData.password }
 
       const data = await api.post("/auth/user/register", body)
       saveAuth(data.token, data.role)
@@ -91,7 +93,19 @@ export default function RegisterPage() {
 
             {/* Email or Phone */}
             <div className="space-y-2">
-              <Label htmlFor="identifier">Email or Phone Number</Label>
+              <Label htmlFor="identifier">Primary Email or Phone Number</Label>
+              {/^\d+$/.test(formData.identifier) && (
+                <select
+                  aria-label="Primary phone country code"
+                  value={phoneCountryCode}
+                  onChange={e => setPhoneCountryCode(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {COUNTRY_CODES.map(country => (
+                    <option key={country.iso} value={country.code}>{country.code} {country.country}</option>
+                  ))}
+                </select>
+              )}
               <div className="relative">
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                   <AtSign className="h-4 w-4" />

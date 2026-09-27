@@ -662,7 +662,7 @@ export default function UserJobDetailPage() {
                     {profilePortfolioUrl && !editingPortfolioUrl ? (
                      <div style={styles.portfolioDisplay}>
                         <LinkIcon size={14} color="#1a56db" style={{ flexShrink: 0 }} />
-                        <a>
+                        <a
                           href={portfolioUrl}
                           target="_blank"
                           rel="noreferrer"

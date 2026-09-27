@@ -1,8 +1,8 @@
 //Community-Application\User\src\app\dashboard\profile\personal-details\page.tsx
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Stepper } from "../Stepper";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { COUNTRY_CODES } from "@/lib/constants";
 import { useAutoSave } from "@/lib/useAutoSave";
+import { useProfileFocus } from "@/lib/useProfileFocus";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -29,56 +30,9 @@ const steps = [
 // Strip everything except digits and cap at 10 characters.
 const sanitizePhoneDigits = (value: string) => value.replace(/\D/g, "").slice(0, 10);
 
-/**
- * ✅ NEW: shared "scroll to and highlight ?focus=<id>" behaviour used by every
- * step page's "Complete now" target. Wrapped in its own component so the
- * page below can stay as a plain client component using useSearchParams,
- * which Next.js requires to sit under a <Suspense> boundary.
- */
-function useFocusHighlight() {
-  const searchParams = useSearchParams();
-
-  useEffect(() => {
-    const focusId = searchParams.get("focus");
-    if (!focusId) return;
-
-    let attempts = 0;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-
-    const tryFocus = () => {
-      const el = document.getElementById(focusId);
-      if (!el) return false;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      const prevTransition = el.style.transition;
-      const prevBoxShadow = el.style.boxShadow;
-      el.style.transition = "box-shadow 0.3s ease";
-      el.style.boxShadow = "0 0 0 3px rgba(79, 70, 229, 0.55)";
-      window.setTimeout(() => {
-        el.style.boxShadow = prevBoxShadow;
-        window.setTimeout(() => { el.style.transition = prevTransition; }, 300);
-      }, 2200);
-      return true;
-    };
-
-    if (!tryFocus()) {
-      intervalId = setInterval(() => {
-        attempts += 1;
-        if (tryFocus() || attempts > 20) {
-          if (intervalId) clearInterval(intervalId);
-        }
-      }, 150);
-    }
-
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-}
-
 function PageContent() {
   const router = useRouter();
-  useFocusHighlight();
+  useProfileFocus();
 
   const [loading, setLoading]               = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
@@ -264,6 +218,9 @@ function PageContent() {
     setErrors(e => ({ ...e, [field]: "" }));
   };
 
+  const missingClass = (field: keyof typeof formData) =>
+    errors[field] ? "border-destructive" : !formData[field].trim() ? "border-amber-400 bg-amber-50/40" : "";
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-10">
       <div className="flex items-start justify-between">
@@ -345,7 +302,7 @@ function PageContent() {
                   value={formData.phone}
                   onChange={e => set("phone", sanitizePhoneDigits(e.target.value))}
                   readOnly={!!registeredContact.phone}
-                  className={`flex-1 ${errors.phone ? "border-destructive" : ""} ${registeredContact.phone ? "bg-muted/50 cursor-not-allowed" : ""}`}
+                  className={`flex-1 ${registeredContact.phone ? "bg-muted/50 cursor-not-allowed" : ""} ${errors.phone ? "border-destructive" : ""}`}
                 />
               </div>
               {errors.phone && <p className="text-xs text-destructive">{errors.phone}</p>}
@@ -412,7 +369,7 @@ function PageContent() {
                 <Input id={key} placeholder={`Enter ${label.toLowerCase()}`}
                   value={formData[key as keyof typeof formData] as string}
                   onChange={e => set(key, e.target.value)}
-                  className={errors[key] ? "border-destructive" : ""} />
+                  className={missingClass(key as keyof typeof formData)} />
                 {errors[key] && <p className="text-xs text-destructive">{errors[key]}</p>}
               </div>
             ))}
@@ -421,7 +378,7 @@ function PageContent() {
           <div className="grid md:grid-cols-2 gap-6">
             <div className="space-y-3">
               <Label>Gender <span className="text-destructive">*</span></Label>
-              <RadioGroup value={formData.gender} onValueChange={v => set("gender", v)} className="flex gap-6">
+              <RadioGroup value={formData.gender} onValueChange={v => set("gender", v)} className={`flex gap-6 rounded-md border p-2 ${missingClass("gender")}`}>
                 {["male","female","other"].map(g => (
                   <div key={g} className="flex items-center space-x-2">
                     <RadioGroupItem value={g} id={`gender-${g}`} />
@@ -448,7 +405,7 @@ function PageContent() {
                   if (val && val.split("-")[0].length !== 4) return;
                   set("dateOfBirth", val);
                 }}
-                className={errors.dateOfBirth ? "border-destructive cursor-pointer" : "cursor-pointer"}
+                className={`${missingClass("dateOfBirth")} cursor-pointer`}
               />
               {errors.dateOfBirth && <p className="text-xs text-destructive">{errors.dateOfBirth}</p>}
             </div>
@@ -481,7 +438,7 @@ function PageContent() {
             <Label>Marital Status <span className="text-destructive">*</span></Label>
             <RadioGroup value={formData.maritalStatus}
               onValueChange={v => { setFormData(p => ({ ...p, maritalStatus: v })); setErrors(e => ({ ...e, maritalStatus: "" })); }}
-              className="flex gap-6">
+              className={`flex flex-wrap gap-3 rounded-md border p-2 ${missingClass("maritalStatus")}`}>
               {[
                 { label: "Single (Never Married)", value: "single_never_married" },
                 { label: "Married",                value: "married" },
@@ -511,7 +468,7 @@ function PageContent() {
         <CardContent className="space-y-4">
           <div className="space-y-3">
             <Label>Do you have any disability? <span className="text-destructive">*</span></Label>
-            <RadioGroup value={formData.hasDisability} onValueChange={v => set("hasDisability", v)} className="flex gap-6">
+            <RadioGroup value={formData.hasDisability} onValueChange={v => set("hasDisability", v)} className={`flex gap-6 rounded-md border p-2 ${missingClass("hasDisability")}`}>
               {["No", "Yes"].map(opt => (
                 <div key={opt}
                   className={`flex items-center gap-2 px-6 py-3 rounded-xl border-2 cursor-pointer transition-all ${formData.hasDisability === opt.toLowerCase() ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
@@ -535,7 +492,7 @@ function PageContent() {
                 placeholder="e.g. Visual impairment, Physical disability, Hearing impairment, etc."
                 value={formData.disabilityDetails}
                 onChange={e => set("disabilityDetails", e.target.value)}
-                className={errors.disabilityDetails ? "border-destructive" : ""}
+                className={missingClass("disabilityDetails")}
               />
               {errors.disabilityDetails && <p className="text-xs text-destructive">{errors.disabilityDetails}</p>}
             </div>
@@ -573,9 +530,5 @@ function PageContent() {
 }
 
 export default function Page() {
-  return (
-    <Suspense fallback={null}>
-      <PageContent />
-    </Suspense>
-  );
+  return <PageContent />;
 }
