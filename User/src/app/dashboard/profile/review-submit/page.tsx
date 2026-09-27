@@ -45,6 +45,31 @@ interface StepCompletion {
   href: string;
   pct: number;
   completed: boolean;
+  // DOM element id on the target step page that "Complete now" should
+  // scroll to / highlight. Undefined when the step is already fully complete
+  // or we couldn't determine a specific gap.
+  focusTarget?: string;
+}
+
+/**
+ * Contact details shown on the review page.
+ *   email / phone (+ phone_country_code)                     → login credentials (users table)
+ *   secondary_email / secondary_phone (+ its country code)   → personal_details table
+ */
+interface ContactInfo {
+  email: string | null;
+  secondary_email: string | null;
+  phone: string | null;
+  phone_country_code: string;
+  secondary_phone: string | null;
+  secondary_phone_country_code: string;
+}
+
+/** Coerce an unknown value to a trimmed, non-empty string (or null). */
+function asString(v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  return s === "" ? null : s;
 }
 
 function formatDate(raw?: string | null): string | null {
@@ -54,6 +79,17 @@ function formatDate(raw?: string | null): string | null {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function displayOrDash(val?: string | null): string {
+  if (val === undefined || val === null) return "-";
+  const trimmed = String(val).trim();
+  return trimmed === "" ? "-" : trimmed;
+}
+
+function displayPhone(countryCode?: string | null, phone?: string | null): string {
+  if (!phone || String(phone).trim() === "") return "-";
+  const cc = countryCode ? String(countryCode).trim() : "";
+  return cc ? `${cc} ${phone}` : String(phone);
+}
 function formatIncome(raw?: string | null): string | null {
   if (!raw) return null;
   if (INCOME_SLAB_REVERSE[raw]) return INCOME_SLAB_REVERSE[raw];
@@ -72,6 +108,22 @@ function Field({ label, value }: { label: string; value?: string | null }) {
     <div className="space-y-0.5">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <p className="text-sm font-medium text-foreground">{value}</p>
+    </div>
+  );
+}
+
+/**
+ * ContactItem — always renders (shows "-" when empty) so the user can see
+ * at a glance which contact details are missing. Long emails wrap safely.
+ */
+function ContactItem({ label, value }: { label: string; value: string }) {
+  const isEmpty = value === "-";
+  return (
+    <div className="space-y-0.5 min-w-0">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <p className={`text-sm break-all ${isEmpty ? "text-muted-foreground" : "font-medium text-foreground"}`}>
+        {value}
+      </p>
     </div>
   );
 }
@@ -278,6 +330,9 @@ function EduBlock({ edu }: { edu: Record<string, unknown> }) {
  * IncompleteStepsAlert — lists every step that is not yet 100% complete,
  * each with a direct link to go finish it. Hidden entirely once every
  * step reports 100%.
+ *
+ * "Complete now" appends ?focus=<sectionId> (when we could determine
+ * one) so the target step page can scroll to and highlight the actual gap.
  */
 function IncompleteStepsAlert({ steps }: { steps: StepCompletion[] }) {
   const router = useRouter();
@@ -305,7 +360,10 @@ function IncompleteStepsAlert({ steps }: { steps: StepCompletion[] }) {
                   <Button
                     variant="ghost" size="sm"
                     className="h-7 gap-1.5 text-amber-800 hover:bg-amber-100"
-                    onClick={() => router.push(s.href)}
+                    onClick={() => {
+                      const url = s.focusTarget ? `${s.href}?focus=${s.focusTarget}` : s.href;
+                      router.push(url);
+                    }}
                   >
                     Complete now <Edit className="h-3.5 w-3.5" />
                   </Button>
@@ -317,6 +375,98 @@ function IncompleteStepsAlert({ steps }: { steps: StepCompletion[] }) {
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * computeFocusTarget — given a step key and the actual saved data for
+ * that step (already loaded on this page via GET /users/profile/full), work
+ * out which section on that step's page is the real gap, and return the DOM
+ * id the step page should scroll to. Returns undefined when we can't tell or
+ * the step looks complete from here (in which case IncompleteStepsAlert just
+ * falls back to a plain navigation with no ?focus param).
+ *
+ * The section/element ids referenced here must match the ids added on each
+ * step page (see personal-details, religious-details, family-information,
+ * location-information, education-profession, economic-details).
+ */
+function computeFocusTarget(
+  stepKey: string,
+  ctx: {
+    s1: Record<string, string> | null;
+    s2: Record<string, unknown> | null;
+    familyType?: string | null;
+    familyMembersCount: number;
+    currentAddr?: Record<string, string>;
+    s5?: Record<string, unknown>[] | null;
+    s6eco?: Record<string, unknown>;
+  }
+): string | undefined {
+  switch (stepKey) {
+    case "step1": {
+      const s1 = ctx.s1;
+      if (!s1) return "section-basic-info";
+      if (!s1.first_name || !s1.last_name || !s1.gender || !s1.date_of_birth) return "section-basic-info";
+      if (!s1.marital_status) return "section-marital";
+      if (s1.has_disability === undefined || s1.has_disability === null || s1.has_disability === "") {
+        return "section-disability";
+      }
+      return undefined;
+    }
+
+    case "step2": {
+      const s2 = ctx.s2;
+      if (!s2) return "section-surname-priest";
+      if (!s2.surname_in_use) return "section-surname-priest";
+      if (!s2.gotra || !s2.pravara || !s2.upanama_general || !s2.upanama_proper) return "section-lineage";
+      if (!s2.kuladevata && !s2.kuladevata_other) return "section-lineage";
+      const demiGods = s2.demi_gods;
+      const hasDemiGods = Array.isArray(demiGods) ? demiGods.length > 0 : !!demiGods;
+      if (!hasDemiGods) return "section-demigod";
+      if (!s2.ancestral_challenge) return "section-ancestral";
+      return undefined;
+    }
+
+    case "step3":
+      if (!ctx.familyType) return "section-family-type";
+      if (!ctx.familyMembersCount) return "section-family-members";
+      return undefined;
+
+    case "step4":
+      if (!ctx.currentAddr) return "section-current-address";
+      return undefined;
+
+    case "step5": {
+      const list = ctx.s5 || [];
+      if (list.length === 0) return "self";
+      for (let i = 0; i < list.length; i++) {
+        const m = list[i];
+        const educations = (m.educations as Record<string, unknown>[]) || [];
+        const hasEdu = educations.some(e => e && ((e as Record<string, unknown>).degree_type || (e as Record<string, unknown>).degree_name));
+        const studying = m.is_currently_studying;
+        const working = m.is_currently_working;
+        const incomplete =
+          !hasEdu ||
+          studying === null || studying === undefined ||
+          working === null || working === undefined ||
+          (working === true && !m.profession_type);
+        if (incomplete) {
+          // Matches the education page's own member id scheme:
+          // first member is always "self", subsequent members are "fm_0", "fm_1", ...
+          return i === 0 ? "self" : `fm_${i - 1}`;
+        }
+      }
+      return undefined;
+    }
+
+    case "step6": {
+      const eco = ctx.s6eco;
+      if (!eco || !eco.self_income || !eco.family_income) return "section-income";
+      return undefined;
+    }
+
+    default:
+      return undefined;
+  }
 }
 
 export default function Page() {
@@ -401,6 +551,24 @@ export default function Page() {
   const s6ins = ((profileData?.step6 as { insurance?: Record<string, unknown>[] } | null)?.insurance || []);
   const s6doc = ((profileData?.step6 as { documents?: Record<string, unknown>[] } | null)?.documents || []);
 
+  // ── Contact details (login + secondary) ─────────────────────
+  // Primary source: `contact` block from GET /users/profile/full (always present,
+  // even when Step 1 hasn't been saved yet). Fallbacks: step1 (merged server-side)
+  // and profileMeta from GET /users/profile — so the values still show if any
+  // one of the sources is missing.
+  const contactRaw = (profileData?.contact ?? null) as Record<string, unknown> | null;
+  const pickContact = (key: string): string | null =>
+    asString(contactRaw?.[key]) ?? asString(s1?.[key]) ?? asString(profileMeta?.[key]);
+
+  const contact: ContactInfo = {
+    email:                        pickContact("email"),
+    secondary_email:              pickContact("secondary_email"),
+    phone:                        pickContact("phone"),
+    phone_country_code:           pickContact("phone_country_code") ?? "+91",
+    secondary_phone:              pickContact("secondary_phone"),
+    secondary_phone_country_code: pickContact("secondary_phone_country_code") ?? "+91",
+  };
+
   const s3typed = profileData?.step3 as { family_info?: Record<string, string>; members?: Record<string, string>[] } | null;
   let familyMembers: Record<string, string>[] = s3typed?.members || [];
   const s3raw = profileData?.step3;
@@ -448,6 +616,22 @@ export default function Page() {
   if (s6eco?.inv_shares_demat)     inv.push("Trading in Shares / Demat Account");
   if (s6eco?.inv_others)           inv.push("Investment - Others");
 
+  // Merge in the real focus target for each incomplete step, now that
+  // we have the actual saved step data (s1..s6) to inspect.
+  const stepFocusCtx = {
+    s1,
+    s2,
+    familyType: s3typed?.family_info?.family_type,
+    familyMembersCount: familyMembers.length,
+    currentAddr,
+    s5,
+    s6eco,
+  };
+  const stepCompletionListWithFocus: StepCompletion[] = stepCompletionList.map((s) => ({
+    ...s,
+    focusTarget: s.pct < 100 ? computeFocusTarget(s.key, stepFocusCtx) : undefined,
+  }));
+
   return (
     <>
       <div className="max-w-4xl mx-auto space-y-6 pb-10">
@@ -487,7 +671,7 @@ export default function Page() {
           </Card>
         )}
 
-        {!isLocked && <IncompleteStepsAlert steps={stepCompletionList} />}
+        {!isLocked && <IncompleteStepsAlert steps={stepCompletionListWithFocus} />}
 
         {/* ── Your Information ── */}
         <Card className="shadow-sm border-l-4 border-l-primary">
@@ -499,30 +683,42 @@ export default function Page() {
             {/* Personal */}
             <div>
               <SectionHeader title="Personal Details" href="/dashboard/profile/personal-details" isLocked={isLocked} />
-              {s1 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <Field label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
-                  <Field label="Email"                value={s1.email} />
-                  <Field label="Mobile Number"        value={s1.phone} />
-                  <Field label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
-                  <Field label="Date of Birth"        value={formatDate(s1.date_of_birth || s1.dob)} />
-                  <Field label="Marital Status" value={
-  s1.marital_status === "single_never_married" ? "Single (Never Married)" :
-  s1.marital_status === "married"              ? "Married" :
-  s1.marital_status === "single_divorced"      ? "Single / Divorced" :
-  s1.marital_status === "single_widowed"       ? "Single / Widowed" :
-  null
-} />
-                  <Field label="Father's Name"        value={s1.fathers_name} />
-                  <Field label="Mother's Name"        value={s1.mothers_name} />
-                  <Field label="Surname in Use"       value={s1.surname_in_use} />
-                  <Field label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
-                  <Field label="Disability"           value={s1.has_disability === "yes" || s1.has_disability === "true" || s1.disability === "yes" ? "Yes" : "No"} />
-                  {(s1.has_disability === "yes" || s1.disability === "yes") && Boolean(s1.disability_details) && (
-                    <Field label="Disability Details" value={s1.disability_details} />
-                  )}
+
+              <div className="space-y-4">
+                {/* Contact details — always shown, independent of whether Step 1 has been saved */}
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-2 block">Contact Details</Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 rounded-xl bg-muted/30 border border-border">
+                    <ContactItem label="Email (Login)"           value={displayOrDash(contact.email)} />
+                    <ContactItem label="Secondary Email"         value={displayOrDash(contact.secondary_email)} />
+                    <ContactItem label="Mobile Number (Login)"   value={displayPhone(contact.phone_country_code, contact.phone)} />
+                    <ContactItem label="Secondary Mobile Number" value={displayPhone(contact.secondary_phone_country_code, contact.secondary_phone)} />
+                  </div>
                 </div>
-              ) : <p className="text-sm text-muted-foreground italic">Not filled yet.</p>}
+
+                {s1 ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <Field label="Full Name"            value={[s1.first_name, s1.middle_name, s1.last_name].filter(Boolean).join(" ")} />
+                    <Field label="Gender"               value={s1.gender ? s1.gender.charAt(0).toUpperCase() + s1.gender.slice(1) : null} />
+                    <Field label="Date of Birth"        value={formatDate(s1.date_of_birth || s1.dob)} />
+                    <Field label="Marital Status" value={
+                      s1.marital_status === "single_never_married" ? "Single (Never Married)" :
+                      s1.marital_status === "married"              ? "Married" :
+                      s1.marital_status === "single_divorced"      ? "Single / Divorced" :
+                      s1.marital_status === "single_widowed"       ? "Single / Widowed" :
+                      null
+                    } />
+                    <Field label="Father's Name"        value={s1.fathers_name} />
+                    <Field label="Mother's Name"        value={s1.mothers_name} />
+                    <Field label="Surname in Use"       value={s1.surname_in_use} />
+                    <Field label="Surname as per Gotra" value={s1.surname_as_per_gotra} />
+                    <Field label="Disability"           value={s1.has_disability === "yes" || s1.has_disability === "true" || s1.disability === "yes" ? "Yes" : "No"} />
+                    {(s1.has_disability === "yes" || s1.disability === "yes") && Boolean(s1.disability_details) && (
+                      <Field label="Disability Details" value={s1.disability_details} />
+                    )}
+                  </div>
+                ) : <p className="text-sm text-muted-foreground italic">Personal details not filled yet.</p>}
+              </div>
             </div>
 
             <Separator />
@@ -546,7 +742,7 @@ export default function Page() {
                         ? s2.kuladevata_other
                         : typeof s2.kuladevata === "string" ? s2.kuladevata : null
                     } />
-                                        <Field
+                    <Field
                       label="Naga Moola Sthana Known"
                       value={s2.has_naga_moola_sthana === "yes" ? "Yes" : s2.has_naga_moola_sthana === "no" ? "No" : null}
                     />

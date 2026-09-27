@@ -29,7 +29,8 @@ const steps = [
 const allRelations = ["Father","Mother","Husband", "Spouse","Son","Daughter","Brother","Sister","Grandfather","Grandmother","Uncle","Aunt","Other"];
 
 interface FamilyMember {
-  id: string;
+  id: string;       // client-side key (React key). Real DB rows use their DB id here too.
+  dbId?: string;     // actual family_members.id in Postgres — present only for rows already saved.
   relation: string;
   name: string;
   dob: string;
@@ -111,6 +112,7 @@ export default function Page() {
         if (selfFromSaved) {
           setSelfMember((prev) => ({
             ...prev,
+            dbId: selfFromSaved.id || prev.dbId,
             name: selfFromSaved.name || prev.name,
             dob: selfFromSaved.dob
             ? String(selfFromSaved.dob).slice(0, 10)
@@ -123,8 +125,9 @@ export default function Page() {
 
         if (othersFromSaved.length > 0) {
           setFamilyMembers(
-            othersFromSaved.map((m, i) => ({
-              id: String(i + 1),
+            othersFromSaved.map((m) => ({
+              id: m.id || Date.now().toString() + Math.random(),
+              dbId: m.id,
               relation: m.relation || "",
               name: m.name || "",
               dob: m.dob ? String(m.dob).slice(0, 10) : "",
@@ -151,6 +154,7 @@ export default function Page() {
     family_type: familyType,
     members: [
       {
+        id: selfMember.dbId || null,
         relation: "Self",
         name: selfMember.name,
         age: calcAge(selfMember.dob),
@@ -160,6 +164,7 @@ export default function Page() {
         disability: selfMember.disability,
       },
       ...familyMembers.map((m) => ({
+        id: m.dbId || null,
         relation: m.relation,
         name: m.name,
         age: calcAge(m.dob),
@@ -192,8 +197,14 @@ export default function Page() {
     if (!validate()) return;
     setLoading(true);
     try {
-      await api.post("/users/profile/step3", buildPayload());
-      toast.success("Family information saved!");
+      const result = await api.post("/users/profile/step3", buildPayload());
+      if (result?.blocked?.length > 0) {
+        toast.warning(
+          `Saved, but couldn't remove: ${result.blocked.join(", ")} — they have an existing scholarship application on file.`
+        );
+      } else {
+        toast.success("Family information saved!");
+      }
       router.push("/dashboard/profile/location-information");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Save failed");

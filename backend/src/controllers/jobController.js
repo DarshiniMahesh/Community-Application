@@ -1,3 +1,4 @@
+//Community-Application\backend\src\controllers\jobController.js
 const pool = require('../config/db');
 const { createClient } = require('@supabase/supabase-js');
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
@@ -447,11 +448,12 @@ const publicGetJob = async (req, res) => {
 // ── User: Apply to Job ────────────────────────────────────────
 const applyToJob = async (req, res) => {
   const { id } = req.params;
-  const { portfolio_url, answers } = req.body;
+  const { portfolio_url, answers, resume_id } = req.body;
   const resumeFile = req.files?.resume?.[0];
   const coverFile = req.files?.cover_letter?.[0];
-  if (!resumeFile)
-    return res.status(400).json({ message: 'Resume is required' });
+
+  if (!resumeFile && !resume_id)
+    return res.status(400).json({ message: 'Choose a saved resume or upload a new one' });
 
   const screening_answers = answers ? JSON.parse(answers) : {};
   const BUCKET = 'resumes';
@@ -470,15 +472,29 @@ const applyToJob = async (req, res) => {
     if (job.rows.length === 0)
       return res.status(404).json({ message: 'Job not found or no longer active' });
 
-    // ── Upload resume to Supabase Storage ──────────────────────
-    const resumeExt = resumeFile.originalname.split('.').pop();
-    const resumePath = `resume_${req.user.id}_${Date.now()}.${resumeExt}`;
-    const { error: resumeUploadErr } = await supabase.storage
-      .from(BUCKET)
-      .upload(resumePath, resumeFile.buffer, { contentType: resumeFile.mimetype });
-    if (resumeUploadErr) throw resumeUploadErr;
-    const { data: resumePublicUrl } = supabase.storage.from(BUCKET).getPublicUrl(resumePath);
-    const resume_url = resumePublicUrl.publicUrl;
+    // ── Resolve resume: either from the saved library, or a fresh upload ──
+    let resume_url;
+    let resolved_resume_id = null;
+
+    if (resume_id) {
+      const saved = await pool.query(
+        `SELECT id, resume_url FROM user_resumes WHERE id=$1 AND user_id=$2`,
+        [resume_id, req.user.id]
+      );
+      if (saved.rows.length === 0)
+        return res.status(404).json({ message: 'Selected resume not found' });
+      resume_url = saved.rows[0].resume_url;
+      resolved_resume_id = saved.rows[0].id;
+    } else {
+      const resumeExt = resumeFile.originalname.split('.').pop();
+      const resumePath = `resume_${req.user.id}_${Date.now()}.${resumeExt}`;
+      const { error: resumeUploadErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(resumePath, resumeFile.buffer, { contentType: resumeFile.mimetype });
+      if (resumeUploadErr) throw resumeUploadErr;
+      const { data: resumePublicUrl } = supabase.storage.from(BUCKET).getPublicUrl(resumePath);
+      resume_url = resumePublicUrl.publicUrl;
+    }
 
     // ── Upload cover letter (if provided) ──────────────────────
     let cover_letter_url = null;
@@ -495,9 +511,9 @@ const applyToJob = async (req, res) => {
 
     await pool.query(
       `INSERT INTO job_applications
-         (job_id, user_id, resume_url, cover_letter_url, portfolio_url, screening_answers, status)
-       VALUES ($1,$2,$3,$4,$5,$6,'Submitted')`,
-      [id, req.user.id, resume_url, cover_letter_url,
+         (job_id, user_id, resume_url, resume_id, cover_letter_url, portfolio_url, screening_answers, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted')`,
+      [id, req.user.id, resume_url, resolved_resume_id, cover_letter_url,
        portfolio_url || null, JSON.stringify(screening_answers)]
     );
     return res.status(201).json({ message: 'Application submitted' });

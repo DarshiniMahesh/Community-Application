@@ -52,7 +52,31 @@ interface ApplicationStatus {
   status?: string;
 }
 
+interface SavedResume {
+  id: string;
+  file_name: string;
+  resume_url: string;
+  file_size: number | null;
+  is_default: boolean;
+  uploaded_at: string;
+}
+
+interface CareerProfileResponse {
+  profile?: {
+    portfolio_url?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 type ModalStep = "idle" | "form" | "submitting" | "success" | "error";
+type ResumeMode = "saved" | "upload";
+
+const formatFileSize = (bytes: number | null) => {
+  if (!bytes) return "";
+  const kb = bytes / 1024;
+  return kb < 1024 ? `${Math.round(kb)} KB` : `${(kb / 1024).toFixed(1)} MB`;
+};
 
 export default function UserJobDetailPage() {
   const params = useParams();
@@ -67,9 +91,20 @@ export default function UserJobDetailPage() {
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   const [modalStep, setModalStep] = useState<ModalStep>("idle");
+
+  // ── Resume selection ──────────────────────────────────────────
+  const [savedResumes, setSavedResumes] = useState<SavedResume[]>([]);
+  const [resumesLoaded, setResumesLoaded] = useState(false);
+  const [resumeMode, setResumeMode] = useState<ResumeMode>("upload");
+  const [selectedResumeId, setSelectedResumeId] = useState<string>("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
-  const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null);
+
+  // ── Portfolio URL (prefilled from career profile) ──────────────
+  const [profilePortfolioUrl, setProfilePortfolioUrl] = useState<string>("");
   const [portfolioUrl, setPortfolioUrl] = useState("");
+  const [editingPortfolioUrl, setEditingPortfolioUrl] = useState(false);
+
+  const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null);
   const [answers, setAnswers] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const resumeRef = useRef<HTMLInputElement>(null);
@@ -97,17 +132,29 @@ export default function UserJobDetailPage() {
       api.get(`/jobs/public/${jobId}`),
       api.get("/jobs/saved").catch(() => ({ saved_jobs: [] })),
       api.get("/jobs/my-applications").catch(() => ({ applications: [] })),
-    ]).then(([jobData, savedData, appsData]) => {
+      api.get("/jobs/resumes").catch(() => ({ resumes: [] })),
+      api.get("/jobs/career-profile").catch(() => null as CareerProfileResponse | null),
+    ]).then(([jobData, savedData, appsData, resumeData, careerData]) => {
       setJob(jobData.job ?? jobData);
+
       const savedIds = new Set<string>(
         (savedData.saved_jobs || []).map((s: { job_id: string }) => s.job_id)
       );
       setIsSaved(savedIds.has(jobId));
+
       const myApp = (appsData.applications || []).find(
         (a: { job_id?: string; id?: string; status: string }) =>
           a.job_id === jobId || a.id === jobId
       );
       if (myApp) setAppStatus({ hasApplied: true, status: myApp.status });
+
+      const resumes: SavedResume[] = resumeData.resumes || [];
+      setSavedResumes(resumes);
+      setResumesLoaded(true);
+
+      const existingPortfolio =
+        (careerData as CareerProfileResponse | null)?.profile?.portfolio_url || "";
+      setProfilePortfolioUrl(existingPortfolio);
     })
     .catch(console.error)
     .finally(() => setLoading(false));
@@ -135,19 +182,42 @@ export default function UserJobDetailPage() {
   const openApplyModal = () => {
     setResumeFile(null);
     setCoverLetterFile(null);
-    setPortfolioUrl("");
     setAnswers(new Array(job?.screening_questions?.length ?? 0).fill(""));
     setErrorMsg("");
+
+    // Default to the saved-resume picker when the user has any, pre-selecting
+    // their default resume (or the most recent one). Otherwise fall back to upload.
+    if (savedResumes.length > 0) {
+      setResumeMode("saved");
+      const def = savedResumes.find((r) => r.is_default) || savedResumes[0];
+      setSelectedResumeId(def.id);
+    } else {
+      setResumeMode("upload");
+      setSelectedResumeId("");
+    }
+
+    // Prefill portfolio URL from the career profile, if the user has one on file.
+    setPortfolioUrl(profilePortfolioUrl);
+    setEditingPortfolioUrl(!profilePortfolioUrl);
+
     setModalStep("form");
   };
 
   const handleSubmitApplication = async () => {
-    if (!resumeFile) {
+    if (resumeMode === "saved" && !selectedResumeId) {
+      setErrorMsg("Please choose a saved resume, or switch to upload a new one.");
+      return;
+    }
+    if (resumeMode === "upload" && !resumeFile) {
       setErrorMsg("Please upload your resume.");
       return;
     }
     if (job?.cover_letter_required && !coverLetterFile) {
       setErrorMsg("Cover letter is required for this role.");
+      return;
+    }
+    if (job?.portfolio_required && !portfolioUrl.trim()) {
+      setErrorMsg("Portfolio URL is required for this role.");
       return;
     }
     if (job?.screening_questions?.length && answers.some((a) => !a.trim())) {
@@ -158,9 +228,13 @@ export default function UserJobDetailPage() {
     setModalStep("submitting");
     try {
       const formData = new FormData();
-      formData.append("resume", resumeFile);
+      if (resumeMode === "saved") {
+        formData.append("resume_id", selectedResumeId);
+      } else if (resumeFile) {
+        formData.append("resume", resumeFile);
+      }
       if (coverLetterFile) formData.append("cover_letter", coverLetterFile);
-      if (portfolioUrl) formData.append("portfolio_url", portfolioUrl);
+      if (portfolioUrl.trim()) formData.append("portfolio_url", portfolioUrl.trim());
       if (answers.length) formData.append("answers", JSON.stringify(answers));
 
       const token = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
@@ -420,14 +494,14 @@ export default function UserJobDetailPage() {
             )}
           </div>
 
-          {!appStatus.hasApplied && !isExpired && (
-            <button
-              style={styles.sideApplyBtn}
-              onClick={openApplyModal}
-            >
-              Apply for this Role
-            </button>
-          )}
+          {canApply && (
+  <button
+    style={styles.sideApplyBtn}
+    onClick={openApplyModal}
+  >
+    Apply for this Role
+  </button>
+)}
         </div>
       </div>
 
@@ -476,25 +550,79 @@ export default function UserJobDetailPage() {
                     <label style={styles.fieldLabel}>
                       Resume <span style={styles.required}>*</span>
                     </label>
-                    <div
-                      style={{ ...styles.fileZone, ...(resumeFile ? styles.fileZoneFilled : {}) }}
-                      onClick={() => resumeRef.current?.click()}
-                    >
-                      {resumeFile ? (
-                        <><FileText size={16} color="#1a56db" /> <span style={styles.fileName}>{resumeFile.name}</span></>
-                      ) : (
-                        <><Upload size={16} color="#9ca3af" /> <span style={{ color: "#9ca3af", fontSize: 13 }}>Click to upload PDF or DOCX</span></>
-                      )}
-                    </div>
-                    <input
-                      ref={resumeRef}
-                      type="file"
-                      accept=".pdf,.doc,.docx"
-                      style={{ display: "none" }}
-                      title="Upload resume"
-                      aria-label="Upload resume"
-                      onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
-                    />
+
+                    {resumesLoaded && savedResumes.length > 0 && (
+                      <div style={styles.resumeModeToggle}>
+                        <button
+                          type="button"
+                          style={{ ...styles.resumeModeBtn, ...(resumeMode === "saved" ? styles.resumeModeBtnActive : {}) }}
+                          onClick={() => setResumeMode("saved")}
+                        >
+                          Use a saved resume
+                        </button>
+                        <button
+                          type="button"
+                          style={{ ...styles.resumeModeBtn, ...(resumeMode === "upload" ? styles.resumeModeBtnActive : {}) }}
+                          onClick={() => setResumeMode("upload")}
+                        >
+                          Upload a new one
+                        </button>
+                      </div>
+                    )}
+
+                    {resumeMode === "saved" && savedResumes.length > 0 ? (
+                      <div style={styles.resumeList}>
+                        {savedResumes.map((r) => (
+                          <label
+                            key={r.id}
+                            style={{
+                              ...styles.resumeOption,
+                              ...(selectedResumeId === r.id ? styles.resumeOptionSelected : {}),
+                            }}
+                          >
+                            <input
+                              type="radio"
+                              name="saved_resume"
+                              checked={selectedResumeId === r.id}
+                              onChange={() => setSelectedResumeId(r.id)}
+                              style={{ marginRight: 10 }}
+                            />
+                            <FileText size={15} color="#1a56db" style={{ flexShrink: 0 }} />
+                            <span style={styles.resumeOptionName}>{r.file_name}</span>
+                            {r.is_default && <span style={styles.defaultBadge}>Default</span>}
+                            {r.file_size ? <span style={styles.resumeOptionSize}>{formatFileSize(r.file_size)}</span> : null}
+                          </label>
+                        ))}
+                        <p style={styles.resumeManageHint}>
+                          Manage your saved resumes from your{" "}
+                          <a href="/dashboard/my-career/my_career_profile" style={{ color: "#1a56db" }}>
+                            Career Profile
+                          </a>.
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div
+                          style={{ ...styles.fileZone, ...(resumeFile ? styles.fileZoneFilled : {}) }}
+                          onClick={() => resumeRef.current?.click()}
+                        >
+                          {resumeFile ? (
+                            <><FileText size={16} color="#1a56db" /> <span style={styles.fileName}>{resumeFile.name}</span></>
+                          ) : (
+                            <><Upload size={16} color="#9ca3af" /> <span style={{ color: "#9ca3af", fontSize: 13 }}>Click to upload PDF or DOCX</span></>
+                          )}
+                        </div>
+                        <input
+                          ref={resumeRef}
+                          type="file"
+                          accept=".pdf,.doc,.docx"
+                          style={{ display: "none" }}
+                          title="Upload resume"
+                          aria-label="Upload resume"
+                          onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
+                        />
+                      </>
+                    )}
                   </div>
 
                   <div style={styles.fieldGroup}>
@@ -524,11 +652,33 @@ export default function UserJobDetailPage() {
                     />
                   </div>
 
-                  {job.portfolio_required && (
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.fieldLabel}>
-                        Portfolio URL <span style={styles.required}>*</span>
-                      </label>
+                  <div style={styles.fieldGroup}>
+                    <label style={styles.fieldLabel}>
+                      Portfolio URL {job.portfolio_required
+                        ? <span style={styles.required}>*</span>
+                        : <span style={styles.optional}>(optional)</span>}
+                    </label>
+
+                    {profilePortfolioUrl && !editingPortfolioUrl ? (
+                     <div style={styles.portfolioDisplay}>
+                        <LinkIcon size={14} color="#1a56db" style={{ flexShrink: 0 }} />
+                        <a>
+                          href={portfolioUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={styles.portfolioLink}
+                        >
+                          {portfolioUrl}
+                        </a>
+                        <button
+                          type="button"
+                          style={styles.changeLinkBtn}
+                          onClick={() => setEditingPortfolioUrl(true)}
+                        >
+                          Change
+                        </button>
+                      </div>
+                    ) : (
                       <input
                         style={styles.textInput}
                         type="url"
@@ -538,8 +688,17 @@ export default function UserJobDetailPage() {
                         value={portfolioUrl}
                         onChange={(e) => setPortfolioUrl(e.target.value)}
                       />
-                    </div>
-                  )}
+                    )}
+                    {profilePortfolioUrl && (
+                      <p style={styles.hintText}>
+                        Pulled from your{" "}
+                        <a href="/dashboard/my-career/my_career_profile" style={{ color: "#1a56db" }}>
+                          Career Profile
+                        </a>
+                        . Editing here only changes it for this application.
+                      </p>
+                    )}
+                  </div>
 
                   {job.screening_questions?.length > 0 && (
                     <div style={styles.fieldGroup}>
@@ -822,4 +981,60 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#374151", border: "none", borderRadius: 8,
     fontSize: 13, fontWeight: 600, cursor: "pointer",
   },
+
+  // ── Resume library selection ────────────────────────────
+  resumeModeToggle: {
+    display: "flex", gap: 8, marginBottom: 10,
+  },
+  resumeModeBtn: {
+    flex: 1, padding: "8px 12px", borderRadius: 8,
+    border: "1.5px solid #e5e7eb", background: "#f9fafb",
+    color: "#6b7280", fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+  },
+  resumeModeBtnActive: {
+    background: "#eff6ff", color: "#1a56db", border: "1.5px solid #bfdbfe",
+  },
+  resumeList: {
+    display: "flex", flexDirection: "column", gap: 8,
+  },
+  resumeOption: {
+    display: "flex", alignItems: "center", gap: 8,
+    border: "1.5px solid #e5e7eb", borderRadius: 8,
+    padding: "10px 12px", cursor: "pointer",
+  },
+  resumeOptionSelected: {
+    border: "1.5px solid #1a56db", background: "#f8fbff",
+  },
+  resumeOptionName: {
+    fontSize: 13, color: "#1a1a2e", fontWeight: 500,
+    flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+  },
+  defaultBadge: {
+    fontSize: 10.5, fontWeight: 700, color: "#065f46",
+    background: "#d1fae5", borderRadius: 999, padding: "2px 8px", flexShrink: 0,
+  },
+  resumeOptionSize: {
+    fontSize: 11.5, color: "#9ca3af", flexShrink: 0,
+  },
+  resumeManageHint: {
+    fontSize: 11.5, color: "#9ca3af", margin: "2px 0 0",
+  },
+
+  // ── Portfolio URL prefill ────────────────────────────────
+  portfolioDisplay: {
+    display: "flex", alignItems: "center", gap: 8,
+    border: "1.5px solid #e5e7eb", borderRadius: 8,
+    padding: "10px 12px", background: "#f8fbff",
+  },
+  portfolioLink: {
+    fontSize: 13, color: "#1a56db", fontWeight: 500,
+    flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
+    whiteSpace: "nowrap", textDecoration: "none",
+  },
+  changeLinkBtn: {
+    fontSize: 11.5, fontWeight: 600, color: "#6b7280",
+    background: "#fff", border: "1px solid #d1d5db", borderRadius: 999,
+    padding: "5px 10px", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
+  },
+  hintText: { fontSize: 11.5, color: "#9ca3af", margin: "6px 0 0" },
 };

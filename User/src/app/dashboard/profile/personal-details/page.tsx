@@ -1,8 +1,8 @@
 //Community-Application\User\src\app\dashboard\profile\personal-details\page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Stepper } from "../Stepper";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ArrowLeft, ArrowRight, User, Heart, Shield, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { COUNTRY_CODES } from "@/lib/constants";
 import { useAutoSave } from "@/lib/useAutoSave";
 
 const steps = [
@@ -25,12 +26,65 @@ const steps = [
   { id: "7", name: "Review",    href: "/dashboard/profile/review-submit" },
 ];
 
-export default function Page() {
+// Strip everything except digits and cap at 10 characters.
+const sanitizePhoneDigits = (value: string) => value.replace(/\D/g, "").slice(0, 10);
+
+/**
+ * ✅ NEW: shared "scroll to and highlight ?focus=<id>" behaviour used by every
+ * step page's "Complete now" target. Wrapped in its own component so the
+ * page below can stay as a plain client component using useSearchParams,
+ * which Next.js requires to sit under a <Suspense> boundary.
+ */
+function useFocusHighlight() {
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const focusId = searchParams.get("focus");
+    if (!focusId) return;
+
+    let attempts = 0;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const tryFocus = () => {
+      const el = document.getElementById(focusId);
+      if (!el) return false;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      const prevTransition = el.style.transition;
+      const prevBoxShadow = el.style.boxShadow;
+      el.style.transition = "box-shadow 0.3s ease";
+      el.style.boxShadow = "0 0 0 3px rgba(79, 70, 229, 0.55)";
+      window.setTimeout(() => {
+        el.style.boxShadow = prevBoxShadow;
+        window.setTimeout(() => { el.style.transition = prevTransition; }, 300);
+      }, 2200);
+      return true;
+    };
+
+    if (!tryFocus()) {
+      intervalId = setInterval(() => {
+        attempts += 1;
+        if (tryFocus() || attempts > 20) {
+          if (intervalId) clearInterval(intervalId);
+        }
+      }, 150);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+}
+
+function PageContent() {
   const router = useRouter();
+  useFocusHighlight();
+
   const [loading, setLoading]               = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting]           = useState(false);
   const [canReset, setCanReset]             = useState(false);
+  // Primary (registered) contact: comes from users.email / users.phone via GET /users/profile
   const [registeredContact, setRegisteredContact] = useState({ email: "", phone: "" });
 
   const todayStr = new Date().toISOString().split("T")[0];
@@ -43,8 +97,14 @@ export default function Page() {
     maritalStatus: "",
     hasDisability: "",
     disabilityDetails: "",
+    // Primary contact (users.email / users.phone)
     email: "",
     phone: "",
+    phoneCountryCode: "+91",
+    // Secondary contact (personal_details.secondary_email / secondary_phone)
+    secondaryEmail: "",
+    secondaryPhone: "",
+    secondaryPhoneCountryCode: "+91",
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -58,6 +118,7 @@ export default function Page() {
       const status = meta.status as string;
       const metaEmail = (meta as Record<string, string>).email || "";
       const metaPhone = (meta as Record<string, string>).phone || "";
+      const metaPhoneCC = (meta as Record<string, string>).phone_country_code || "+91";
 
       setCanReset(status === "draft" || status === "changes_requested" || status === "approved");
       setRegisteredContact({
@@ -81,14 +142,21 @@ export default function Page() {
           maritalStatus:     s.marital_status || "",
           hasDisability:     s.has_disability ? (s.has_disability === "yes" || s.has_disability === true ? "yes" : "no") : "",
           disabilityDetails: s.disability_details || "",
+          // Primary contact always comes from users (via /users/profile)
           email:             metaEmail,
           phone:             metaPhone,
+          phoneCountryCode:  metaPhoneCC,
+          // Secondary contact always comes from personal_details
+          secondaryEmail:    s.secondary_email || "",
+          secondaryPhone:    s.secondary_phone || "",
+          secondaryPhoneCountryCode: s.secondary_phone_country_code || "+91",
         });
       } else {
         setFormData(p => ({
           ...p,
           email: metaEmail,
           phone: metaPhone,
+          phoneCountryCode: metaPhoneCC,
         }));
       }
     }).catch(() => {});
@@ -109,6 +177,10 @@ export default function Page() {
     disability_details:   formData.hasDisability === "yes" ? formData.disabilityDetails : undefined,
     email:                formData.email || undefined,
     phone:                formData.phone || undefined,
+    phone_country_code:   formData.phoneCountryCode || undefined,
+    secondary_email:      formData.secondaryEmail || undefined,
+    secondary_phone:      formData.secondaryPhone || undefined,
+    secondary_phone_country_code: formData.secondaryPhone ? formData.secondaryPhoneCountryCode : undefined,
   });
 
   useAutoSave("/users/profile/step1", buildPayload, [formData]);
@@ -124,6 +196,24 @@ export default function Page() {
     if (formData.hasDisability === "yes" && !formData.disabilityDetails.trim()) {
       e.disabilityDetails = "Please describe the disability";
     }
+
+    if (formData.phone && formData.phone.length !== 10) {
+      e.phone = "Phone number must be exactly 10 digits";
+    }
+    if (formData.secondaryPhone && formData.secondaryPhone.length !== 10) {
+      e.secondaryPhone = "Secondary phone number must be exactly 10 digits";
+    }
+    if (
+      formData.secondaryPhone &&
+      formData.secondaryPhone === formData.phone &&
+      formData.secondaryPhoneCountryCode === formData.phoneCountryCode
+    ) {
+      e.secondaryPhone = "Secondary phone must be different from primary phone";
+    }
+    if (formData.secondaryEmail && formData.secondaryEmail === formData.email) {
+      e.secondaryEmail = "Secondary email must be different from primary email";
+    }
+
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -156,6 +246,10 @@ export default function Page() {
         maritalStatus: "", hasDisability: "", disabilityDetails: "",
         email: registeredContact.email,
         phone: registeredContact.phone,
+        phoneCountryCode: "+91",
+        secondaryEmail: "",
+        secondaryPhone: "",
+        secondaryPhoneCountryCode: "+91",
       });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Reset failed");
@@ -191,7 +285,7 @@ export default function Page() {
       <Stepper steps={steps} currentStep={0} />
 
       {/* ── Contact Information ── */}
-      <Card className="shadow-sm border-l-4 border-l-primary">
+      <Card id="section-contact" className="shadow-sm border-l-4 border-l-primary">
         <CardHeader>
           <div className="flex items-center gap-2">
             <User className="h-5 w-5 text-primary" />
@@ -199,13 +293,14 @@ export default function Page() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Primary contacts (users.email / users.phone) */}
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="contactEmail">Email Address</Label>
                 {registeredContact.email && (
                   <span className="text-[11px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                    Login Email
+                    Primary Email
                   </span>
                 )}
               </div>
@@ -224,25 +319,85 @@ export default function Page() {
                 <Label htmlFor="contactPhone">Phone Number</Label>
                 {registeredContact.phone && (
                   <span className="text-[11px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                    Login Phone
+                    Primary Phone
                   </span>
                 )}
               </div>
+              <div className="flex gap-2">
+               <select
+  aria-label="Phone country code"
+  value={formData.phoneCountryCode}
+  onChange={e => set("phoneCountryCode", e.target.value)}
+  disabled={!!registeredContact.phone}
+  className={`w-[130px] rounded-md border border-input bg-background px-2 text-sm ${registeredContact.phone ? "bg-muted/50 cursor-not-allowed" : ""}`}
+>
+  {COUNTRY_CODES.map(c => (
+    <option key={c.iso} value={c.code}>{c.code} {c.country}</option>
+  ))}
+</select>
+                <Input
+                  id="contactPhone"
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={10}
+                  placeholder="Enter 10-digit mobile number"
+                  value={formData.phone}
+                  onChange={e => set("phone", sanitizePhoneDigits(e.target.value))}
+                  readOnly={!!registeredContact.phone}
+                  className={`flex-1 ${errors.phone ? "border-destructive" : ""} ${registeredContact.phone ? "bg-muted/50 cursor-not-allowed" : ""}`}
+                />
+              </div>
+              {errors.phone && <p className="text-xs text-destructive">{errors.phone}</p>}
+            </div>
+          </div>
+
+          {/* Secondary contacts (personal_details.secondary_email / secondary_phone) */}
+          <div className="grid md:grid-cols-2 gap-4 pt-2 border-t border-border">
+            <div className="space-y-2">
+              <Label htmlFor="secondaryEmail">Secondary Email Address</Label>
               <Input
-                id="contactPhone"
-                type="tel"
-                placeholder="Enter 10-digit mobile number"
-                value={formData.phone}
-                onChange={e => set("phone", e.target.value)}
-                readOnly={!!registeredContact.phone}
-                className={registeredContact.phone ? "bg-muted/50 cursor-not-allowed" : ""}
+                id="secondaryEmail"
+                type="email"
+                placeholder="Enter an alternate email (optional)"
+                value={formData.secondaryEmail}
+                onChange={e => set("secondaryEmail", e.target.value)}
+                className={errors.secondaryEmail ? "border-destructive" : ""}
               />
+              {errors.secondaryEmail && <p className="text-xs text-destructive">{errors.secondaryEmail}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="secondaryPhone">Secondary Phone Number</Label>
+              <div className="flex gap-2">
+                <select
+  aria-label="Secondary phone country code"
+  value={formData.secondaryPhoneCountryCode}
+  onChange={e => set("secondaryPhoneCountryCode", e.target.value)}
+  className="w-[130px] rounded-md border border-input bg-background px-2 text-sm"
+>
+  {COUNTRY_CODES.map(c => (
+    <option key={c.iso} value={c.code}>{c.code} {c.country}</option>
+  ))}
+</select>
+                <Input
+                  id="secondaryPhone"
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={10}
+                  placeholder="Enter an alternate phone (optional)"
+                  value={formData.secondaryPhone}
+                  onChange={e => set("secondaryPhone", sanitizePhoneDigits(e.target.value))}
+                  className={`flex-1 ${errors.secondaryPhone ? "border-destructive" : ""}`}
+                />
+              </div>
+              {errors.secondaryPhone && <p className="text-xs text-destructive">{errors.secondaryPhone}</p>}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="shadow-sm border-l-4 border-l-primary">
+      <Card id="section-basic-info" className="shadow-sm border-l-4 border-l-primary">
         <CardHeader>
           <div className="flex items-center gap-2">
             <User className="h-5 w-5 text-primary" />
@@ -314,7 +469,7 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      <Card className="shadow-sm border-l-4 border-l-orange-400">
+      <Card id="section-marital" className="shadow-sm border-l-4 border-l-orange-400">
         <CardHeader>
           <div className="flex items-center gap-2">
             <Heart className="h-5 w-5 text-orange-500" />
@@ -346,7 +501,7 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      <Card className="shadow-sm border-l-4 border-l-orange-400">
+      <Card id="section-disability" className="shadow-sm border-l-4 border-l-orange-400">
         <CardHeader>
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-orange-500" />
@@ -414,5 +569,13 @@ export default function Page() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <PageContent />
+    </Suspense>
   );
 }

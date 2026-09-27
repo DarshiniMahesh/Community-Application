@@ -1,3 +1,4 @@
+// Community-Application\backend\src\routes\job.js
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -10,10 +11,9 @@ const {
 } = require('../controllers/jobController');
 const { authenticate, requireRole } = require('../middlewares/auth');
 const companyAuth = require('../middlewares/companyAuth');
+const careerProfileRoutes = require('./Careerprofile');
+const resumeRoutes = require('./careerresume');
 
-// ── Resume/cover-letter upload config ───────────────────────────
-// Memory storage: file stays in a buffer (req.files[...][0].buffer)
-// and is uploaded to Supabase Storage inside applyToJob, not written to local disk.
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
@@ -25,6 +25,12 @@ const upload = multer({
     }
   },
 });
+
+// ── User: Career profile (/api/jobs/career-profile/...) ───────
+router.use('/career-profile', careerProfileRoutes);
+
+// ── User: Resume library (/api/jobs/resumes/...) ───────────────
+router.use('/resumes', resumeRoutes);
 
 // ── Public: Job search (users) ────────────────────────────────
 router.get('/public',          publicListJobs);

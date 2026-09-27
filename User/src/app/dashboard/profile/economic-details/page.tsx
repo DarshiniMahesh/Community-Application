@@ -496,10 +496,15 @@ export default function Page() {
                     : "border-border hover:border-primary/40"
                 }`}
               >
-                <Checkbox
-                  checked={selectedFacilities.includes(f)}
-                  onCheckedChange={() => toggleFacility(f)}
-                />
+                {/* stopPropagation wrapper: prevents the click from also firing the
+                    parent div's onClick, which was causing a double-toggle (on then
+                    immediately off) whenever the checkbox square itself was clicked. */}
+                <span onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={selectedFacilities.includes(f)}
+                    onCheckedChange={() => toggleFacility(f)}
+                  />
+                </span>
                 <Label className="font-normal cursor-pointer text-sm">{f}</Label>
               </div>
             ))}
@@ -525,10 +530,12 @@ export default function Page() {
                     : "border-border hover:border-primary/40"
                 }`}
               >
-                <Checkbox
-                  checked={selectedInvestments.includes(inv)}
-                  onCheckedChange={() => toggleInvestment(inv)}
-                />
+                <span onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={selectedInvestments.includes(inv)}
+                    onCheckedChange={() => toggleInvestment(inv)}
+                  />
+                </span>
                 <Label className="font-normal cursor-pointer text-sm">{inv}</Label>
               </div>
             ))}

@@ -123,7 +123,7 @@ function mapScholarship(row, appStatus, currentApprovals, applications = [], cus
       single_parent_only:       row.single_parent_only,
       disabled_family_member:   row.disabled_family_member,
       orphan:                   row.orphan,
-      minority_community:       row.minority_community,
+      
       rural_background:         row.rural_background,
       sports_quota:             row.sports_quota,
       merit_based:              row.merit_based,
@@ -175,7 +175,7 @@ exports.getScholarships = async (req, res) => {
           s.has_assets, s.has_investments, s.visibility,
           s.max_approvals_unlimited, s.max_approvals,
           s.application_start, s.application_end, s.disbursement_date,
-          s.religion, s.caste, s.domicile, s.orphan, s.minority_community,
+          s.religion, s.caste, s.domicile, s.orphan,
           s.sports_quota, s.rural_background, s.cgpa_min, s.percentage_min,
           s.konkani_card, s.sangha_id,
           sg.sangha_name,

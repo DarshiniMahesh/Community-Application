@@ -1,3 +1,5 @@
+//Community-Application\backend\src\controllers\userController.js
+
 const pool = require('../config/db');
 
 function parsePgArray(val) {
@@ -26,7 +28,7 @@ const cleanDOB = (d) => {
   return val;
 };
 
-// ─── NEW: profile lock helper ─────────────────────────────────
+// ─── Profile lock helper ─────────────────────────────────────
 // Statuses in which the user's step data must not be editable.
 const LOCKED_STATUSES = ['submitted', 'under_review'];
 const isProfileLocked = (status) => LOCKED_STATUSES.includes(status);
@@ -69,7 +71,7 @@ const getProfile = async (req, res) => {
   try {
     const { id: userId } = req.user;
     const user = await pool.query(
-      'SELECT id, email, phone, role FROM users WHERE id=$1',
+      'SELECT id, email, phone, phone_country_code, role FROM users WHERE id=$1',
       [userId]
     );
     if (user.rows.length === 0)
@@ -80,11 +82,34 @@ const getProfile = async (req, res) => {
       [userId]
     );
     const profileData = profile.rows[0] || {};
+
+    // Secondary contact info lives on personal_details (keyed by profile_id),
+    // not on users/profiles — fetch it separately so the review/status page can show it.
+    let secondaryEmail = null;
+    let secondaryPhone = null;
+    let secondaryPhoneCountryCode = null;
+
+    if (profileData.id) {
+      const pd = await pool.query(
+        'SELECT secondary_email, secondary_phone, secondary_phone_country_code FROM personal_details WHERE profile_id=$1',
+        [profileData.id]
+      );
+      if (pd.rows.length > 0) {
+        secondaryEmail = pd.rows[0].secondary_email;
+        secondaryPhone = pd.rows[0].secondary_phone;
+        secondaryPhoneCountryCode = pd.rows[0].secondary_phone_country_code;
+      }
+    }
+
     res.json({
       ...profileData,
       email: user.rows[0].email,
       phone: user.rows[0].phone,
-      role:  user.rows[0].role,
+      phone_country_code: user.rows[0].phone_country_code || '+91',
+      secondary_email: secondaryEmail,
+      secondary_phone: secondaryPhone,
+      secondary_phone_country_code: secondaryPhoneCountryCode,
+      role: user.rows[0].role,
     });
   } catch (err) {
     console.error(err);
@@ -99,7 +124,7 @@ const getFullProfile = async (req, res) => {
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
-    const [s1, s2, s3fi, s3mem, s4, s5raw, s6eco, s6ins, s6doc] = await Promise.all([
+    const [s1, s2, s3fi, s3mem, s4, s5raw, s6eco, s6ins, s6doc, userRow] = await Promise.all([
       pool.query('SELECT * FROM personal_details  WHERE profile_id=$1 LIMIT 1', [pid]),
       pool.query('SELECT * FROM religious_details WHERE profile_id=$1 LIMIT 1', [pid]),
       pool.query('SELECT * FROM family_info        WHERE profile_id=$1 LIMIT 1', [pid]),
@@ -109,6 +134,8 @@ const getFullProfile = async (req, res) => {
       pool.query('SELECT * FROM economic_details   WHERE profile_id=$1 LIMIT 1', [pid]),
       pool.query('SELECT * FROM member_insurance   WHERE profile_id=$1 ORDER BY sort_order', [pid]),
       pool.query('SELECT * FROM member_documents   WHERE profile_id=$1 ORDER BY sort_order', [pid]),
+      // Primary (login) email/phone/country code live on users, not personal_details
+      pool.query('SELECT email, phone, phone_country_code FROM users WHERE id=$1', [userId]),
     ]);
 
     const deduplicatedStep5Rows = deduplicateMembers(s5raw.rows);
@@ -159,9 +186,41 @@ const getFullProfile = async (req, res) => {
       passport_coverage:  row.passport_coverage  ?? null,
     }));
 
+    // ── Contact block ─────────────────────────────────────────
+    // Login email/phone come from `users`; secondary email/phone come from
+    // `personal_details`. This block is ALWAYS returned (even if the user has
+    // not saved Step 1 yet and personal_details has no row), so the review
+    // page can always show the login email/phone.
+    const userContact = userRow.rows[0] || {};
+    const pd = s1.rows[0] || null;
+
+    const contact = {
+      email:                        userContact.email || null,
+      phone:                        userContact.phone || null,
+      phone_country_code:           userContact.phone_country_code || '+91',
+      secondary_email:              pd?.secondary_email || null,
+      secondary_phone:              pd?.secondary_phone || null,
+      secondary_phone_country_code: pd?.secondary_phone
+        ? (pd.secondary_phone_country_code || '+91')
+        : null,
+    };
+
+    // Also merge the contact info into step1, so anything consuming step1
+    // directly still has email / phone / phone_country_code alongside the
+    // secondary_* columns already present via SELECT * on personal_details.
+    const step1Data = pd
+      ? {
+          ...pd,
+          email:              contact.email,
+          phone:              contact.phone,
+          phone_country_code: contact.phone_country_code,
+        }
+      : null;
+
     res.json({
       profile: profile,
-      step1:   s1.rows[0]  || null,
+      contact: contact,
+      step1:   step1Data,
       step2:   s2.rows[0]  || null,
       step3: {
         family_info: s3fi.rows[0] || null,
@@ -182,13 +241,14 @@ const getFullProfile = async (req, res) => {
 };
 
 // ─── POST /users/profile/step1 ───────────────────────────────
+const PHONE_10_DIGIT_RE = /^\d{10}$/;
+
 const saveStep1 = async (req, res) => {
   try {
     const { id: userId } = req.user;
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
-    // ✅ NEW: block edits while submitted / under review
     if (isProfileLocked(profile.status)) {
       return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
     }
@@ -201,22 +261,37 @@ const saveStep1 = async (req, res) => {
       marital_status,
       wife_name, wife_maiden_name, husbands_name,
       has_disability, disability_details,
-      email, phone,
+      email, phone, phone_country_code,
+      secondary_email, secondary_phone, secondary_phone_country_code,
     } = req.body;
 
     if (!first_name || !last_name || !gender) {
       return res.status(400).json({ message: 'first_name, last_name and gender are required' });
     }
 
-    // Sync contact info with users table if updated
+    // Server-side guard: phone fields, when provided, must be exactly 10 digits.
+    if (phone && !PHONE_10_DIGIT_RE.test(phone)) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits' });
+    }
+    if (secondary_phone && !PHONE_10_DIGIT_RE.test(secondary_phone)) {
+      return res.status(400).json({ message: 'Secondary phone number must be exactly 10 digits' });
+    }
+
+    // Sync PRIMARY contact info (and its country code) with users table.
     if (email || phone) {
       await pool.query(
         `UPDATE users SET
            email = COALESCE(NULLIF($1, ''), email),
            phone = COALESCE(NULLIF($2, ''), phone),
+           phone_country_code = COALESCE(NULLIF($3, ''), phone_country_code),
            updated_at = NOW()
-         WHERE id = $3`,
-        [email ? email.trim() : null, phone ? phone.trim() : null, userId]
+         WHERE id = $4`,
+        [
+          email ? email.trim() : null,
+          phone ? phone.trim() : null,
+          phone_country_code ? phone_country_code.trim() : null,
+          userId,
+        ]
       );
     }
 
@@ -233,8 +308,9 @@ const saveStep1 = async (req, res) => {
            fathers_name=$8, mothers_name=$9, mothers_maiden_name=$10,
            marital_status=$11, wife_name=$12, wife_maiden_name=$13, husbands_name=$14,
            has_disability=$15, disability_details=$16,
+           secondary_email=$17, secondary_phone=$18, secondary_phone_country_code=$19,
            updated_at=NOW()
-         WHERE profile_id=$17`,
+         WHERE profile_id=$20`,
         [
           first_name, middle_name || null, last_name,
           gender, cleanDOB(date_of_birth),
@@ -243,6 +319,9 @@ const saveStep1 = async (req, res) => {
           marital_status || null, wife_name || null, wife_maiden_name || null, husbands_name || null,
           has_disability || null,
           has_disability === 'yes' || has_disability === true ? (disability_details || null) : null,
+          secondary_email ? secondary_email.trim() : null,
+          secondary_phone ? secondary_phone.trim() : null,
+          secondary_phone ? (secondary_phone_country_code || '+91') : null,
           pid,
         ]
       );
@@ -254,8 +333,9 @@ const saveStep1 = async (req, res) => {
             surname_in_use, surname_as_per_gotra,
             fathers_name, mothers_name, mothers_maiden_name,
             marital_status, wife_name, wife_maiden_name, husbands_name,
-            has_disability, disability_details)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+            has_disability, disability_details,
+            secondary_email, secondary_phone, secondary_phone_country_code)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
         [
           pid,
           first_name, middle_name || null, last_name,
@@ -265,6 +345,9 @@ const saveStep1 = async (req, res) => {
           marital_status || null, wife_name || null, wife_maiden_name || null, husbands_name || null,
           has_disability || null,
           has_disability === 'yes' || has_disability === true ? (disability_details || null) : null,
+          secondary_email ? secondary_email.trim() : null,
+          secondary_phone ? secondary_phone.trim() : null,
+          secondary_phone ? (secondary_phone_country_code || '+91') : null,
         ]
       );
     }
@@ -285,7 +368,6 @@ const saveStep2 = async (req, res) => {
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
-    // ✅ NEW
     if (isProfileLocked(profile.status)) {
       return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
     }
@@ -382,7 +464,6 @@ const saveStep3 = async (req, res) => {
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
-    // ✅ NEW
     if (isProfileLocked(profile.status)) {
       return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
     }
@@ -405,26 +486,81 @@ const saveStep3 = async (req, res) => {
       familyInfoId = fi.rows[0].id;
     }
 
-    await pool.query('DELETE FROM family_members WHERE profile_id=$1', [pid]);
+    // Upsert instead of delete-all/insert-all: family_members.id can be referenced by
+    // scholarship_applications.family_member_id, so recreating rows with new ids breaks that FK.
+    const existingRes = await pool.query(
+      'SELECT id FROM family_members WHERE profile_id=$1',
+      [pid]
+    );
+    const existingIds = new Set(existingRes.rows.map((r) => r.id));
+    const incomingIds = new Set(
+      members.filter((m) => m.id && existingIds.has(m.id)).map((m) => m.id)
+    );
+
+    // Rows the user removed on this save — delete only if nothing else references them.
+    const idsToDelete = [...existingIds].filter((id) => !incomingIds.has(id));
+    const blockedMembers = [];
+
+    for (const id of idsToDelete) {
+      try {
+        await pool.query('DELETE FROM family_members WHERE id=$1', [id]);
+      } catch (delErr) {
+        if (delErr.code === '23503') {
+          // Referenced by an existing scholarship application — keep the row instead of failing the save.
+          const ref = await pool.query('SELECT name, relation FROM family_members WHERE id=$1', [id]);
+          blockedMembers.push(ref.rows[0]?.name || ref.rows[0]?.relation || 'A family member');
+        } else {
+          throw delErr;
+        }
+      }
+    }
 
     for (let i = 0; i < members.length; i++) {
       const m = members[i];
-      await pool.query(
-        `INSERT INTO family_members
-           (profile_id, family_info_id, relation, name, age, dob, gender, status, disability, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [
-          pid, familyInfoId,
-          m.relation || null, m.name || null,
-          m.age || null, m.dob ? String(m.dob).slice(0, 10) : null,
-          m.gender || null, m.status || 'active',
-          m.disability || 'no', i,
-        ]
-      );
+      const dob = m.dob ? String(m.dob).slice(0, 10) : null;
+
+      if (m.id && existingIds.has(m.id)) {
+        // Existing row — update in place so its id (and any FK references to it) stays intact.
+        await pool.query(
+          `UPDATE family_members SET
+             family_info_id=$1, relation=$2, name=$3, age=$4, dob=$5,
+             gender=$6, status=$7, disability=$8, sort_order=$9, updated_at=NOW()
+           WHERE id=$10 AND profile_id=$11`,
+          [
+            familyInfoId, m.relation || null, m.name || null,
+            m.age || null, dob,
+            m.gender || null, m.status || 'active',
+            m.disability || 'no', i,
+            m.id, pid,
+          ]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO family_members
+             (profile_id, family_info_id, relation, name, age, dob, gender, status, disability, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [
+            pid, familyInfoId,
+            m.relation || null, m.name || null,
+            m.age || null, dob,
+            m.gender || null, m.status || 'active',
+            m.disability || 'no', i,
+          ]
+        );
+      }
     }
 
     const pct = (family_type && members.length > 0) ? 100 : 30;
     await updateProfilePct(pid, 'step3_family', pct, pct === 100);
+
+    if (blockedMembers.length > 0) {
+      return res.json({
+        message: 'Step 3 saved, but some removed members could not be deleted because they have existing scholarship applications on file.',
+        blocked: blockedMembers,
+        completion: pct,
+      });
+    }
+
     res.json({ message: 'Step 3 saved', completion: pct });
   } catch (err) {
     console.error(err);
@@ -439,7 +575,6 @@ const saveStep4 = async (req, res) => {
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
-    // ✅ NEW
     if (isProfileLocked(profile.status)) {
       return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
     }
@@ -511,7 +646,6 @@ const saveStep5 = async (req, res) => {
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
-    // ✅ NEW
     if (isProfileLocked(profile.status)) {
       return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
     }
@@ -636,7 +770,6 @@ const saveStep6 = async (req, res) => {
     const profile = await getOrCreateProfile(userId);
     const pid = profile.id;
 
-    // ✅ NEW
     if (isProfileLocked(profile.status)) {
       return res.status(403).json({ message: 'Your application is locked while it is under review and cannot be edited.' });
     }

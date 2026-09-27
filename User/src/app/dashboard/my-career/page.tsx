@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { Search, MapPin, Briefcase, Clock, Users, Bookmark, BookmarkCheck, Filter, ChevronRight, X, Upload } from "lucide-react";
+import { Search, MapPin, Briefcase, Clock, Users, Bookmark, BookmarkCheck, Filter, ChevronRight, X, Upload, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface Job {
@@ -217,8 +217,17 @@ export default function MyCareerPage() {
     <div style={styles.root}>
       {/* Page Header */}
       <div style={styles.pageHeader}>
-        <h1 style={styles.pageTitle}>My Career</h1>
-        <p style={styles.pageSub}>Find jobs tailored for your community</p>
+        <div>
+          <h1 style={styles.pageTitle}>My Career</h1>
+          <p style={styles.pageSub}>Find jobs tailored for your community</p>
+        </div>
+        <button
+          type="button"
+          style={styles.profileBtn}
+          onClick={() => router.push("/dashboard/my-career/my_career_profile")}
+        >
+          <User size={15} /> My Career Profile
+        </button>
       </div>
 
       {/* Quick Nav */}
@@ -594,9 +603,22 @@ export default function MyCareerPage() {
 
 const styles: Record<string, React.CSSProperties> = {
   root: { fontFamily: "'Segoe UI', sans-serif" },
-  pageHeader: { marginBottom: 20 },
+  pageHeader: {
+    marginBottom: 20,
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
+  },
   pageTitle: { fontSize: 22, fontWeight: 700, color: "#1a1a2e", margin: "0 0 4px" },
   pageSub: { fontSize: 13, color: "#6b7280", margin: 0 },
+  profileBtn: {
+    display: "flex", alignItems: "center", gap: 8,
+    padding: "10px 16px", background: "#1a56db", color: "#fff",
+    border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600,
+    cursor: "pointer", whiteSpace: "nowrap",
+  },
   quickNav: { display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" },
   quickNavItem: {
     display: "flex", alignItems: "center", gap: 8,

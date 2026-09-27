@@ -215,7 +215,7 @@ async function getScholarships(req, res) {
          s.ews_only, s.house_ownership, s.agricultural_family,
          s.vehicle_ownership, s.has_assets, s.has_investments,
          s.religion, s.caste, s.domicile,
-         s.single_parent_only, s.orphan, s.minority_community,
+         s.single_parent_only, s.orphan,
          s.sports_quota, s.rural_background,
          s.cgpa_min, s.percentage_min,
          s.health_insurance, s.life_insurance, s.term_insurance,
@@ -320,7 +320,6 @@ async function getScholarships(req, res) {
         domicile: s.domicile,
         singleParentFamily: s.single_parent_only,
         orphan: s.orphan,
-        minorityCommunity: s.minority_community,
         sportsQuota: s.sports_quota,
         ruralBackground: s.rural_background,
         cgpaMin: s.cgpa_min ?? "",
@@ -365,6 +364,7 @@ async function createScholarship(req, res) {
       return res.status(400).json({ success: false, message: "Scholarship name is required" });
     }
 
+    // 62 columns  →  $1 … $62  →  62 parameters
     const { rows } = await client.query(
       `INSERT INTO scholarships (
          sangha_id, name, description, category_id,
@@ -379,7 +379,7 @@ async function createScholarship(req, res) {
          ews_only, house_ownership, agricultural_family,
          vehicle_ownership, has_assets, has_investments,
          religion, caste, domicile, single_parent_only, orphan,
-         minority_community, sports_quota, rural_background,
+         sports_quota, rural_background,
          cgpa_min, percentage_min,
          health_insurance, life_insurance, term_insurance,
          aadhaar_card, pan_card, voter_id, driving_license,
@@ -400,14 +400,14 @@ async function createScholarship(req, res) {
          $30,$31,$32,
          $33,$34,$35,
          $36,$37,$38,$39,$40,
-         $41,$42,$43,
-         $44,$45,
-         $46,$47,$48,
-         $49,$50,$51,$52,
-         $53,$54,
-         $55,$56,$57,
-         $58,$59,
-         $60,$61,$62,$63
+         $41,$42,
+         $43,$44,
+         $45,$46,$47,
+         $48,$49,$50,$51,
+         $52,$53,
+         $54,$55,$56,
+         $57,$58,
+         $59,$60,$61,$62
        )
        RETURNING id, created_at AS "createdAt"`,
       [
@@ -426,7 +426,7 @@ async function createScholarship(req, res) {
         c?.vehicleOwnership || "all", c?.hasAssets ?? null, c?.hasInvestments ?? null,
         c?.religion || [], c?.caste || [],
         c?.domicile ?? null, c?.singleParentFamily ?? null, c?.orphan ?? null,
-        c?.minorityCommunity ?? null, c?.sportsQuota ?? null, c?.ruralBackground ?? null,
+        c?.sportsQuota ?? null, c?.ruralBackground ?? null,
         c?.cgpaMin || null, c?.percentageMin || null,
         c?.healthInsurance ?? null, c?.lifeInsurance ?? null, c?.termInsurance ?? null,
         c?.aadhaar || "all", c?.pan || "all", c?.voterId || "all", c?.drivingLicense || "all",
@@ -496,6 +496,7 @@ async function updateScholarship(req, res) {
       return res.status(404).json({ success: false, message: "Scholarship not found" });
     }
 
+    // 61 SET placeholders ($1 … $61) + WHERE id = $62  →  62 parameters
     await client.query(
       `UPDATE scholarships SET
          name=$1, description=$2, category_id=$3,
@@ -510,17 +511,17 @@ async function updateScholarship(req, res) {
          ews_only=$29, house_ownership=$30, agricultural_family=$31,
          vehicle_ownership=$32, has_assets=$33, has_investments=$34,
          religion=$35, caste=$36, domicile=$37, single_parent_only=$38, orphan=$39,
-         minority_community=$40, sports_quota=$41, rural_background=$42,
-         cgpa_min=$43, percentage_min=$44,
-         health_insurance=$45, life_insurance=$46, term_insurance=$47,
-         aadhaar_card=$48, pan_card=$49, voter_id=$50, driving_license=$51,
-         konkani_card=$52, land_documents=$53,
-         fac_rented_house=$54, fac_own_house=$55, fac_agricultural_land=$56,
-         fac_two_wheeler=$57, fac_car=$58,
-         inv_fixed_deposits=$59, inv_mutual_funds_sip=$60,
-         inv_shares_demat=$61, inv_others=$62,
+         sports_quota=$40, rural_background=$41,
+         cgpa_min=$42, percentage_min=$43,
+         health_insurance=$44, life_insurance=$45, term_insurance=$46,
+         aadhaar_card=$47, pan_card=$48, voter_id=$49, driving_license=$50,
+         konkani_card=$51, land_documents=$52,
+         fac_rented_house=$53, fac_own_house=$54, fac_agricultural_land=$55,
+         fac_two_wheeler=$56, fac_car=$57,
+         inv_fixed_deposits=$58, inv_mutual_funds_sip=$59,
+         inv_shares_demat=$60, inv_others=$61,
          updated_at=NOW()
-       WHERE id=$63`,
+       WHERE id=$62`,
       [
         top.name?.trim(), top.description || null, top.categoryId || null,
         top.baseAmount || null, top.status, top.visibility,
@@ -537,7 +538,7 @@ async function updateScholarship(req, res) {
         c?.vehicleOwnership || "all", c?.hasAssets ?? null, c?.hasInvestments ?? null,
         c?.religion || [], c?.caste || [],
         c?.domicile ?? null, c?.singleParentFamily ?? null, c?.orphan ?? null,
-        c?.minorityCommunity ?? null, c?.sportsQuota ?? null, c?.ruralBackground ?? null,
+        c?.sportsQuota ?? null, c?.ruralBackground ?? null,
         c?.cgpaMin || null, c?.percentageMin || null,
         c?.healthInsurance ?? null, c?.lifeInsurance ?? null, c?.termInsurance ?? null,
         c?.aadhaar || "all", c?.pan || "all", c?.voterId || "all", c?.drivingLicense || "all",
@@ -1747,4 +1748,4 @@ module.exports = {
   getScholarshipApplicantsList,
   getSanghaApplicantDetails,
   getSanghaApplicantScholarshipHistory
-}
+};

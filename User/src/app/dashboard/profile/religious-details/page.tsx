@@ -836,51 +836,6 @@ export default function Page() {
         </CardHeader>
         <CardContent className="space-y-5">
 
-          <div className="space-y-2">
-            <Label>
-              Are you facing any challenges in tracing your ancestral family?{" "}
-              <span className="text-destructive">*</span>
-            </Label>
-            <div className="flex gap-3 mt-2">
-              <Button
-                type="button"
-                variant={formData.ancestralChallenge === "no" ? "default" : "outline"}
-                onClick={() => {
-                  setFormData(p => ({
-                    ...p,
-                    ancestralChallenge: "no",
-                    ancestralChallengeNotes: "",
-                    demiGods: p.demiGods.filter(d => d !== NAGA_DEFAULT),
-                    hasNagaMoolaSthana: "",
-                    nagaMoolaSthanaAddress: "",
-                    nagaMoolaSthanaInfo: "",
-                  }));
-                  setErrors(e => ({ ...e, ancestralChallenge: "", hasNagaMoolaSthana: "", nagaMoolaSthanaAddress: "" }));
-                }}
-              >
-                No
-              </Button>
-              <Button
-                type="button"
-                variant={formData.ancestralChallenge === "yes" ? "default" : "outline"}
-                onClick={() => {
-                  setFormData(p => ({
-                    ...p,
-                    ancestralChallenge: "yes",
-                    demiGods: p.demiGods.includes(NAGA_DEFAULT) ? p.demiGods : [...p.demiGods, NAGA_DEFAULT],
-                  }));
-                  setErrors(e => ({
-                    ...e,
-                    ancestralChallenge: "",
-                    demiGods: "",
-                  }));
-                }}
-              >
-                Yes
-              </Button>
-            </div>
-            {errors.ancestralChallenge && <p className="text-xs text-destructive">{errors.ancestralChallenge}</p>}
-          </div>
 
           {formData.ancestralChallenge === "yes" && (
             <div className="space-y-4">
@@ -952,6 +907,51 @@ export default function Page() {
               )}
             </div>
           )}
+           <div className="space-y-2">
+            <Label>
+              Are you facing any challenges in tracing your ancestral family?{" "}
+              <span className="text-destructive">*</span>
+            </Label>
+            <div className="flex gap-3 mt-2">
+              <Button
+                type="button"
+                variant={formData.ancestralChallenge === "no" ? "default" : "outline"}
+                onClick={() => {
+                  setFormData(p => ({
+                    ...p,
+                    ancestralChallenge: "no",
+                    ancestralChallengeNotes: "",
+                    demiGods: p.demiGods.filter(d => d !== NAGA_DEFAULT),
+                    hasNagaMoolaSthana: "",
+                    nagaMoolaSthanaAddress: "",
+                    nagaMoolaSthanaInfo: "",
+                  }));
+                  setErrors(e => ({ ...e, ancestralChallenge: "", hasNagaMoolaSthana: "", nagaMoolaSthanaAddress: "" }));
+                }}
+              >
+                No
+              </Button>
+              <Button
+                type="button"
+                variant={formData.ancestralChallenge === "yes" ? "default" : "outline"}
+                onClick={() => {
+                  setFormData(p => ({
+                    ...p,
+                    ancestralChallenge: "yes",
+                    demiGods: p.demiGods.includes(NAGA_DEFAULT) ? p.demiGods : [...p.demiGods, NAGA_DEFAULT],
+                  }));
+                  setErrors(e => ({
+                    ...e,
+                    ancestralChallenge: "",
+                    demiGods: "",
+                  }));
+                }}
+              >
+                Yes
+              </Button>
+            </div>
+            {errors.ancestralChallenge && <p className="text-xs text-destructive">{errors.ancestralChallenge}</p>}
+          </div>
 
           {formData.ancestralChallenge === "no" && (
             <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">
