@@ -12,7 +12,6 @@ const roles = [
   "Honorary President",
   "Legal Advisory",
   "Auditor",
-  "Freelance Consultant",
 ];
 
 export default function RolesPage() {

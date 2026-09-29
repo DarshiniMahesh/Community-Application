@@ -43,7 +43,6 @@ const roles = [
   "Hon. President",
   "Advisor",
   "Legal Advisor",
-  "Freelance Consultant",
 ];
 
 export default function AddMemberPage() {

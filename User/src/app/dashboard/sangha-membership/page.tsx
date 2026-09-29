@@ -49,7 +49,6 @@ const sanghaRoles = [
   "Hon. President",
   "Advisor",
   "Legal Advisor",
-  "Freelance Consultant",
 ];
 
 interface SanghaEntry {
