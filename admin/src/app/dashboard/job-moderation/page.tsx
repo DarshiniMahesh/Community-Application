@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 import { UserCog, Mail, CheckCircle2, Clock, Plus, Search, Ban, ShieldCheck, Trash2 } from "lucide-react";
 
 interface Moderator {
@@ -235,7 +236,7 @@ export default function JobModerationPage() {
                           </span>
                         )}
                       </td>
-                      <td style={styles.td}>{new Date(m.created_at).toLocaleDateString()}</td>
+                      <td style={styles.td}>{formatIndiaDate(m.created_at)}</td>
                       <td style={styles.td}>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {m.is_blocked ? (

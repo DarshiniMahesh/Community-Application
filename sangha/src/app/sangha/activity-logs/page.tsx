@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 
 type SubTab = "all" | "approved" | "rejected" | "changes_requested";
 
@@ -58,7 +59,7 @@ function statusLabel(status: string) {
 }
 
 function fmt(d: string | null) {
-  return d ? new Date(d).toLocaleDateString("en-IN") : "—";
+  return formatIndiaDate(d);
 }
 
 export default function ActivityLogsPage() {

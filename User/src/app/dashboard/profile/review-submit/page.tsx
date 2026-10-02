@@ -16,6 +16,7 @@ import { ArrowLeft, Send, Edit, CheckCircle2, Loader2, Lock, Calendar, Minus, Al
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { INCOME_SLAB_REVERSE } from "@/lib/constants";
+import { formatIndiaDate, formatIndiaDateTime } from "@/lib/dateTime";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -74,9 +75,8 @@ function asString(v: unknown): string | null {
 
 function formatDate(raw?: string | null): string | null {
   if (!raw) return null;
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return raw;
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const formatted = formatIndiaDate(raw);
+  return formatted === "—" ? raw : formatted;
 }
 
 function displayOrDash(val?: string | null): string {
@@ -661,10 +661,7 @@ export default function Page() {
               {submittedAt && (
                 <div className="flex items-center gap-2 mt-3 text-xs text-blue-600 border-t border-blue-200 pt-3">
                   <Calendar className="h-3.5 w-3.5" />
-                  Submitted on: {new Date(submittedAt).toLocaleString("en-IN", {
-                    dateStyle: "long",
-                    timeStyle: "short",
-                  })}
+                  Submitted on: {formatIndiaDateTime(submittedAt, { dateStyle: "long", timeStyle: "short" })}
                 </div>
               )}
             </CardContent>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 import { GENDERS } from "@/lib/constants";
 import { Users, Plus, Trash2, X, UserCheck } from "lucide-react";
 
@@ -185,7 +186,7 @@ export default function EmployeesPage() {
                     <td style={styles.td}>{emp.employee_gender}</td>
                     <td style={styles.td}>{emp.employee_qualification}</td>
                     <td style={styles.td}><span style={styles.roleBadge}>{emp.employee_role}</span></td>
-                    <td style={styles.td}>{new Date(emp.created_at).toLocaleDateString()}</td>
+                    <td style={styles.td}>{formatIndiaDate(emp.created_at)}</td>
                     <td style={styles.td}>
                       {deleteConfirm === emp.id ? (
                         <div style={styles.confirmRow}>

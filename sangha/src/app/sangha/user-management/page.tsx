@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle2, Minus } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -56,9 +57,8 @@ const INCOME_LABELS: Record<string, string> = {
 
 function formatDate(raw?: string | null): string | null {
   if (!raw) return null;
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return raw;
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const formatted = formatIndiaDate(raw);
+  return formatted === "—" ? raw : formatted;
 }
 
 function formatIncome(raw?: string | null): string | null {

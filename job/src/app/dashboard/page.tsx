@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 import { Briefcase, Users, FileText, Eye, TrendingUp, Clock } from "lucide-react";
 import Link from "next/link";
 
@@ -109,7 +110,7 @@ export default function CompanyDashboardPage() {
                           <Eye size={12} /> {j.applicant_count}
                         </span>
                       </td>
-                      <td style={styles.td}>{new Date(j.posted_at).toLocaleDateString()}</td>
+                      <td style={styles.td}>{formatIndiaDate(j.posted_at)}</td>
                       <td style={styles.td}>
                         <span style={{ ...styles.statusBadge, ...getStatusStyle(j.status) }}>
                           {j.status}
@@ -145,7 +146,7 @@ export default function CompanyDashboardPage() {
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <span style={{ ...styles.statusBadge, ...getStatusStyle(a.status) }}>{a.status}</span>
-                    <p style={styles.appDate}>{new Date(a.applied_at).toLocaleDateString()}</p>
+                    <p style={styles.appDate}>{formatIndiaDate(a.applied_at)}</p>
                   </div>
                 </div>
               ))}

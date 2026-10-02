@@ -8,6 +8,7 @@ import {
   SlidersHorizontal, Eye, Calendar, Users,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { calculateIndiaAge, formatIndiaDate, indiaDateInputValue } from "@/lib/dateTime";
 import type { DateRange } from "./DateRangePicker";
 import { toISO } from "./DateRangePicker";
 
@@ -275,7 +276,7 @@ async function downloadExcel(rows: any[], filename: string): Promise<void> {
   const ws   = XLSX.utils.json_to_sheet(rows);
   const wb   = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, filename.slice(0, 31).replace(/[/\\?*[\]:]/g, "_"));
-  XLSX.writeFile(wb, `${filename.replace(/[^\w\s\-]/g, "_")}-${new Date().toISOString().split("T")[0]}.xlsx`);
+  XLSX.writeFile(wb, `${filename.replace(/[^\w\s\-]/g, "_")}-${indiaDateInputValue()}.xlsx`);
 }
 
 function getUniqueValues(rows: TableRow[], col: string): string[] {
@@ -296,18 +297,14 @@ function sortedCols(cols: string[]): string[] {
 
 function fmtDate(d: Date | null): string {
   if (!d) return "";
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  return formatIndiaDate(d);
 }
 
 // ─── Calculate age from DOB string ────────────────────────────────────────────
 function calcAge(dob: string | null | undefined): string {
   if (!dob) return "—";
-  const parsed = new Date(dob);
-  if (isNaN(parsed.getTime())) return "—";
-  const today = new Date();
-  let age = today.getFullYear() - parsed.getFullYear();
-  const m = today.getMonth() - parsed.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < parsed.getDate())) age--;
+  const age = calculateIndiaAge(dob);
+  if (age == null) return "—";
   if (age < 0 || age > 150) return "—";
   return String(age);
 }

@@ -7,26 +7,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, Clock, XCircle, Edit, FileText, Calendar, User, Loader2, AlertCircle } from "lucide-react";
 import { api } from "@/lib/api";
+import { formatIndiaDateTime } from "@/lib/dateTime";
 
 type StatusType = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "changes_requested";
 
 // ✅ FIX: Always format dates explicitly in IST, regardless of browser timezone
 const formatIST = (dateStr: string | null | undefined): string => {
   if (!dateStr) return "Not yet submitted";
-  return new Date(dateStr).toLocaleString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  return formatIndiaDateTime(dateStr, { dateStyle: "medium", timeStyle: "short" });
 };
 
 const formatISTLong = (dateStr: string | null | undefined): string => {
   if (!dateStr) return "Not yet submitted";
-  return new Date(dateStr).toLocaleString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    dateStyle: "long",
-    timeStyle: "short",
-  });
+  return formatIndiaDateTime(dateStr, { dateStyle: "long", timeStyle: "short" });
 };
 
 const getStatusConfig = (status: StatusType) => {

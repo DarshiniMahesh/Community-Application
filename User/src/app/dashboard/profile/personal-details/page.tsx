@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { COUNTRY_CODES } from "@/lib/constants";
 import { useAutoSave } from "@/lib/useAutoSave";
+import { indiaDateInputValue } from "@/lib/dateTime";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -87,7 +88,7 @@ function PageContent() {
   // Primary (registered) contact: comes from users.email / users.phone via GET /users/profile
   const [registeredContact, setRegisteredContact] = useState({ email: "", phone: "" });
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = indiaDateInputValue();
 
   const [formData, setFormData] = useState({
     firstName: "", middleName: "", lastName: "",

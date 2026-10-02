@@ -3,6 +3,9 @@ const { verifyToken } = require('../utils/jwt');
 const pool = require('../config/db');
 
 const authenticate = async (req, res, next) => {
+  res.set('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
+
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     return res.status(401).json({ message: 'No token provided' });

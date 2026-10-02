@@ -1,5 +1,7 @@
+//Community-Application\User\src\app\dashboard\userscholarship\page.tsx
 "use client";
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { formatIndiaDate, indiaDaysUntil } from "@/lib/dateTime";
 
 // ─── API Base ─────────────────────────────────────────────────────────────────
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -308,7 +310,7 @@ const GLOBAL_STYLES = `
   /* Persistent sidebar */
   .page-layout { display:flex; gap:0; align-items:flex-start; }
   .filter-sidebar-persistent {
-    width:240px;
+    width:220px;
     flex-shrink:0;
     position:sticky;
     top:0;
@@ -320,6 +322,24 @@ const GLOBAL_STYLES = `
     flex-direction:column;
   }
   .main-content { flex:1; min-width:0; padding:2rem 1.5rem; }
+
+  /* ── Scholarship grid: 3 cards per row on desktop ───────────────────────── */
+  .schol-grid {
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:1.25rem;
+    align-items:stretch;
+  }
+  .schol-grid > * { min-width:0; }
+
+  /* Medium screens: 2 per row so cards stay wide enough to read */
+  @media (max-width: 1199px) {
+    .schol-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  }
+  /* Small screens: 1 per row */
+  @media (max-width: 720px) {
+    .schol-grid { grid-template-columns:minmax(0, 1fr); }
+  }
 
   /* Mobile: hide persistent sidebar, show overlay trigger */
   @media (max-width: 768px) {
@@ -335,13 +355,11 @@ const GLOBAL_STYLES = `
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
 function daysUntil(dateStr: string): number {
-  if (!dateStr) return 0;
-  return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
+  return indiaDaysUntil(dateStr) ?? 0;
 }
 
 function formatDate(dateStr: string): string {
-  if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  return formatIndiaDate(dateStr, { day: "numeric", month: "short", year: "numeric" });
 }
 
 // ─── Application Status Pill ──────────────────────────────────────────────────
@@ -1799,10 +1817,12 @@ function ScholarshipCard({ scholarship, index, onSelect }: {
 
   return (
     <div className="schol-card" onClick={onSelect}
-      style={{ background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)",borderRadius:18,padding:"22px",display:"flex",flexDirection:"column",gap:0,animationDelay:`${index*0.07}s`,position:"relative",overflow:"hidden" }}>
+      style={{ background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)",borderRadius:18,padding:"22px",display:"flex",flexDirection:"column",gap:0,animationDelay:`${index*0.07}s`,position:"relative",overflow:"hidden",minWidth:0,height:"100%" }}>
       <div style={{ position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${color},${color}66)`,borderRadius:"18px 18px 0 0" }} />
-      <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:12 }}>
-        <div style={{ display:"flex",flexWrap:"wrap",gap:6,flex:1 }}>
+
+      {/* Badges row — wraps so nothing gets squeezed in a 3-column layout */}
+      <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:12 }}>
+        <div style={{ display:"flex",flexWrap:"wrap",gap:6,minWidth:0 }}>
           <span style={{ padding:"3px 10px",borderRadius:100,fontSize:11,fontWeight:700,background:`${color}18`,color,border:`0.5px solid ${color}40` }}>{scholarship.category}</span>
           <StatusTag status={scholarship.status} end={scholarship.applicationEnd} />
           <AppStatusPill
@@ -1811,7 +1831,7 @@ function ScholarshipCard({ scholarship, index, onSelect }: {
           />
         </div>
         {scholarship.visibility==="primary_sangha_only" && (
-          <span style={{ padding:"3px 9px",borderRadius:100,fontSize:10,fontWeight:700,background:"rgba(83,74,183,0.1)",color:"#534AB7",border:"0.5px solid rgba(83,74,183,0.3)",flexShrink:0 }}>
+          <span style={{ alignSelf:"flex-start",maxWidth:"100%",padding:"3px 9px",borderRadius:100,fontSize:10,fontWeight:700,background:"rgba(83,74,183,0.1)",color:"#534AB7",border:"0.5px solid rgba(83,74,183,0.3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
             Exclusive for {scholarship.sanghaName} users
           </span>
         )}
@@ -1820,11 +1840,11 @@ function ScholarshipCard({ scholarship, index, onSelect }: {
       <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:10 }}>
         <div style={{ flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:2 }}>
           {scholarship.sanghaName && (
-            <h5 style={{ fontSize:13,fontWeight:500,color:"#CC5500",margin:0,lineHeight:1.3,fontFamily:"'Lora',serif" }}>
+            <h5 style={{ fontSize:13,fontWeight:500,color:"#CC5500",margin:0,lineHeight:1.3,fontFamily:"'Lora',serif",overflowWrap:"anywhere" }}>
               {scholarship.sanghaName}
             </h5>
           )}
-          <h3 style={{ fontSize:16,fontWeight:600,color:"#1a1a2e",margin:0,lineHeight:1.35,fontFamily:"'Lora',serif" }}>
+          <h3 style={{ fontSize:16,fontWeight:600,color:"#1a1a2e",margin:0,lineHeight:1.35,fontFamily:"'Lora',serif",overflowWrap:"anywhere" }}>
             {scholarship.name} Scholarship
           </h3>
         </div>
@@ -1840,34 +1860,38 @@ function ScholarshipCard({ scholarship, index, onSelect }: {
         </div>
       </div>
 
-      <p style={{ fontSize:13,color:"var(--color-text-secondary)",margin:"0 0 14px",lineHeight:1.6,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden" }}>{scholarship.description}</p>
+      <p style={{ fontSize:13,color:"var(--color-text-secondary)",margin:"0 0 14px",lineHeight:1.6,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",overflowWrap:"anywhere" }}>{scholarship.description}</p>
 
       {/* Eligibility tags: standard + custom criteria labels combined */}
       <div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:14 }}>
         {allEligibilityTags.slice(0,4).map((e, i) => {
           const isCustom = i >= scholarship.eligibility.length;
           return (
-            <span key={i} style={{ fontSize:11,padding:"3px 8px",borderRadius:6,background:isCustom?"rgba(83,74,183,0.06)":"var(--color-background-secondary)",color:isCustom?"#534AB7":"var(--color-text-secondary)",border:isCustom?"0.5px solid rgba(83,74,183,0.2)":"0.5px solid var(--color-border-tertiary)",display:"inline-flex",alignItems:"center",gap:3 }}>
-              <span style={{ fontSize:9,color:isCustom?"#534AB7":color }}>{isCustom?"✦":"✓"}</span>{e}
+            <span key={i} title={e} style={{ fontSize:11,padding:"3px 8px",borderRadius:6,background:isCustom?"rgba(83,74,183,0.06)":"var(--color-background-secondary)",color:isCustom?"#534AB7":"var(--color-text-secondary)",border:isCustom?"0.5px solid rgba(83,74,183,0.2)":"0.5px solid var(--color-border-tertiary)",display:"inline-flex",alignItems:"center",gap:3,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+              <span style={{ fontSize:9,color:isCustom?"#534AB7":color,flexShrink:0 }}>{isCustom?"✦":"✓"}</span>
+              <span style={{ overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{e}</span>
             </span>
           );
         })}
         {allEligibilityTags.length>4&&<span style={{ fontSize:11,padding:"3px 8px",borderRadius:6,background:"var(--color-background-secondary)",color:"var(--color-text-tertiary)",border:"0.5px solid var(--color-border-tertiary)" }}>+{allEligibilityTags.length-4} more</span>}
       </div>
 
-      {scholarship.maxApprovals!==undefined&&scholarship.currentApprovals!==undefined && (
-        <div style={{ marginBottom:14 }}><QuotaBar current={scholarship.currentApprovals} max={scholarship.maxApprovals} /></div>
-      )}
-      {scholarship.applicationEnd && (
-        <div style={{ fontSize:11,color:scholarship.status==="closing_soon"?"#c96000":"var(--color-text-tertiary)",marginBottom:14,display:"flex",alignItems:"center",gap:4 }}>
-          📅 {scholarship.status==="closed"?"Closed on":"Apply by"} {formatDate(scholarship.applicationEnd)}
+      {/* Pushes quota / date / button to the bottom so all cards in a row line up */}
+      <div style={{ marginTop:"auto" }}>
+        {scholarship.maxApprovals!==undefined&&scholarship.currentApprovals!==undefined && (
+          <div style={{ marginBottom:14 }}><QuotaBar current={scholarship.currentApprovals} max={scholarship.maxApprovals} /></div>
+        )}
+        {scholarship.applicationEnd && (
+          <div style={{ fontSize:11,color:scholarship.status==="closing_soon"?"#c96000":"var(--color-text-tertiary)",marginBottom:14,display:"flex",alignItems:"center",gap:4 }}>
+            📅 {scholarship.status==="closed"?"Closed on":"Apply by"} {formatDate(scholarship.applicationEnd)}
+          </div>
+        )}
+        <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+          <button onClick={(e) => { e.stopPropagation(); onSelect(); }}
+            style={{ padding:"9px 18px",fontSize:13,fontWeight:600,border:"0.5px solid #534AB7",borderRadius:10,background:"rgba(83,74,183,0.06)",color:"#534AB7",cursor:"pointer",display:"flex",alignItems:"center",gap:5,transition:"all 0.15s" }}>
+            {hasPartialApplications ? "Apply for more →" : "View details →"}
+          </button>
         </div>
-      )}
-      <div style={{ display:"flex",gap:8,alignItems:"center" }}>
-        <button onClick={(e) => { e.stopPropagation(); onSelect(); }}
-          style={{ padding:"9px 18px",fontSize:13,fontWeight:600,border:"0.5px solid #534AB7",borderRadius:10,background:"rgba(83,74,183,0.06)",color:"#534AB7",cursor:"pointer",display:"flex",alignItems:"center",gap:5,transition:"all 0.15s" }}>
-          {hasPartialApplications ? "Apply for more →" : "View details →"}
-        </button>
       </div>
     </div>
   );
@@ -2463,7 +2487,7 @@ export default function UserScholarshipPage() {
             />
           )}
 
-          {/* Main Scholarships Grid */}
+          {/* Main Scholarships Grid — 3 cards per row on desktop */}
           {!myApplications && (
             <>
               {!loading && !error && (
@@ -2472,7 +2496,7 @@ export default function UserScholarshipPage() {
                   {hasActiveFilters && <span style={{ marginLeft:6,color:"#999" }}>· filtered</span>}
                 </div>
               )}
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))",gap:"1.25rem" }}>
+              <div className="schol-grid">
                 {loading
                   ? Array.from({ length:6 }).map((_, i) => <SkeletonCard key={i} />)
                   : filtered.length===0

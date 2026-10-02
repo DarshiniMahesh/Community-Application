@@ -1,6 +1,7 @@
 // Community-Application\sangha\src\app\sangha\scholarships\page.tsx
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { formatIndiaDate, indiaDateInputValue, isIndiaDatePast } from "@/lib/dateTime";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -564,7 +565,7 @@ function ProfileViewerModal({ scholarshipId, profileId, applicantName, familyMem
               <ProfileSection icon="ti-user" title="Personal Details" accent="#534AB7">
                 <ProfileField label="Full name" value={fullName} />
                 <ProfileField label="Gender" value={pd?.gender} />
-                <ProfileField label="Date of birth" value={pd?.date_of_birth ? new Date(pd.date_of_birth).toLocaleDateString("en-IN", { day:"numeric",month:"long",year:"numeric" }) : null} />
+                <ProfileField label="Date of birth" value={pd?.date_of_birth ? formatIndiaDate(pd.date_of_birth, { day: "numeric", month: "long" }) : null} />
                 <ProfileField label="Marital status" value={pd?.marital_status} />
                 <ProfileField label="Father's name" value={pd?.fathers_name} />
                 <ProfileField label="Mother's name" value={pd?.mothers_name} />
@@ -1315,9 +1316,9 @@ function SanghaScholarshipHistoryTab({ applicationId, type }: { applicationId: s
                 <span style={{ fontSize:22,fontWeight:900,padding:"4px 12px",borderRadius:100,background:rec.status==="approved"?"rgba(15,110,86,0.12)":rec.status==="rejected"?"rgba(192,57,43,0.1)":"var(--color-background-secondary)",color:rec.status==="approved"?"var(--color-text-success)":rec.status==="rejected"?"var(--color-text-danger)":"var(--color-text-secondary)" }}>{rec.status}</span>
               </div>
               <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,fontSize:22.5,fontWeight:700,color:"var(--color-text-secondary)" }}>
-                <div>Applied: {new Date(rec.appliedAt).toLocaleDateString("en-IN")}</div>
+                <div>Applied: {formatIndiaDate(rec.appliedAt)}</div>
                 <div>Amount: {rec.scholarship.amount!=null?`₹${Number(rec.scholarship.amount).toLocaleString("en-IN")}`:"—"}</div>
-                <div>Disbursement: {rec.scholarship.disbursementDate?new Date(rec.scholarship.disbursementDate).toLocaleDateString("en-IN"):"—"}</div>
+                <div>Disbursement: {formatIndiaDate(rec.scholarship.disbursementDate)}</div>
               </div>
             </div>
           ))}
@@ -1401,7 +1402,7 @@ function SanghaApplicantDetailModal({ applicationId, applicantName, isFamilyMemb
                       <>
                         <ProfileField label="Full name" value={d.personal?.fullName} />
                         <ProfileField label="Gender" value={d.personal?.gender} />
-                        <ProfileField label="Date of birth" value={d.personal?.dateOfBirth ? new Date(d.personal.dateOfBirth).toLocaleDateString("en-IN") : null} />
+                        <ProfileField label="Date of birth" value={d.personal?.dateOfBirth ? formatIndiaDate(d.personal.dateOfBirth) : null} />
                         <ProfileField label="Marital status" value={d.personal?.maritalStatus} />
                         <ProfileField label="Father's name" value={d.personal?.fathersName} />
                         <ProfileField label="Mother's name" value={d.personal?.mothersName} />
@@ -1413,7 +1414,7 @@ function SanghaApplicantDetailModal({ applicationId, applicantName, isFamilyMemb
                         <ProfileField label="Name" value={d.name} />
                         <ProfileField label="Relation" value={d.relation} />
                         <ProfileField label="Gender" value={d.gender} />
-                        <ProfileField label="Date of birth" value={d.dob ? new Date(d.dob).toLocaleDateString("en-IN") : null} />
+                        <ProfileField label="Date of birth" value={d.dob ? formatIndiaDate(d.dob) : null} />
                         {d.age != null && <ProfileField label="Age" value={`${d.age} years`} />}
                         <ProfileField label="Disability" value={d.disability === "yes" ? "Yes" : d.disability === "no" ? "No" : null} />
                       </>
@@ -1723,7 +1724,7 @@ function ApplicantsListModal({ scholarship, onClose }: { scholarship: Scholarshi
                         {isFM ? `${app.familyMemberRelation} of ${app.user.fullName}` : app.user.email} · {app.user.phone}
                         {(app.user.district||app.user.state) && ` · ${[app.user.district,app.user.state].filter(Boolean).join(", ")}`}
                       </div>
-                      <div style={{ fontSize:22,fontWeight:700,color:"var(--color-text-tertiary)",marginTop:3 }}>Applied {new Date(app.appliedAt).toLocaleDateString("en-IN")}</div>
+                      <div style={{ fontSize:22,fontWeight:700,color:"var(--color-text-tertiary)",marginTop:3 }}>Applied {formatIndiaDate(app.appliedAt)}</div>
                     </div>
                     <button onClick={()=>setDetailApp(app)} style={{ width:46,height:46,borderRadius:12,border:"1px solid var(--color-border-tertiary)",background:"var(--color-background-secondary)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--color-text-secondary)" }}>
                       <i className="ti ti-eye" style={{ fontSize:29 }} />
@@ -1979,7 +1980,7 @@ function BeneficiariesPanel({ scholarship, onClose, pushToast, onCountChange, on
                             <span style={{ fontSize:25,fontWeight:900,color:"var(--color-text-primary)" }}>{isSelf?group.full_name:app.fm_name||"Family Member"}</span>
                             <span style={{ fontSize:21,fontWeight:900,padding:"1px 9px",borderRadius:5,background:isSelf?"rgba(83,74,183,0.12)":"rgba(15,110,86,0.1)",color:isSelf?"#534AB7":"var(--color-text-success)" }}>{isSelf?"Self":app.fm_relation||"Family"}</span>
                           </div>
-                          {app.application_date&&<span style={{ fontSize:21.5,fontWeight:700,color:"var(--color-text-tertiary)" }}>Applied {new Date(app.application_date).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</span>}
+                          {app.application_date&&<span style={{ fontSize:21.5,fontWeight:700,color:"var(--color-text-tertiary)" }}>Applied {formatIndiaDate(app.application_date,{day:"numeric"})}</span>}
                         </div>
                         <div style={{ display:"flex",alignItems:"center",gap:9,flexShrink:0,flexWrap:"wrap" }}>
                           <button onClick={()=>setViewingProfile({profileId:app.profile_id,applicantName:group.full_name,familyMemberName:isSelf?null:app.fm_name,familyMemberRelation:isSelf?null:app.fm_relation})} className="action-btn" style={{ padding:"7px 15px",fontSize:22,border:"1px solid rgba(83,74,183,0.35)",borderRadius:9,background:"rgba(83,74,183,0.09)",cursor:"pointer",color:"#534AB7",display:"flex",alignItems:"center",gap:6,fontWeight:900,fontFamily:"'DM Sans',sans-serif" }}>
@@ -2099,7 +2100,7 @@ function ScholarshipCard({ scholarship,onEdit,onDelete,onClose:onCloseScholarshi
 }) {
   const category = categories.find((c) => c.id === scholarship.categoryId);
   const chips = criteriaChips(scholarship.criteria, scholarship.customCriteriaValues);
-  const deadlineOver = scholarship.applicationEnd && new Date(scholarship.applicationEnd) < new Date();
+  const deadlineOver = isIndiaDatePast(scholarship.applicationEnd);
   const isActive = scholarship.status === "active";
   const isClosed = scholarship.status === "closed";
   const isDraft  = scholarship.status === "draft";
@@ -2146,7 +2147,7 @@ function ScholarshipCard({ scholarship,onEdit,onDelete,onClose:onCloseScholarshi
         {(scholarship.applicationStart||scholarship.applicationEnd)&&(
           <div style={{ fontSize:23,fontWeight:800,color:deadlineOver?"var(--color-text-danger)":"var(--color-text-tertiary)",marginBottom:18,display:"flex",alignItems:"center",gap:7 }}>
             <i className="ti ti-calendar" style={{ fontSize:21 }} />
-            {isClosed&&scholarship.applicationEnd?`Closed on ${new Date(scholarship.applicationEnd).toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})}`:scholarship.applicationEnd?`Apply by ${new Date(scholarship.applicationEnd).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}` :""}
+            {isClosed&&scholarship.applicationEnd?`Closed on ${formatIndiaDate(scholarship.applicationEnd,{day:"numeric",month:"long"})}`:scholarship.applicationEnd?`Apply by ${formatIndiaDate(scholarship.applicationEnd,{day:"numeric"})}` :""}
           </div>
         )}
         <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap" }}>
@@ -2228,8 +2229,7 @@ function AllApplicantsView({
     return { bg:"rgba(201,138,27,0.12)",color:"#A86F0F",border:"rgba(201,138,27,0.35)",label:"Pending",icon:"ti-clock",accent:"#C98A1B" };
   };
 
-  const fmtDate = (iso: string | null | undefined) =>
-    iso ? new Date(iso).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}) : null;
+  const fmtDate = (iso: string | null | undefined) => iso ? formatIndiaDate(iso, { day: "numeric" }) : null;
 
   const handleYearChange = (v: string) => { onYearFilterChange(v); onStartDateChange(""); onEndDateChange(""); };
   const handleDateChange = (which: "start"|"end", v: string) => {
@@ -2265,7 +2265,7 @@ function AllApplicantsView({
           <label style={{ fontSize:18,fontWeight:900,color:"var(--color-text-tertiary)",textTransform:"uppercase",letterSpacing:"0.04em" }}>Year</label>
           <select value={yearFilter} onChange={(e)=>handleYearChange(e.target.value)} style={{ fontSize:23,fontWeight:800,padding:"8px 12px",borderRadius:10,border:"1px solid var(--color-border-secondary)",background:"var(--color-background-secondary)",minHeight:0 }}>
             <option value="">All Years</option>
-            {Array.from({length:6},(_,i)=>new Date().getFullYear()-i).map((y)=>(<option key={y} value={String(y)}>{y}</option>))}
+            {Array.from({length:6},(_,i)=>Number(indiaDateInputValue().slice(0,4))-i).map((y)=>(<option key={y} value={String(y)}>{y}</option>))}
           </select>
         </div>
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatIndiaDate, parseIndiaDate } from "@/lib/dateTime";
 import { FileText, ArrowLeft, CheckCircle2, Briefcase, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -82,7 +83,7 @@ export default function ApplicationTrackerPage() {
         if (referralsResult.status === "rejected") console.error(referralsResult.reason);
 
         const merged = [...jobApps, ...referralApps].sort(
-          (a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime()
+          (a, b) => (parseIndiaDate(b.applied_at)?.getTime() ?? 0) - (parseIndiaDate(a.applied_at)?.getTime() ?? 0)
         );
 
         setApplications(merged);
@@ -219,7 +220,7 @@ export default function ApplicationTrackerPage() {
                     </span>
                   </div>
                   <p style={styles.companyName}>{app.company_name || "—"}</p>
-                  <p style={styles.appliedDate}>Applied on {new Date(app.applied_at).toLocaleDateString()}</p>
+                  <p style={styles.appliedDate}>Applied on {formatIndiaDate(app.applied_at)}</p>
                 </div>
               </div>
 

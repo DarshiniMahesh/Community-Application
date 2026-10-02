@@ -16,6 +16,7 @@ import { ArrowLeft, ArrowRight, Plus, Trash2, X, RotateCcw, GraduationCap, Check
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
+import { indiaDateInputValue } from "@/lib/dateTime";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -585,7 +586,7 @@ const isComplete = (m: MemberData): boolean => {
                             type="date"
                             value={edu.startDate}
                             min="1900-01-01"
-                            max={new Date().toISOString().split("T")[0]}
+                            max={indiaDateInputValue()}
                             onClick={(e) => { try { (e.currentTarget as HTMLInputElement).showPicker?.(); } catch {} }}
                             onChange={e => updateEducation(member.id, edu.id, "startDate", e.target.value)}
                             className="cursor-pointer"

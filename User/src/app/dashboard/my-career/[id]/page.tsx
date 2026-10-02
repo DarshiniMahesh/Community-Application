@@ -1,8 +1,10 @@
+//Community-Application\User\src\app\dashboard\my-career\[id]\page.tsx
 "use client";
 
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { formatIndiaDate, isIndiaDatePast, parseIndiaDate } from "@/lib/dateTime";
 import {
   ArrowLeft, MapPin, Briefcase, Clock, Users, Building2,
   BookmarkCheck, Bookmark, CheckCircle2, AlertCircle, X,
@@ -61,6 +63,15 @@ interface SavedResume {
   uploaded_at: string;
 }
 
+interface SavedCoverLetter {
+  id: string;
+  file_name: string;
+  cover_letter_url: string;
+  file_size: number | null;
+  is_default: boolean;
+  uploaded_at: string;
+}
+
 interface CareerProfileResponse {
   profile?: {
     portfolio_url?: string;
@@ -71,6 +82,7 @@ interface CareerProfileResponse {
 
 type ModalStep = "idle" | "form" | "submitting" | "success" | "error";
 type ResumeMode = "saved" | "upload";
+type CoverLetterMode = "saved" | "upload";
 
 const formatFileSize = (bytes: number | null) => {
   if (!bytes) return "";
@@ -98,6 +110,10 @@ export default function UserJobDetailPage() {
   const [resumeMode, setResumeMode] = useState<ResumeMode>("upload");
   const [selectedResumeId, setSelectedResumeId] = useState<string>("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [savedCoverLetters, setSavedCoverLetters] = useState<SavedCoverLetter[]>([]);
+  const [coverLettersLoaded, setCoverLettersLoaded] = useState(false);
+  const [coverLetterMode, setCoverLetterMode] = useState<CoverLetterMode>("upload");
+  const [selectedCoverLetterId, setSelectedCoverLetterId] = useState("");
 
   // ── Portfolio URL (prefilled from career profile) ──────────────
   const [profilePortfolioUrl, setProfilePortfolioUrl] = useState<string>("");
@@ -109,6 +125,10 @@ export default function UserJobDetailPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const resumeRef = useRef<HTMLInputElement>(null);
   const coverRef = useRef<HTMLInputElement>(null);
+
+  // ── Sticky "Apply" bar (shows once the hero Apply button scrolls out of view) ──
+  const heroApplyRef = useRef<HTMLDivElement>(null);
+  const [showStickyApply, setShowStickyApply] = useState(false);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     description: true,
@@ -133,8 +153,9 @@ export default function UserJobDetailPage() {
       api.get("/jobs/saved").catch(() => ({ saved_jobs: [] })),
       api.get("/jobs/my-applications").catch(() => ({ applications: [] })),
       api.get("/jobs/resumes").catch(() => ({ resumes: [] })),
+      api.get("/jobs/cover-letters").catch(() => ({ coverLetters: [] })),
       api.get("/jobs/career-profile").catch(() => null as CareerProfileResponse | null),
-    ]).then(([jobData, savedData, appsData, resumeData, careerData]) => {
+    ]).then(([jobData, savedData, appsData, resumeData, coverLetterData, careerData]) => {
       setJob(jobData.job ?? jobData);
 
       const savedIds = new Set<string>(
@@ -152,6 +173,9 @@ export default function UserJobDetailPage() {
       setSavedResumes(resumes);
       setResumesLoaded(true);
 
+      setSavedCoverLetters(coverLetterData.coverLetters || []);
+      setCoverLettersLoaded(true);
+
       const existingPortfolio =
         (careerData as CareerProfileResponse | null)?.profile?.portfolio_url || "";
       setProfilePortfolioUrl(existingPortfolio);
@@ -165,6 +189,22 @@ export default function UserJobDetailPage() {
       setAnswers(new Array(job.screening_questions.length).fill(""));
     }
   }, [job]);
+
+  // Watch the hero's Apply button; once it scrolls out of view, reveal the sticky bar.
+  useEffect(() => {
+    if (!job || loading) return;
+    const el = heroApplyRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setShowStickyApply(!entry.isIntersecting);
+      },
+      { threshold: 0 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [job, loading]);
 
   const handleSave = async () => {
     setSavingId(true);
@@ -196,6 +236,15 @@ export default function UserJobDetailPage() {
       setSelectedResumeId("");
     }
 
+    if (savedCoverLetters.length > 0) {
+      setCoverLetterMode("saved");
+      const defaultCoverLetter = savedCoverLetters.find((letter) => letter.is_default) || savedCoverLetters[0];
+      setSelectedCoverLetterId(defaultCoverLetter.id);
+    } else {
+      setCoverLetterMode("upload");
+      setSelectedCoverLetterId("");
+    }
+
     // Prefill portfolio URL from the career profile, if the user has one on file.
     setPortfolioUrl(profilePortfolioUrl);
     setEditingPortfolioUrl(!profilePortfolioUrl);
@@ -212,8 +261,12 @@ export default function UserJobDetailPage() {
       setErrorMsg("Please upload your resume.");
       return;
     }
-    if (job?.cover_letter_required && !coverLetterFile) {
-      setErrorMsg("Cover letter is required for this role.");
+    if (job?.cover_letter_required && coverLetterMode === "saved" && !selectedCoverLetterId) {
+      setErrorMsg("Please choose a saved cover letter, or switch to upload a new one.");
+      return;
+    }
+    if (job?.cover_letter_required && coverLetterMode === "upload" && !coverLetterFile) {
+      setErrorMsg("Please upload your cover letter.");
       return;
     }
     if (job?.portfolio_required && !portfolioUrl.trim()) {
@@ -233,7 +286,11 @@ export default function UserJobDetailPage() {
       } else if (resumeFile) {
         formData.append("resume", resumeFile);
       }
-      if (coverLetterFile) formData.append("cover_letter", coverLetterFile);
+      if (coverLetterMode === "saved" && selectedCoverLetterId) {
+        formData.append("cover_letter_id", selectedCoverLetterId);
+      } else if (coverLetterFile) {
+        formData.append("cover_letter", coverLetterFile);
+      }
       if (portfolioUrl.trim()) formData.append("portfolio_url", portfolioUrl.trim());
       if (answers.length) formData.append("answers", JSON.stringify(answers));
 
@@ -254,7 +311,7 @@ export default function UserJobDetailPage() {
   };
 
   const timeAgo = (date: string) => {
-    const diff = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+    const diff = Math.floor((Date.now() - (parseIndiaDate(date)?.getTime() ?? Date.now())) / 1000);
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return `${Math.floor(diff / 86400)}d ago`;
@@ -283,8 +340,8 @@ export default function UserJobDetailPage() {
     </div>
   );
 
-  const deadline = job.application_deadline ? new Date(job.application_deadline) : null;
-  const isExpired = deadline ? deadline < new Date() : false;
+  const deadline = job.application_deadline || null;
+  const isExpired = isIndiaDatePast(deadline);
   const canApply = !appStatus.hasApplied && !isExpired && job.status === "active";
   const certList = job.certifications ? job.certifications.split(",").map((c) => c.trim()).filter(Boolean) : [];
 
@@ -338,7 +395,7 @@ export default function UserJobDetailPage() {
           <div style={styles.metaRow} >
             {deadline && (
               <span style={{ fontSize: 12, color: isExpired ? "#dc2626" : "#6b7280" }}>
-                {isExpired ? "⚠ Deadline passed" : `⏰ Apply by ${deadline.toLocaleDateString()}`}
+                {isExpired ? "⚠ Deadline passed" : `⏰ Apply by ${formatIndiaDate(deadline)}`}
               </span>
             )}
             {job.number_of_openings > 0 && (
@@ -348,7 +405,7 @@ export default function UserJobDetailPage() {
           </div>
         </div>
 
-        <div style={styles.ctaCol}>
+        <div style={styles.ctaCol} ref={heroApplyRef}>
           {appStatus.hasApplied ? (
             <div style={styles.appliedBox}>
               <CheckCircle2 size={18} color="#059669" />
@@ -466,12 +523,12 @@ export default function UserJobDetailPage() {
               <SideInfo label="Openings" value={String(job.number_of_openings)} />
             )}
             {job.expected_start_date && (
-              <SideInfo label="Onboarding Date" value={new Date(job.expected_start_date).toLocaleDateString()} />
+              <SideInfo label="Onboarding Date" value={formatIndiaDate(job.expected_start_date)} />
             )}
             {deadline && (
               <SideInfo
                 label="Application Deadline"
-                value={deadline.toLocaleDateString()}
+                value={formatIndiaDate(deadline)}
                 valueStyle={{ color: isExpired ? "#dc2626" : "#1a1a2e" }}
               />
             )}
@@ -495,15 +552,30 @@ export default function UserJobDetailPage() {
           </div>
 
           {canApply && (
-  <button
-    style={styles.sideApplyBtn}
-    onClick={openApplyModal}
-  >
-    Apply for this Role
-  </button>
-)}
+            <button
+              style={styles.sideApplyBtn}
+              onClick={openApplyModal}
+            >
+              Apply for this Role
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Sticky apply bar — appears once the hero Apply button scrolls out of view */}
+      {canApply && showStickyApply && modalStep === "idle" && (
+        <div style={styles.stickyBar}>
+          <div style={styles.stickyBarInner}>
+            <div style={styles.stickyBarInfo}>
+              <span style={styles.stickyBarTitle}>{job.job_title}</span>
+              <span style={styles.stickyBarSub}>{job.company_name}{job.location ? ` · ${job.location}` : ""}</span>
+            </div>
+            <button style={styles.applyBtn} onClick={openApplyModal}>
+              Apply Now
+            </button>
+          </div>
+        </div>
+      )}
 
       {modalStep !== "idle" && (
         <div style={styles.modalOverlay} onClick={() => modalStep !== "submitting" && setModalStep("idle")}>
@@ -631,25 +703,70 @@ export default function UserJobDetailPage() {
                         ? <span style={styles.required}>*</span>
                         : <span style={styles.optional}>(optional)</span>}
                     </label>
-                    <div
-                      style={{ ...styles.fileZone, ...(coverLetterFile ? styles.fileZoneFilled : {}) }}
-                      onClick={() => coverRef.current?.click()}
-                    >
-                      {coverLetterFile ? (
-                        <><FileText size={16} color="#1a56db" /> <span style={styles.fileName}>{coverLetterFile.name}</span></>
-                      ) : (
-                        <><Upload size={16} color="#9ca3af" /> <span style={{ color: "#9ca3af", fontSize: 13 }}>Click to upload PDF or DOCX</span></>
-                      )}
-                    </div>
-                    <input
-                      ref={coverRef}
-                      type="file"
-                      accept=".pdf,.doc,.docx"
-                      style={{ display: "none" }}
-                      title="Upload cover letter"
-                      aria-label="Upload cover letter"
-                      onChange={(e) => setCoverLetterFile(e.target.files?.[0] ?? null)}
-                    />
+                    {coverLettersLoaded && savedCoverLetters.length > 0 && (
+                      <div style={styles.resumeModeToggle}>
+                        <button
+                          type="button"
+                          style={{ ...styles.resumeModeBtn, ...(coverLetterMode === "saved" ? styles.resumeModeBtnActive : {}) }}
+                          onClick={() => setCoverLetterMode("saved")}
+                        >
+                          Use a saved cover letter
+                        </button>
+                        <button
+                          type="button"
+                          style={{ ...styles.resumeModeBtn, ...(coverLetterMode === "upload" ? styles.resumeModeBtnActive : {}) }}
+                          onClick={() => setCoverLetterMode("upload")}
+                        >
+                          Upload a new one
+                        </button>
+                      </div>
+                    )}
+
+                    {coverLetterMode === "saved" && savedCoverLetters.length > 0 ? (
+                      <>
+                        <select
+                          style={styles.documentSelect}
+                          value={selectedCoverLetterId}
+                          onChange={(e) => setSelectedCoverLetterId(e.target.value)}
+                          aria-label="Choose a saved cover letter"
+                        >
+                          <option value="" disabled>Choose a saved cover letter</option>
+                          {savedCoverLetters.map((letter) => (
+                            <option key={letter.id} value={letter.id}>
+                              {letter.file_name}{letter.is_default ? " (Default)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <p style={styles.resumeManageHint}>
+                          Manage saved cover letters from your{" "}
+                          <a href="/dashboard/my-career/my_career_profile" style={{ color: "#1a56db" }}>
+                            Career Profile
+                          </a>.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <div
+                          style={{ ...styles.fileZone, ...(coverLetterFile ? styles.fileZoneFilled : {}) }}
+                          onClick={() => coverRef.current?.click()}
+                        >
+                          {coverLetterFile ? (
+                            <><FileText size={16} color="#1a56db" /> <span style={styles.fileName}>{coverLetterFile.name}</span></>
+                          ) : (
+                            <><Upload size={16} color="#9ca3af" /> <span style={{ color: "#9ca3af", fontSize: 13 }}>Click to upload PDF or DOCX</span></>
+                          )}
+                        </div>
+                        <input
+                          ref={coverRef}
+                          type="file"
+                          accept=".pdf,.doc,.docx"
+                          style={{ display: "none" }}
+                          title="Upload cover letter"
+                          aria-label="Upload cover letter"
+                          onChange={(e) => setCoverLetterFile(e.target.files?.[0] ?? null)}
+                        />
+                      </>
+                    )}
                   </div>
 
                   <div style={styles.fieldGroup}>
@@ -658,46 +775,38 @@ export default function UserJobDetailPage() {
                         ? <span style={styles.required}>*</span>
                         : <span style={styles.optional}>(optional)</span>}
                     </label>
-
-                    {profilePortfolioUrl && !editingPortfolioUrl ? (
-                     <div style={styles.portfolioDisplay}>
-                        <LinkIcon size={14} color="#1a56db" style={{ flexShrink: 0 }} />
-                        <a>
-                          href={portfolioUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={styles.portfolioLink}
-                        >
-                          {portfolioUrl}
-                        </a>
-                        <button
-                          type="button"
-                          style={styles.changeLinkBtn}
-                          onClick={() => setEditingPortfolioUrl(true)}
-                        >
-                          Change
-                        </button>
-                      </div>
-                    ) : (
-                      <input
-                        style={styles.textInput}
-                        type="url"
-                        placeholder="https://yourportfolio.com"
-                        title="Portfolio URL"
-                        aria-label="Portfolio URL"
-                        value={portfolioUrl}
-                        onChange={(e) => setPortfolioUrl(e.target.value)}
-                      />
-                    )}
-                    {profilePortfolioUrl && (
-                      <p style={styles.hintText}>
-                        Pulled from your{" "}
-                        <a href="/dashboard/my-career/my_career_profile" style={{ color: "#1a56db" }}>
-                          Career Profile
-                        </a>
-                        . Editing here only changes it for this application.
-                      </p>
-                    )}
+                    <div>
+                      {profilePortfolioUrl && !editingPortfolioUrl ? (
+                        <div style={styles.portfolioDisplay}>
+                          <LinkIcon size={14} color="#1a56db" style={{ flexShrink: 0 }} />
+                          <a
+                            href={portfolioUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={styles.portfolioLink}
+                          >
+                            {portfolioUrl}
+                          </a>
+                          <button
+                            type="button"
+                            style={styles.changeLinkBtn}
+                            onClick={() => setEditingPortfolioUrl(true)}
+                          >
+                            Change
+                          </button>
+                        </div>
+                      ) : (
+                        <input
+                          style={styles.textInput}
+                          type="url"
+                          placeholder="https://yourportfolio.com"
+                          title="Portfolio URL"
+                          aria-label="Portfolio URL"
+                          value={portfolioUrl}
+                          onChange={(e) => setPortfolioUrl(e.target.value)}
+                        />
+                      )}
+                    </div>
                   </div>
 
                   {job.screening_questions?.length > 0 && (
@@ -863,7 +972,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "12px 24px", background: "#1a56db",
     color: "#fff", border: "none", borderRadius: 8,
     fontSize: 14, fontWeight: 700, cursor: "pointer",
-    textAlign: "center",
+    textAlign: "center", whiteSpace: "nowrap",
   },
   applyBtnDisabled: { background: "#d1d5db", color: "#9ca3af", cursor: "not-allowed" },
   saveBtn: {
@@ -910,6 +1019,30 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
   questionText: { fontSize: 13, color: "#374151", margin: 0, lineHeight: 1.6 },
+
+  // ── Sticky apply bar ─────────────────────────────────────
+  stickyBar: {
+    position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 150,
+    background: "#fff", borderTop: "1px solid #e5e7eb",
+    boxShadow: "0 -4px 16px rgba(0,0,0,0.08)",
+    padding: "12px 20px",
+  },
+  stickyBarInner: {
+    maxWidth: 1100, margin: "0 auto",
+    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
+  },
+  stickyBarInfo: {
+    display: "flex", flexDirection: "column", minWidth: 0,
+  },
+  stickyBarTitle: {
+    fontSize: 14, fontWeight: 700, color: "#1a1a2e",
+    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+  },
+  stickyBarSub: {
+    fontSize: 12, color: "#6b7280",
+    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+  },
+
   modalOverlay: {
     position: "fixed", inset: 0, zIndex: 300,
     background: "rgba(0,0,0,0.45)", backdropFilter: "blur(2px)",
@@ -962,6 +1095,11 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%", boxSizing: "border-box",
     padding: "10px 12px", border: "1.5px solid #d1d5db",
     borderRadius: 8, fontSize: 13, color: "#1a1a2e", outline: "none",
+  },
+  documentSelect: {
+    width: "100%", boxSizing: "border-box",
+    padding: "10px 12px", border: "1.5px solid #d1d5db",
+    borderRadius: 8, fontSize: 13, color: "#1a1a2e", background: "#fff",
   },
   textarea: {
     width: "100%", boxSizing: "border-box",

@@ -3,6 +3,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Calendar, ChevronDown, RotateCcw, Check } from "lucide-react";
+import { addIndiaDays, formatIndiaDate, indiaDateInputValue, parseIndiaDate } from "@/lib/dateTime";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface DateRange {
@@ -16,9 +17,8 @@ export interface DateRange {
 // After midnight the captured dates become stale for the lifetime of the app.
 // Replaced with a factory function so callers always get a fresh "now".
 export function getDefaultDateRange(): DateRange {
-  const to   = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 30);
+  const to = parseIndiaDate(indiaDateInputValue()) ?? new Date();
+  const from = addIndiaDays(to, -30) ?? to;
   return { from, to, preset: "last30" };
 }
 
@@ -30,16 +30,12 @@ export const DEFAULT_DATE_RANGE: DateRange = getDefaultDateRange();
 // ─── ISO helpers (date-only, local timezone) ──────────────────────────────────
 export function toISO(d: Date | null): string | null {
   if (!d) return null;
-  const y   = d.getFullYear();
-  const m   = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return indiaDateInputValue(d);
 }
 
 function fromInputVal(s: string): Date | null {
   if (!s) return null;
-  const [y, m, d] = s.split("-").map(Number);
-  return new Date(y, m - 1, d);
+  return parseIndiaDate(s);
 }
 
 function toInputVal(d: Date | null): string {
@@ -49,7 +45,7 @@ function toInputVal(d: Date | null): string {
 
 function fmtDisplay(d: Date | null): string {
   if (!d) return "—";
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  return formatIndiaDate(d);
 }
 
 // ─── Presets ──────────────────────────────────────────────────────────────────
@@ -59,41 +55,41 @@ interface Preset {
   get:   () => { from: Date; to: Date };
 }
 
+const indiaToday = () => parseIndiaDate(indiaDateInputValue()) ?? new Date();
+
 const PRESETS: Preset[] = [
   {
     id: "last7", label: "Last 7 days",
     get: () => {
-      const to = new Date(), from = new Date();
-      from.setDate(from.getDate() - 7);
-      return { from, to };
+      const to = indiaToday();
+      return { from: addIndiaDays(to, -7) ?? to, to };
     },
   },
   {
     id: "last30", label: "Last 30 days",
     get: () => {
-      const to = new Date(), from = new Date();
-      from.setDate(from.getDate() - 30);
-      return { from, to };
+      const to = indiaToday();
+      return { from: addIndiaDays(to, -30) ?? to, to };
     },
   },
   {
     id: "last90", label: "Last 90 days",
     get: () => {
-      const to = new Date(), from = new Date();
-      from.setDate(from.getDate() - 90);
-      return { from, to };
+      const to = indiaToday();
+      return { from: addIndiaDays(to, -90) ?? to, to };
     },
   },
   {
     id: "thisYear", label: "This year",
     get: () => {
-      const to = new Date();
-      return { from: new Date(to.getFullYear(), 0, 1), to };
+      const to = indiaToday();
+      const year = indiaDateInputValue().slice(0, 4);
+      return { from: parseIndiaDate(`${year}-01-01`) ?? to, to };
     },
   },
   {
     id: "allTime", label: "All time",
-    get: () => ({ from: new Date("2020-01-01"), to: new Date() }),
+    get: () => ({ from: parseIndiaDate("2020-01-01") ?? indiaToday(), to: indiaToday() }),
   },
 ];
 
@@ -217,7 +213,7 @@ export default function DateRangePicker({ value, onChange, showReset = true }: P
                 <input
                   type="date"
                   value={customFrom}
-                  max={customTo || toInputVal(new Date())}
+                  max={customTo || indiaDateInputValue()}
                   onChange={e => setCustomFrom(e.target.value)}
                   className="w-full text-xs px-2.5 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none bg-white text-slate-700"
                 />
@@ -228,7 +224,7 @@ export default function DateRangePicker({ value, onChange, showReset = true }: P
                   type="date"
                   value={customTo}
                   min={customFrom}
-                  max={toInputVal(new Date())}
+                  max={indiaDateInputValue()}
                   onChange={e => setCustomTo(e.target.value)}
                   className="w-full text-xs px-2.5 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none bg-white text-slate-700"
                 />

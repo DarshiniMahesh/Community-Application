@@ -3,6 +3,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Calendar, ChevronDown, Check } from "lucide-react";
+import { addIndiaDays, formatIndiaDate, indiaDateInputValue, parseIndiaDate } from "@/lib/dateTime";
 
 export interface DateRange {
   from: Date | null;
@@ -12,20 +13,16 @@ export interface DateRange {
 
 export function toISO(d: Date | null): string | undefined {
   if (!d) return undefined;
-  const y   = d.getFullYear();
-  const m   = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return indiaDateInputValue(d);
 }
 
 function addDays(d: Date, n: number): Date {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
+  return addIndiaDays(d, n) ?? d;
 }
 
 function startOfYear(): Date {
-  return new Date(new Date().getFullYear(), 0, 1);
+  const year = indiaDateInputValue().slice(0, 4);
+  return parseIndiaDate(`${year}-01-01`) ?? new Date();
 }
 
 function toInputVal(d: Date | null): string {
@@ -34,13 +31,12 @@ function toInputVal(d: Date | null): string {
 
 function fromInputVal(s: string): Date | null {
   if (!s) return null;
-  const [y, m, day] = s.split("-").map(Number);
-  return new Date(y, m - 1, day);
+  return parseIndiaDate(s);
 }
 
 function fmtDisplay(d: Date | null): string {
   if (!d) return "—";
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  return formatIndiaDate(d);
 }
 
 const PRESETS: { label: string; key: NonNullable<DateRange["preset"]>; getRange: () => DateRange }[] = [

@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const { indiaYear } = require("../utils/dateTime");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER – map a raw DB row into a clean scholarship object
@@ -834,7 +835,7 @@ async function getApplicantScholarshipHistory(req, res) {
       identityParams
     );
     const availableYears = yearsResult.rows.map(r => r.yr);
-    const currentYear = new Date().getFullYear();
+    const currentYear = indiaYear();
 
     const conditions = [identityCondition];
     const params = [...identityParams];

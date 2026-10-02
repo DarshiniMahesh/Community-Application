@@ -1,5 +1,6 @@
 // Community-Application\backend\src\controllers\userschlcontroller.js
 const pool = require('../config/db');
+const { dateOnly, indiaAge, indiaDateString, indiaDaysUntil } = require('../utils/dateTime');
 const { createClient } = require('@supabase/supabase-js');
 console.log('[userschlcontroller] SUPABASE_URL:', process.env.SUPABASE_URL);
 console.log('[userschlcontroller] SUPABASE_SERVICE_KEY present:', !!process.env.SUPABASE_SERVICE_KEY, 'length:', process.env.SUPABASE_SERVICE_KEY?.length);
@@ -70,13 +71,12 @@ function mapScholarship(row, appStatus, currentApprovals, applications = [], cus
   if (row.cgpa_min != null)       eligibility.push(`Min CGPA: ${row.cgpa_min}`);
   if (row.percentage_min != null) eligibility.push(`Min %: ${row.percentage_min}`);
 
-  const now = new Date();
-  const end = row.application_end ? new Date(row.application_end) : null;
+  const end = dateOnly(row.application_end);
   let status = 'open';
-  if (end && now > end) {
+  if (end && end < indiaDateString()) {
     status = 'closed';
   } else if (end) {
-    const daysLeft = Math.ceil((end - now) / 86400000);
+    const daysLeft = indiaDaysUntil(end);
     if (daysLeft <= 7) status = 'closing_soon';
   }
   const dbStatus = (row.scholarship_status || '').toLowerCase();
@@ -414,7 +414,7 @@ exports.getScholarshipMembers = async (req, res) => {
 
     const calcAge = (dob) => {
       if (!dob) return null;
-      return Math.floor((Date.now() - new Date(dob).getTime()) / (365.25 * 24 * 3600 * 1000));
+      return indiaAge(dob);
     };
 
     const members = [
@@ -971,10 +971,12 @@ exports.applyScholarship = async (req, res) => {
     if (schol.visibility === 'primary_sangha_only' && schol.sangha_id !== primarySanghaId)
       return res.status(403).json({ message: 'This scholarship is only available to members of its primary sangha.' });
 
-    const now = new Date();
-    if (schol.application_end && now > new Date(schol.application_end))
+    const applicationEnd = dateOnly(schol.application_end);
+    const applicationStart = dateOnly(schol.application_start);
+    const today = indiaDateString();
+    if (applicationEnd && today > applicationEnd)
       return res.status(400).json({ message: 'The application window for this scholarship has closed.' });
-    if (schol.application_start && now < new Date(schol.application_start))
+    if (applicationStart && today < applicationStart)
       return res.status(400).json({ message: 'Applications for this scholarship have not opened yet.' });
 
     if (schol.max_approvals_unlimited === false && schol.max_approvals != null) {

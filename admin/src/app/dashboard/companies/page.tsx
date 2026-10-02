@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 import { Building2, CheckCircle, XCircle, Eye, Search } from "lucide-react";
 
 interface Company {
@@ -197,7 +198,7 @@ export default function AdminCompaniesPage() {
               <Info label="Address" value={[selected.address_line1, selected.address_line2].filter(Boolean).join(", ")} />
               <Info label="Email" value={selected.email || "—"} />
               <Info label="Phone" value={selected.phone || "—"} />
-              <Info label="Applied On" value={new Date(selected.created_at).toLocaleDateString()} />
+              <Info label="Applied On" value={formatIndiaDate(selected.created_at)} />
               {selected.rejection_reason && (
                 <div style={styles.rejectionBox}>
                   <p style={styles.rejectionLabel}>Previous Rejection Reason:</p>

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight, Clock } from "lucide-react";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 
 interface PendingUser {
   id: string;
@@ -46,8 +47,7 @@ export default function PendingUsersPage() {
       : u.email || u.phone || "—";
 
   const formatDate = (d: string) => {
-    if (!d) return "—";
-    return new Date(d).toLocaleDateString();
+    return formatIndiaDate(d);
   };
 
   return (

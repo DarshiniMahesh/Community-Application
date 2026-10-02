@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 import { APPLICATION_STATUSES } from "@/lib/constants";
 import { ArrowLeft, Edit2, Eye, Users, Save, X, Trash2, Plus } from "lucide-react";
 
@@ -500,8 +501,8 @@ export default function JobDetailPage() {
               <Info label="Location" value={`${job.location}, ${job.country} ${job.postal_code}`} />
               {job.salary_min && <Info label="Salary Range" value={`₹${job.salary_min.toLocaleString()} – ₹${job.salary_max?.toLocaleString()}`} />}
               {job.number_of_openings && <Info label="Openings" value={String(job.number_of_openings)} />}
-              {job.application_deadline && <Info label="Application Deadline" value={new Date(job.application_deadline).toLocaleDateString()} />}
-              {job.expected_start_date && <Info label="Onboarding Date" value={new Date(job.expected_start_date).toLocaleDateString()} />}
+              {job.application_deadline && <Info label="Application Deadline" value={formatIndiaDate(job.application_deadline)} />}
+              {job.expected_start_date && <Info label="Onboarding Date" value={formatIndiaDate(job.expected_start_date)} />}
               <Info label="Contact Email" value={job.contact_email} />
               {job.contact_phone && <Info label="Contact Phone" value={job.contact_phone} />}
             </div>
@@ -573,7 +574,7 @@ export default function JobDetailPage() {
                           </div>
                         </div>
                       </td>
-                      <td style={styles.td}>{new Date(app.applied_at).toLocaleDateString()}</td>
+                      <td style={styles.td}>{formatIndiaDate(app.applied_at)}</td>
                       <td style={styles.td}>
                         <div style={styles.docsRow}>
                           {app.resume_url && <a href={app.resume_url} target="_blank" rel="noreferrer" style={styles.docLink}>Resume</a>}

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 import Link from "next/link";
 import { Briefcase, Plus, Eye, Edit2, Trash2, Search, Filter } from "lucide-react";
 
@@ -167,9 +168,9 @@ export default function JobPostingsPage() {
                         <Eye size={12} /> {job.applicant_count}
                       </span>
                     </td>
-                    <td style={styles.td}>{new Date(job.posted_at).toLocaleDateString()}</td>
+                    <td style={styles.td}>{formatIndiaDate(job.posted_at)}</td>
                     <td style={styles.td}>
-                      {job.expiry_date ? new Date(job.expiry_date).toLocaleDateString() : "—"}
+                      {formatIndiaDate(job.expiry_date)}
                     </td>
                     <td style={styles.td}>
                       <span style={{ ...styles.statusBadge, ...statusStyle(job.status) }}>

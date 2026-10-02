@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Modal from '@/components/Modal';
 import { useSearchParams } from 'next/navigation';
+import { formatIndiaDate } from '@/lib/dateTime';
 
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -259,9 +260,8 @@ const STATUS_TABS: { key: Tab; label: string }[] = [
 
 function formatDate(raw?: string | null): string {
   if (!raw) return '—';
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return raw;
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const formatted = formatIndiaDate(raw);
+  return formatted === '—' ? raw : formatted;
 }
 
 function hasCoverage(arr?: string[]): boolean {

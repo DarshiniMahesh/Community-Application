@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, Users, ChevronDown, ChevronUp, CheckCircle2,
@@ -214,7 +215,7 @@ export default function MyReferralsPage() {
                             <p style={styles.applicantName}>{a.name}</p>
                             <p style={styles.applicantEmail}>{a.email}</p>
                             <p style={styles.applicantDate}>
-                              <Clock size={10} /> Applied {new Date(a.applied_at).toLocaleDateString()}
+                              <Clock size={10} /> Applied {formatIndiaDate(a.applied_at)}
                             </p>
                           </div>
                           <span style={{ ...styles.badge, ...applicantStatusStyle(a.status) }}>{a.status}</span>

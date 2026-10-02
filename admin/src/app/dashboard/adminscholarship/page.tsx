@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import axios from "axios";
+import { formatIndiaDate, indiaDateInputValue, isIndiaDatePast } from "@/lib/dateTime";
 import {
   Search, Filter, ChevronDown, ChevronRight, ChevronLeft,
   Users, BookOpen, MapPin, Tag, Building2, CheckCircle2,
@@ -352,9 +353,8 @@ function formatAddressObj(a: AddressItem): string {
 
 function formatDate(raw?: string | null): string {
   if (!raw) return "—";
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return raw;
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const formatted = formatIndiaDate(raw);
+  return formatted === "—" ? raw : formatted;
 }
 
 function formatAddrType(t: string): string {
@@ -1313,9 +1313,8 @@ function ScholarshipDetailDrawer({
   const seatsFilled = detail?.seatsFilled ?? scholarship.stats.approved;
   const totalSeats = scholarship.seats;
   const eligibilityCount = detail?.eligibilityCount ?? scholarship.eligibilityCount ?? scholarship.eligibility.length;
-  const formatDate = (d: string | null | undefined) =>
-    d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : null;
-  const isExpired = scholarship.deadline ? new Date(scholarship.deadline) < new Date() : false;
+  const formatDate = (d: string | null | undefined) => d ? formatIndiaDate(d, { day: "numeric" }) : null;
+  const isExpired = isIndiaDatePast(scholarship.deadline);
   const seatsProgress = totalSeats && totalSeats > 0 ? Math.min(100, Math.round((seatsFilled / totalSeats) * 100)) : null;
 
   return (
@@ -1612,7 +1611,7 @@ function ApplicantsModal({ scholarship, onClose }: { scholarship: Scholarship; o
                           )}
                         </div>
                         <p style={{ fontSize: 12, color: C.gray400, margin: "2px 0 0 0" }}>
-                          Applied {new Date(app.appliedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                          Applied {formatIndiaDate(app.appliedAt, { day: "numeric" })}
                         </p>
                         {app.rejectionReason && (
                           <p style={{ fontSize: 11, color: C.red600, margin: "3px 0 0", fontStyle: "italic" }}>Reason: {app.rejectionReason}</p>
@@ -1692,13 +1691,12 @@ function ScholarshipCard({ scholarship, onViewApplicants, onViewDetails }: {
   const [cardHovered, setCardHovered] = useState(false);
   const [eyeHovered, setEyeHovered] = useState(false);
   const catColor = scholarship.categoryColor || C.orange500;
-  const deadline = scholarship.deadline ? new Date(scholarship.deadline) : null;
-  const isExpired = deadline ? deadline < new Date() : false;
+  const deadline = scholarship.deadline || null;
+  const isExpired = isIndiaDatePast(deadline);
   const totalSeats = scholarship.seats;
   const seatsFilled = scholarship.stats.approved;
   const seatsProgress = totalSeats && totalSeats > 0 ? Math.min(100, Math.round((seatsFilled / totalSeats) * 100)) : null;
-  const formatDate = (d: string | null | undefined) =>
-    d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
+  const formatDate = (d: string | null | undefined) => d ? formatIndiaDate(d, { day: "numeric" }) : "—";
 
   const FieldRow = ({ label, value, icon }: { label: string; value: React.ReactNode; icon?: React.ReactNode }) => (
     <div style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 12, lineHeight: 1.5 }}>
@@ -2075,7 +2073,7 @@ export default function AdminScholarshipPage() {
             <Calendar size={12} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: C.gray400, pointerEvents: "none" }} />
             <select value={yearFilter} onChange={e => handleYearChange(e.target.value)} aria-label="Filter by year" style={{ ...selectStyle, paddingLeft: 28 }}>
               <option value="">All Years</option>
-              {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map(y => (
+              {Array.from({ length: 6 }, (_, i) => Number(indiaDateInputValue().slice(0, 4)) - i).map(y => (
                 <option key={y} value={String(y)}>{y}</option>
               ))}
             </select>
@@ -2282,7 +2280,7 @@ export default function AdminScholarshipPage() {
                             {app.user.email} · {app.user.phone}
                           </div>
                           <div style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
-                            Applied {new Date(app.appliedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                            Applied {formatIndiaDate(app.appliedAt, { day: "numeric" })}
                             {(app.user.district || app.user.state) && ` · ${[app.user.district, app.user.state].filter(Boolean).join(", ")}`}
                           </div>
                         </div>

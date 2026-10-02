@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 import { Bookmark, MapPin, Briefcase, Trash2, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -87,7 +88,7 @@ export default function SavedJobsPage() {
                     <span style={styles.metaItem}><Briefcase size={12} /> {sj.employment_type}</span>
                     <span style={styles.metaItem}>{sj.work_setting}</span>
                   </div>
-                  <p style={styles.savedDate}>Saved on {new Date(sj.saved_at).toLocaleDateString()}</p>
+                  <p style={styles.savedDate}>Saved on {formatIndiaDate(sj.saved_at)}</p>
                 </div>
                 <div style={styles.actions}>
                   <button

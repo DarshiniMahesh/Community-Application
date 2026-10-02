@@ -1430,13 +1430,13 @@ const getAdvancedReports = async (req, res) => {
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE fm.dob IS NOT NULL
-            AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, fm.dob)) < 19)             AS u18,
+            AND EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, fm.dob)) < 19)             AS u18,
           COUNT(*) FILTER (WHERE fm.dob IS NOT NULL
-            AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, fm.dob)) BETWEEN 19 AND 35) AS y35,
+            AND EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, fm.dob)) BETWEEN 19 AND 35) AS y35,
           COUNT(*) FILTER (WHERE fm.dob IS NOT NULL
-            AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, fm.dob)) BETWEEN 36 AND 60) AS m60,
+            AND EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, fm.dob)) BETWEEN 36 AND 60) AS m60,
           COUNT(*) FILTER (WHERE fm.dob IS NOT NULL
-            AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, fm.dob)) > 60)             AS o60
+            AND EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, fm.dob)) > 60)             AS o60
         FROM profiles p
         JOIN family_members fm ON fm.profile_id = p.id
         WHERE p.sangha_id=$1 AND p.status='approved'
@@ -1446,13 +1446,13 @@ const getAdvancedReports = async (req, res) => {
       safe(`
         SELECT
           COUNT(*) FILTER (WHERE pd.date_of_birth IS NOT NULL
-            AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) < 19)             AS u18,
+            AND EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) < 19)             AS u18,
           COUNT(*) FILTER (WHERE pd.date_of_birth IS NOT NULL
-            AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) BETWEEN 19 AND 35) AS y35,
+            AND EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) BETWEEN 19 AND 35) AS y35,
           COUNT(*) FILTER (WHERE pd.date_of_birth IS NOT NULL
-            AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) BETWEEN 36 AND 60) AS m60,
+            AND EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) BETWEEN 36 AND 60) AS m60,
           COUNT(*) FILTER (WHERE pd.date_of_birth IS NOT NULL
-            AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) > 60)             AS o60
+            AND EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) > 60)             AS o60
         FROM profiles p
         JOIN personal_details pd ON pd.profile_id = p.id
         WHERE p.sangha_id=$1 AND p.status='approved'
@@ -1893,13 +1893,13 @@ const getExportData = async (req, res) => {
       case 'age_group': {
         extraCols = `, pd.gender::text AS "Gender",
                       pd.date_of_birth AS "Date of Birth",
-                      EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth))::int AS "Age"`;
+                      EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth))::int AS "Age"`;
         whereCond += ` AND pd.date_of_birth IS NOT NULL`;
         const rangeMap = {
-          '0–18':  `EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) < 19`,
-          '19–35': `EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) BETWEEN 19 AND 35`,
-          '36–60': `EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) BETWEEN 36 AND 60`,
-          '60+':   `EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) > 60`,
+          '0–18':  `EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) < 19`,
+          '19–35': `EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) BETWEEN 19 AND 35`,
+          '36–60': `EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) BETWEEN 36 AND 60`,
+          '60+':   `EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) > 60`,
         };
         if (filter && rangeMap[filter]) whereCond += ` AND ${rangeMap[filter]}`;
         break;

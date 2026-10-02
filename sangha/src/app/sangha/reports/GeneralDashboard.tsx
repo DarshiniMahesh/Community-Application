@@ -14,6 +14,7 @@ import {
   UserCheck, UserX, BookOpen, BarChart2,
 } from "lucide-react";
 import { EnhancedReport } from "./page";
+import { formatIndiaDate } from "@/lib/dateTime";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 export function n(s: string | undefined | null): number {
@@ -227,7 +228,7 @@ export default function GeneralDashboard({
   ].filter(d => d.value > 0);
 
   const chartData = dailyRegistrations.map(d => ({
-    date: new Date(d.date).toLocaleDateString("en-IN", { month: "short", day: "numeric" }),
+    date: formatIndiaDate(d.date, { month: "short", day: "numeric" }),
     Registrations: n(d.registrations),
     Approvals: n(d.approvals),
     Rejections: n((d as any).rejections ?? "0"),

@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import api from "../api/axiosInstance.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { formatIndiaDate } from "../utils/dateTime.js";
 
 const TABS = [
   { key: "pending", label: "Pending", icon: Clock },
@@ -318,7 +319,7 @@ function DetailModal({ detail, loading, tab, onClose, onApprove, onReject }) {
                       </p>
                     </div>
                     <span style={s.appliedDate}>
-                      {new Date(a.applied_at).toLocaleDateString()}
+                      {formatIndiaDate(a.applied_at)}
                     </span>
                   </div>
                 ))}

@@ -1,5 +1,6 @@
 //Community-Application\backend\src\controllers\sanghaschlcontroller.js
 const pool = require("../config/db");
+const { indiaYear } = require("../utils/dateTime");
 
 async function getSanghaId(sanghaAuthId) {
   const { rows } = await pool.query(
@@ -183,7 +184,7 @@ async function getScholarships(req, res) {
        WHERE sangha_id          = $1
          AND status             = 'active'
          AND application_end    IS NOT NULL
-         AND application_end    < CURRENT_DATE`,
+         AND application_end    < ((NOW() AT TIME ZONE 'Asia/Kolkata')::date)`,
       [sanghaId]
     );
 
@@ -1642,7 +1643,7 @@ async function getSanghaApplicantScholarshipHistory(req, res) {
       identityParams
     );
     const availableYears = yearsResult.rows.map(r => r.yr);
-    const currentYear = new Date().getFullYear();
+    const currentYear = indiaYear();
 
     const conditions = [identityCondition];
     const params = [...identityParams];

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Modal from '@/components/Modal';
 import { IC } from '@/components/Icons';
+import { formatIndiaDate, formatIndiaDateTime } from '@/lib/dateTime';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -93,10 +94,7 @@ function downloadAsPdf(data: object, filename: string) {
 /* ─── Helper fns ────────────────────────────────────────── */
 
 const fmtDate = (d?: string | null) =>
-  d ? new Date(d).toLocaleString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  }) : null;
+  d ? formatIndiaDateTime(d) : null;
 
 const fmtStatus = (s?: string | null) =>
   (s ?? 'unknown').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -416,7 +414,7 @@ export default function SanghaPage() {
                 <td style={{ fontSize: 12, color: 'var(--gray-500)' }}>{s.location || '—'}</td>
                 <td style={{ fontSize: 12, color: 'var(--gray-500)' }}>{s.reg_email || s.email || '—'}</td>
                 <td style={{ fontSize: 12, color: 'var(--gray-500)' }}>{s.reg_phone || s.phone || '—'}</td>
-                {statusTab === 'rejected' && <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>{s.updated_at ? new Date(s.updated_at).toLocaleDateString() : '—'}</td>}
+                {statusTab === 'rejected' && <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>{formatIndiaDate(s.updated_at)}</td>}
                 <td>
                   <div style={{ display: 'flex', gap: 5 }}>
                     {/* View button */}
@@ -636,7 +634,7 @@ export default function SanghaPage() {
                               {m.gender ? m.gender.charAt(0).toUpperCase() + m.gender.slice(1) : '—'}
                             </td>
                             <td style={{ padding: '10px 10px', color: '#6b7280', whiteSpace: 'nowrap' }}>
-                              {m.dob ? new Date(m.dob).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                              {formatIndiaDate(m.dob)}
                             </td>
                             <td style={{ padding: '10px 10px', color: '#6b7280' }}>{m.phone || '—'}</td>
                             <td style={{ padding: '10px 10px', color: '#6b7280' }}>{m.email || '—'}</td>

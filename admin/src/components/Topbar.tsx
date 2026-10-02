@@ -1,6 +1,7 @@
 'use client';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { formatIndiaDateTime } from '@/lib/dateTime';
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard':           'Dashboard',
@@ -17,7 +18,7 @@ function useClock() {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
-  return now.toLocaleString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return formatIndiaDateTime(now, { weekday: 'short' });
 }
 
 export default function Topbar() {

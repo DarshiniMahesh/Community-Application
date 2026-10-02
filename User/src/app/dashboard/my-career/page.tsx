@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { parseIndiaDate } from "@/lib/dateTime";
 import { Search, MapPin, Briefcase, Clock, Users, Bookmark, BookmarkCheck, Filter, ChevronRight, X, Upload, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -198,7 +199,7 @@ export default function MyCareerPage() {
   };
 
   const timeAgo = (date: string) => {
-    const diff = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+    const diff = Math.floor((Date.now() - (parseIndiaDate(date)?.getTime() ?? Date.now())) / 1000);
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return `${Math.floor(diff / 86400)}d ago`;

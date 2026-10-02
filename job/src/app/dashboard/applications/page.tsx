@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 import { API_BASE } from "@/lib/constants";
 import { APPLICATION_STATUSES } from "@/lib/constants";
 import { FileText, Search, Filter, Lock, Check } from "lucide-react";
@@ -241,7 +242,7 @@ export default function ApplicationsPage() {
                           {app.job_title}
                         </Link>
                       </td>
-                      <td style={styles.td}>{new Date(app.applied_at).toLocaleDateString()}</td>
+                      <td style={styles.td}>{formatIndiaDate(app.applied_at)}</td>
                       <td style={styles.td}>
                         <div style={styles.docsRow}>
                           {resumeHref && <a href={resumeHref} target="_blank" rel="noreferrer" style={styles.docLink}>Resume</a>}

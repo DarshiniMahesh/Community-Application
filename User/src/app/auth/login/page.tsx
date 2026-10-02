@@ -41,11 +41,11 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const data = await api.post("/auth/user/login", {
-        contact: formData.identifier,
+        contact: formData.identifier.trim(),
         password: formData.password,
       })
       saveAuth(data.token, data.role)
-      router.push("/dashboard")
+      window.location.replace("/dashboard")
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Login failed"
       setErrors({ general: message })

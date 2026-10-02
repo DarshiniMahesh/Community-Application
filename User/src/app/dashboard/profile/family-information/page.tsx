@@ -15,6 +15,7 @@ import { ArrowLeft, ArrowRight, Plus, Trash2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
+import { calculateIndiaAge, indiaDateInputValue } from "@/lib/dateTime";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -51,13 +52,7 @@ const blankRow = (): FamilyMember => ({
 });
 
 const calcAge = (dob: string) => {
-  if (!dob) return null;
-  const today = new Date();
-  const birth = new Date(dob + "T00:00:00");
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-  return age;
+  return calculateIndiaAge(dob);
 };
 
 export default function Page() {
@@ -277,7 +272,7 @@ export default function Page() {
             type="date"
             value={member.dob}
             min="1900-01-01"
-            max={new Date().toISOString().split("T")[0]}
+            max={indiaDateInputValue()}
             onClick={(e) => {
               if (!isSelf) {
                 try { (e.currentTarget as HTMLInputElement).showPicker?.(); } catch {}

@@ -413,7 +413,6 @@ const publicListJobs = async (req, res) => {
   }
 };
 
-// ── Public: Get Job Detail ────────────────────────────────────
 const publicGetJob = async (req, res) => {
   const { id } = req.params;
   try {
@@ -429,7 +428,7 @@ const publicGetJob = async (req, res) => {
               cj.resume_required, cj.cover_letter_required, cj.portfolio_required,
               cj.screening_questions, cj.equal_opportunity_statement,
               cj.background_check_required, cj.number_of_openings,
-              cj.posted_at, COUNT(ja.id) as applicant_count
+              cj.status, cj.posted_at, COUNT(ja.id) as applicant_count
        FROM company_jobs cj
        LEFT JOIN job_applications ja ON ja.job_id = cj.id
        WHERE cj.id=$1 AND cj.status='active'
@@ -448,7 +447,7 @@ const publicGetJob = async (req, res) => {
 // ── User: Apply to Job ────────────────────────────────────────
 const applyToJob = async (req, res) => {
   const { id } = req.params;
-  const { portfolio_url, answers, resume_id } = req.body;
+  const { portfolio_url, answers, resume_id, cover_letter_id } = req.body;
   const resumeFile = req.files?.resume?.[0];
   const coverFile = req.files?.cover_letter?.[0];
 
@@ -467,10 +466,16 @@ const applyToJob = async (req, res) => {
       return res.status(409).json({ message: 'You have already applied to this job' });
 
     const job = await pool.query(
-      `SELECT id FROM company_jobs WHERE id=$1 AND status='active'`, [id]
+      `SELECT id, cover_letter_required,
+          (application_deadline IS NULL OR application_deadline >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS within_deadline
+       FROM company_jobs WHERE id=$1 AND status='active'`, [id]
     );
     if (job.rows.length === 0)
       return res.status(404).json({ message: 'Job not found or no longer active' });
+    if (!job.rows[0].within_deadline)
+      return res.status(400).json({ message: 'The application deadline for this job has passed' });
+    if (job.rows[0].cover_letter_required && !coverFile && !cover_letter_id)
+      return res.status(400).json({ message: 'Choose a saved cover letter or upload a new one' });
 
     // ── Resolve resume: either from the saved library, or a fresh upload ──
     let resume_url;
@@ -496,16 +501,24 @@ const applyToJob = async (req, res) => {
       resume_url = resumePublicUrl.publicUrl;
     }
 
-    // ── Upload cover letter (if provided) ──────────────────────
+    // ── Resolve cover letter from the library or an uploaded file ──
     let cover_letter_url = null;
-    if (coverFile) {
+    if (cover_letter_id) {
+      const savedCoverLetter = await pool.query(
+        `SELECT id, cover_letter_url FROM user_cover_letters WHERE id=$1 AND user_id=$2`,
+        [cover_letter_id, req.user.id]
+      );
+      if (savedCoverLetter.rows.length === 0)
+        return res.status(404).json({ message: 'Selected cover letter not found' });
+      cover_letter_url = savedCoverLetter.rows[0].cover_letter_url;
+    } else if (coverFile) {
       const coverExt = coverFile.originalname.split('.').pop();
       const coverPath = `cover_${req.user.id}_${Date.now()}.${coverExt}`;
       const { error: coverUploadErr } = await supabase.storage
         .from(BUCKET)
         .upload(coverPath, coverFile.buffer, { contentType: coverFile.mimetype });
       if (coverUploadErr) throw coverUploadErr;
-      const { data: coverPublicUrl } = supabase.storage.from(BUCKET).getPublicUrl(coverPath);
+          const { data: coverPublicUrl } = supabase.storage.from(BUCKET).getPublicUrl(coverPath);
       cover_letter_url = coverPublicUrl.publicUrl;
     }
 

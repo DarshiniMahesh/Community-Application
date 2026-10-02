@@ -1,8 +1,10 @@
+//Community-Application\User\src\app\dashboard\my-career\my_career_profile\page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { formatIndiaDate } from "@/lib/dateTime";
 import { ArrowLeft, Plus, Trash2, RefreshCw, Upload, FileText, Star } from "lucide-react";
 
 /* ── Types ─────────────────────────────────────────────────────── */
@@ -108,6 +110,15 @@ interface SavedResume {
   uploaded_at: string;
 }
 
+interface SavedCoverLetter {
+  id: string;
+  file_name: string;
+  cover_letter_url: string;
+  file_size: number | null;
+  is_default: boolean;
+  uploaded_at: string;
+}
+
 /* ── Constants & helpers ───────────────────────────────────────── */
 const DEFAULT_LIMITS: Limits = {
   TITLE_MAX: 150,
@@ -123,6 +134,7 @@ const DEFAULT_LIMITS: Limits = {
 };
 
 const MAX_RESUMES = 5;
+const MAX_COVER_LETTERS = 5;
 
 let idCounter = 0;
 const nextClientId = () => `exp-${Date.now()}-${++idCounter}`;
@@ -374,6 +386,14 @@ export default function MyCareerProfilePage() {
   const [resumeActionId, setResumeActionId] = useState<string | null>(null);
   const resumeUploadRef = useRef<HTMLInputElement>(null);
 
+  // ── Cover letter library ─────────────────────────────────────
+  const [coverLetters, setCoverLetters] = useState<SavedCoverLetter[]>([]);
+  const [coverLettersLoading, setCoverLettersLoading] = useState(true);
+  const [coverLetterError, setCoverLetterError] = useState<string | null>(null);
+  const [uploadingCoverLetter, setUploadingCoverLetter] = useState(false);
+  const [coverLetterActionId, setCoverLetterActionId] = useState<string | null>(null);
+  const coverLetterUploadRef = useRef<HTMLInputElement>(null);
+
   const lastEducationFetch = useRef(0);
 
   const dirty = useMemo(() => snapshotOf(form) !== savedSnapshot, [form, savedSnapshot]);
@@ -416,8 +436,22 @@ export default function MyCareerProfilePage() {
     }
   }, []);
 
+  const loadCoverLetters = useCallback(async () => {
+    setCoverLettersLoading(true);
+    setCoverLetterError(null);
+    try {
+      const d = await api.get("/jobs/cover-letters");
+      setCoverLetters(d.coverLetters || []);
+    } catch (e) {
+      setCoverLetterError(errMsg(e));
+    } finally {
+      setCoverLettersLoading(false);
+    }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadResumes(); }, [loadResumes]);
+  useEffect(() => { loadCoverLetters(); }, [loadCoverLetters]);
 
   // Education is read-only here and always comes straight from the database.
   const refreshEducation = useCallback(async (force = false) => {
@@ -563,6 +597,54 @@ export default function MyCareerProfilePage() {
     }
   };
 
+  /* ── Cover letter library actions ── */
+  const handleCoverLetterFileSelected = async (file: File | null) => {
+    if (!file) return;
+    if (coverLetters.length >= MAX_COVER_LETTERS) {
+      setCoverLetterError(`You can save up to ${MAX_COVER_LETTERS} cover letters. Delete one first.`);
+      return;
+    }
+    setCoverLetterError(null);
+    setUploadingCoverLetter(true);
+    try {
+      const formData = new FormData();
+      formData.append("coverLetter", file);
+      const d = await api.postForm("/jobs/cover-letters", formData);
+      setCoverLetters((prev) => [d.coverLetter, ...prev]);
+    } catch (e) {
+      setCoverLetterError(errMsg(e));
+    } finally {
+      setUploadingCoverLetter(false);
+      if (coverLetterUploadRef.current) coverLetterUploadRef.current.value = "";
+    }
+  };
+
+  const handleDeleteCoverLetter = async (id: string) => {
+    setCoverLetterError(null);
+    setCoverLetterActionId(id);
+    try {
+      await api.delete(`/jobs/cover-letters/${id}`);
+      setCoverLetters((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      setCoverLetterError(errMsg(e));
+    } finally {
+      setCoverLetterActionId(null);
+    }
+  };
+
+  const handleSetDefaultCoverLetter = async (id: string) => {
+    setCoverLetterError(null);
+    setCoverLetterActionId(id);
+    try {
+      await api.patch(`/jobs/cover-letters/${id}/default`, {});
+      setCoverLetters((prev) => prev.map((c) => ({ ...c, is_default: c.id === id })));
+    } catch (e) {
+      setCoverLetterError(errMsg(e));
+    } finally {
+      setCoverLetterActionId(null);
+    }
+  };
+
   /* ── Save ── */
   const handleSave = async () => {
     setSaveError(null);
@@ -661,7 +743,7 @@ export default function MyCareerProfilePage() {
                     <p style={styles.resumeMeta}>
                       {formatFileSize(r.file_size)}
                       {r.file_size ? " · " : ""}
-                      Uploaded {new Date(r.uploaded_at).toLocaleDateString()}
+                      Uploaded {formatIndiaDate(r.uploaded_at)}
                     </p>
                   </div>
                   {r.is_default ? (
@@ -715,6 +797,95 @@ export default function MyCareerProfilePage() {
           ) : (
             <p style={{ fontSize: 11.5, color: "#9ca3af", margin: 0 }}>
               You&apos;ve reached the limit of {MAX_RESUMES} resumes. Delete one to upload a new one.
+            </p>
+          )}
+        </div>
+      </Section>
+
+      {/* Cover Letter Library */}
+      <Section
+        title="Cover Letter Library"
+        description={`Keep up to ${MAX_COVER_LETTERS} cover letters on hand. Pick one — or upload a new one — each time you apply for a job.`}
+      >
+        <div style={styles.stack}>
+          {coverLetterError && (
+            <div style={styles.errorBox}>
+              <p style={{ margin: 0 }}>{coverLetterError}</p>
+            </div>
+          )}
+
+          {coverLettersLoading ? (
+            <p style={{ fontSize: 13, color: "#6b7280", margin: 0 }}>Loading your cover letters...</p>
+          ) : coverLetters.length === 0 ? (
+            <div style={styles.emptyBox}>
+              <p style={{ margin: 0, color: "#6b7280", fontSize: 13 }}>
+                You haven&apos;t uploaded a cover letter yet. Cover letters are optional when you apply for jobs.
+              </p>
+            </div>
+          ) : (
+            <div style={styles.resumeList}>
+              {coverLetters.map((c) => (
+                <div key={c.id} style={styles.resumeRow}>
+                  <FileText size={16} color="#1a56db" style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={styles.resumeName}>{c.file_name}</p>
+                    <p style={styles.resumeMeta}>
+                      {formatFileSize(c.file_size)}
+                      {c.file_size ? " · " : ""}
+                      Uploaded {formatIndiaDate(c.uploaded_at)}
+                    </p>
+                  </div>
+                  {c.is_default ? (
+                    <span style={styles.defaultBadge}><Star size={11} /> Default</span>
+                  ) : (
+                    <button
+                      type="button"
+                      style={styles.setDefaultBtn}
+                      onClick={() => handleSetDefaultCoverLetter(c.id)}
+                      disabled={coverLetterActionId === c.id}
+                    >
+                      Set as default
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    style={styles.iconBtn}
+                    onClick={() => handleDeleteCoverLetter(c.id)}
+                    disabled={coverLetterActionId === c.id}
+                    aria-label={`Delete ${c.file_name}`}
+                    title="Delete cover letter"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {coverLetters.length < MAX_COVER_LETTERS ? (
+            <div>
+              <button
+                type="button"
+                style={{ ...styles.linkBtn, opacity: uploadingCoverLetter ? 0.6 : 1 }}
+                onClick={() => coverLetterUploadRef.current?.click()}
+                disabled={uploadingCoverLetter}
+              >
+                <Upload size={14} /> {uploadingCoverLetter ? "Uploading..." : "Upload a cover letter"}
+              </button>
+              <input
+                ref={coverLetterUploadRef}
+                type="file"
+                accept=".pdf,.doc,.docx"
+                style={{ display: "none" }}
+                onChange={(e) => handleCoverLetterFileSelected(e.target.files?.[0] ?? null)}
+              />
+              <p style={{ fontSize: 11.5, color: "#9ca3af", margin: "6px 0 0" }}>
+                {coverLetters.length}/{MAX_COVER_LETTERS} cover letters used · PDF or Word, up to 5MB each
+              </p>
+            </div>
+          ) : (
+            <p style={{ fontSize: 11.5, color: "#9ca3af", margin: 0 }}>
+              You&apos;ve reached the limit of {MAX_COVER_LETTERS} cover letters. Delete one to upload a new one.
             </p>
           )}
         </div>
@@ -1098,7 +1269,7 @@ export default function MyCareerProfilePage() {
         <div style={styles.eduToolbar}>
           <span style={styles.eduMeta}>
             {educationCheckedAt
-              ? `Checked ${educationCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              ? `Checked ${new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(educationCheckedAt)}`
               : "Not checked yet"}
             {highestEducation ? ` · Highest education: ${highestEducation}` : ""}
           </span>

@@ -605,9 +605,9 @@ const getAdminAdvancedReportsuser = async (req, res) => {
         FROM (
           SELECT
             CASE
-              WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) < 19  THEN '0–18'
-              WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) <= 35 THEN '19–35'
-              WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, pd.date_of_birth)) <= 60 THEN '36–60'
+              WHEN EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) < 19  THEN '0–18'
+              WHEN EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) <= 35 THEN '19–35'
+              WHEN EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth)) <= 60 THEN '36–60'
               ELSE '60+'
             END AS label,
             COUNT(*) FILTER (WHERE LOWER(pd.gender::text)='male')   AS male,
@@ -619,9 +619,9 @@ const getAdminAdvancedReportsuser = async (req, res) => {
           UNION ALL
           SELECT
             CASE
-              WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, fm.dob)) < 19  THEN '0–18'
-              WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, fm.dob)) <= 35 THEN '19–35'
-              WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, fm.dob)) <= 60 THEN '36–60'
+              WHEN EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, fm.dob)) < 19  THEN '0–18'
+              WHEN EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, fm.dob)) <= 35 THEN '19–35'
+              WHEN EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, fm.dob)) <= 60 THEN '36–60'
               ELSE '60+'
             END AS label,
             COUNT(*) FILTER (WHERE LOWER(fm.gender::text)='male')   AS male,

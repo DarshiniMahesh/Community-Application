@@ -1,3 +1,6 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
 CREATE TABLE public.users (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   role USER-DEFINED NOT NULL DEFAULT 'user'::user_role,
@@ -18,6 +21,7 @@ CREATE TABLE public.users (
   name character varying,
   setup_token character varying,
   setup_token_expires_at timestamp with time zone,
+  phone_country_code character varying DEFAULT '+91'::character varying,
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.sanghas (
@@ -115,7 +119,6 @@ CREATE TABLE public.personal_details (
   surname_in_use character varying,
   surname_as_per_gotra character varying,
   has_disability character varying,
-  disability_details text,
   is_part_of_sangha character varying,
   sangha_name character varying,
   sangha_tenure character varying,
@@ -123,6 +126,10 @@ CREATE TABLE public.personal_details (
   created_at timestamp without time zone DEFAULT now(),
   updated_at timestamp without time zone DEFAULT now(),
   marital_status character varying,
+  disability_details text,
+  secondary_email character varying,
+  secondary_phone character varying,
+  secondary_phone_country_code character varying DEFAULT '+91'::character varying,
   CONSTRAINT personal_details_pkey PRIMARY KEY (id),
   CONSTRAINT personal_details_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
@@ -252,11 +259,11 @@ CREATE TABLE public.economic_details (
   fac_agricultural_land boolean DEFAULT false,
   fac_two_wheeler boolean DEFAULT false,
   fac_car boolean DEFAULT false,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
   fac_two_or_more_houses boolean DEFAULT false,
   fac_two_or_more_cars boolean DEFAULT false,
   fac_two_or_more_two_wheelers boolean DEFAULT false,
-  created_at timestamp without time zone DEFAULT now(),
-  updated_at timestamp without time zone DEFAULT now(),
   CONSTRAINT economic_details_pkey PRIMARY KEY (id),
   CONSTRAINT economic_details_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
@@ -403,7 +410,6 @@ CREATE TABLE public.scholarships (
   caste ARRAY NOT NULL DEFAULT '{}'::text[],
   domicile boolean,
   orphan boolean,
-  minority_community boolean,
   sports_quota boolean,
   rural_background boolean,
   cgpa_min numeric,
@@ -540,6 +546,8 @@ CREATE TABLE public.companies (
   contact_email text,
   contact_phone text,
   logo_url text,
+  secondary_email text,
+  secondary_phone text,
   CONSTRAINT companies_pkey PRIMARY KEY (id),
   CONSTRAINT companies_company_auth_id_fkey FOREIGN KEY (company_auth_id) REFERENCES public.company_auth(id)
 );
@@ -647,9 +655,13 @@ CREATE TABLE public.job_applications (
   applied_at timestamp without time zone DEFAULT now(),
   updated_at timestamp without time zone DEFAULT now(),
   resume_score integer,
+  resume_id uuid,
+  cover_letter_id uuid,
   CONSTRAINT job_applications_pkey PRIMARY KEY (id),
   CONSTRAINT job_applications_job_id_fkey FOREIGN KEY (job_id) REFERENCES public.company_jobs(id),
-  CONSTRAINT job_applications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+  CONSTRAINT job_applications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT job_applications_resume_id_fkey FOREIGN KEY (resume_id) REFERENCES public.user_resumes(id),
+  CONSTRAINT job_applications_cover_letter_id_fkey FOREIGN KEY (cover_letter_id) REFERENCES public.user_cover_letters(id)
 );
 CREATE TABLE public.saved_jobs (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -748,4 +760,67 @@ CREATE TABLE public.member_bank_details (
   CONSTRAINT member_bank_details_pkey PRIMARY KEY (id),
   CONSTRAINT member_bank_details_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
   CONSTRAINT member_bank_details_family_member_id_fkey FOREIGN KEY (family_member_id) REFERENCES public.family_members(id)
+);
+CREATE TABLE public.career_profiles (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL UNIQUE,
+  professional_title character varying,
+  bio text,
+  linkedin_url text,
+  github_url text,
+  portfolio_url text,
+  other_links jsonb NOT NULL DEFAULT '[]'::jsonb,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  primary_email text,
+  secondary_email text,
+  primary_phone text,
+  primary_phone_country_code text DEFAULT '+91'::text,
+  secondary_phone text,
+  secondary_phone_country_code text DEFAULT '+91'::text,
+  CONSTRAINT career_profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT career_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.career_work_experiences (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  career_profile_id uuid NOT NULL,
+  job_title character varying NOT NULL,
+  company_name character varying NOT NULL,
+  start_date date NOT NULL,
+  end_date date,
+  is_current boolean NOT NULL DEFAULT false,
+  responsibilities text,
+  sort_order smallint NOT NULL DEFAULT 0,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT career_work_experiences_pkey PRIMARY KEY (id),
+  CONSTRAINT career_work_experiences_profile_fkey FOREIGN KEY (career_profile_id) REFERENCES public.career_profiles(id)
+);
+CREATE TABLE public.scholarships_minority_backup (
+  id uuid,
+  minority_community boolean
+);
+CREATE TABLE public.user_resumes (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  file_name text NOT NULL,
+  resume_url text NOT NULL,
+  storage_path text NOT NULL,
+  file_size integer,
+  is_default boolean NOT NULL DEFAULT false,
+  uploaded_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT user_resumes_pkey PRIMARY KEY (id),
+  CONSTRAINT user_resumes_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_cover_letters (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  file_name text NOT NULL,
+  cover_letter_url text NOT NULL,
+  storage_path text NOT NULL,
+  file_size integer,
+  is_default boolean NOT NULL DEFAULT false,
+  uploaded_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT user_cover_letters_pkey PRIMARY KEY (id),
+  CONSTRAINT user_cover_letters_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );

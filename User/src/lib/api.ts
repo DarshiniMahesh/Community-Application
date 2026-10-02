@@ -25,6 +25,7 @@ export const api = {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify(body),
+      cache: "no-store",
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
@@ -47,6 +48,7 @@ export const api = {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "GET",
       headers: getHeaders(),
+      cache: "no-store",
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
@@ -59,6 +61,7 @@ export const api = {
       method: "PUT",
       headers: getHeaders(),
       body: JSON.stringify(body),
+      cache: "no-store",
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
@@ -70,6 +73,7 @@ export const api = {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "DELETE",
       headers: getHeaders(),
+      cache: "no-store",
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
@@ -82,6 +86,7 @@ export const api = {
       method: "PATCH",
       headers: getHeaders(),
       body: JSON.stringify(body),
+      cache: "no-store",
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();

@@ -9,6 +9,7 @@ import {
   SlidersHorizontal, Eye, Calendar, Users, Building2,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { formatIndiaDate, indiaDateInputValue } from "@/lib/dateTime";
 import { DateRange, toISO } from "./DateRangePicker";
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
@@ -232,7 +233,7 @@ async function downloadExcel(rows: TableRow[], filename: string) {
   const ws   = XLSX.utils.json_to_sheet(rows);
   const wb   = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, filename.slice(0, 31).replace(/[/\\?*[\]:]/g, "_"));
-  XLSX.writeFile(wb, `${filename.replace(/[^\w\s\-]/g, "_")}-${new Date().toISOString().split("T")[0]}.xlsx`);
+  XLSX.writeFile(wb, `${filename.replace(/[^\w\s\-]/g, "_")}-${indiaDateInputValue()}.xlsx`);
 }
 
 function getUniqueValues(rows: TableRow[], col: string): string[] {
@@ -268,7 +269,7 @@ function fmtDateRange(dateRange: DateRange): string | null {
   if (dateRange.preset === "last90")   return "Last 90 days";
   if (dateRange.preset === "thisYear") return "This year";
   if (dateRange.from && dateRange.to) {
-    const fmt = (d: Date) => d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    const fmt = (d: Date) => formatIndiaDate(d);
     return `${fmt(dateRange.from)} – ${fmt(dateRange.to)}`;
   }
   return null;
@@ -1643,7 +1644,7 @@ export default function CustomReport({ dateRange, initSections = [], initCategor
 
       if (wb.SheetNames.length === 0) return;
 
-      const filename = `Admin-${mode}-full-export-${new Date().toISOString().split("T")[0]}.xlsx`;
+      const filename = `Admin-${mode}-full-export-${indiaDateInputValue()}.xlsx`;
       XLSX.writeFile(wb, filename);
     } finally {
       setExportingAll(false);

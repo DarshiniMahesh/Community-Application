@@ -12,7 +12,7 @@ const {
 const { authenticate, requireRole } = require('../middlewares/auth');
 const companyAuth = require('../middlewares/companyAuth');
 const careerProfileRoutes = require('./Careerprofile');
-const resumeRoutes = require('./careerresume');
+const resumeCoverpageRoutes = require('./userResumeCoverpage');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -29,8 +29,8 @@ const upload = multer({
 // ── User: Career profile (/api/jobs/career-profile/...) ───────
 router.use('/career-profile', careerProfileRoutes);
 
-// ── User: Resume library (/api/jobs/resumes/...) ───────────────
-router.use('/resumes', resumeRoutes);
+// ── User: Resume and cover-letter libraries ───────────────────
+router.use('/', resumeCoverpageRoutes);
 
 // ── Public: Job search (users) ────────────────────────────────
 router.get('/public',          publicListJobs);
