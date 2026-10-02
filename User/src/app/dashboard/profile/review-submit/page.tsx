@@ -40,6 +40,15 @@ const STEP_DEFINITIONS = [
   { key: "step6", label: "Economic Details",        pctField: "step6_economic_pct",  completedField: "step6_completed", href: "/dashboard/profile/economic-details" },
 ] as const;
 
+const DEFAULT_FOCUS_TARGETS: Record<string, string> = {
+  step1: "section-basic-info",
+  step2: "section-surname-priest",
+  step3: "section-family-type",
+  step4: "section-current-address",
+  step5: "self",
+  step6: "section-income",
+};
+
 interface StepCompletion {
   key: string;
   label: string;
@@ -629,7 +638,9 @@ export default function Page() {
   };
   const stepCompletionListWithFocus: StepCompletion[] = stepCompletionList.map((s) => ({
     ...s,
-    focusTarget: s.pct < 100 ? computeFocusTarget(s.key, stepFocusCtx) : undefined,
+    focusTarget: s.pct < 100
+      ? computeFocusTarget(s.key, stepFocusCtx) ?? DEFAULT_FOCUS_TARGETS[s.key]
+      : undefined,
   }));
 
   return (

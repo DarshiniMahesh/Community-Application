@@ -14,6 +14,7 @@ import { ArrowLeft, ArrowRight, Plus, Trash2, MapPin, RotateCcw } from "lucide-r
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
+import { useProfileFocus } from "@/lib/useProfileFocus";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -56,6 +57,7 @@ const emptyAddress = (): Address => ({
 });
 
 export default function Page() {
+  useProfileFocus();
   const router = useRouter();
   const [loading, setLoading]                 = useState(false);
   const [currentAddress, setCurrentAddress]   = useState<Address>(emptyAddress());
@@ -376,7 +378,7 @@ export default function Page() {
       <Stepper steps={steps} currentStep={3} />
 
       {/* Current Address */}
-      <Card className="shadow-sm border-l-4 border-l-primary">
+      <Card id="section-current-address" className="shadow-sm border-l-4 border-l-primary">
         <CardHeader>
           <div className="flex items-center gap-2">
             <MapPin className="h-5 w-5 text-primary" />

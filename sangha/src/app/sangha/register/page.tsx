@@ -10,6 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { Country } from "country-state-city";
+
+const countryOptions = Country.getAllCountries().filter(country => country.phonecode);
 
 function getPasswordStrength(pw: string) {
   let score = 0;
@@ -27,6 +30,7 @@ interface FormData {
   sangha_name: string;
   email:       string;
   phone:       string;
+  phone_country_code: string;
   password:    string;
   confirm:     string;
 }
@@ -36,7 +40,7 @@ export default function SanghaRegisterPage() {
   const [step, setStep] = useState<Step>("details");
 
   const [formData, setFormData] = useState<FormData>({
-    sangha_name: "", email: "", phone: "", password: "", confirm: "",
+    sangha_name: "", email: "", phone: "", phone_country_code: "+91", password: "", confirm: "",
   });
   const [errors, setErrors]           = useState<Partial<FormData>>({});
   const [showPw, setShowPw]           = useState(false);
@@ -44,6 +48,7 @@ export default function SanghaRegisterPage() {
   const [loading, setLoading]         = useState(false);
 
   const [otp, setOtp]               = useState("");
+  const [otpSentTo, setOtpSentTo]   = useState("");
   const [otpError, setOtpError]     = useState("");
   const [otpLoading, setOtpLoading] = useState(false);
 
@@ -86,13 +91,15 @@ export default function SanghaRegisterPage() {
     if (!validate()) return;
     setLoading(true);
     try {
-      await api.post("/sangha/register/send-otp", {
+      const result = await api.post("/sangha/register/send-otp", {
         sangha_name: formData.sangha_name.trim(),
         email:       formData.email.trim()  || undefined,
         phone:       formData.phone.trim()  || undefined,
+        phone_country_code: formData.phone_country_code,
         password:    formData.password,
       });
-      toast.success("OTP sent! Check your email or phone.");
+      setOtpSentTo(result.sentTo || identifier);
+      toast.success(`OTP sent to ${result.sentTo || identifier}`);
       setStep("otp");
     } catch (err: any) {
       toast.error(err.message || "Registration failed");
@@ -128,13 +135,15 @@ export default function SanghaRegisterPage() {
 
   const handleResendOtp = async () => {
     try {
-      await api.post("/sangha/register/send-otp", {
+      const result = await api.post("/sangha/register/send-otp", {
         sangha_name: formData.sangha_name.trim(),
         email:       formData.email.trim()  || undefined,
         phone:       formData.phone.trim()  || undefined,
+        phone_country_code: formData.phone_country_code,
         password:    formData.password,
       });
-      toast.success("OTP resent!");
+      setOtpSentTo(result.sentTo || identifier);
+      toast.success(`OTP resent to ${result.sentTo || identifier}`);
     } catch (err: any) {
       toast.error(err.message || "Failed to resend OTP");
     }
@@ -176,9 +185,9 @@ export default function SanghaRegisterPage() {
                 </div>
 
                 {/* Email + Phone */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-3">
                   <div className="space-y-1">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email">Primary Email</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
@@ -193,16 +202,31 @@ export default function SanghaRegisterPage() {
                     {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="phone">Phone</Label>
-                    <div className="relative">
-                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Label htmlFor="phone">Primary Phone</Label>
+                    <div className="flex gap-2">
+                      <select
+                        aria-label="Primary phone country code"
+                        value={formData.phone_country_code}
+                        onChange={e => setFormData(prev => ({ ...prev, phone_country_code: e.target.value }))}
+                        className="w-28 rounded-md border border-input bg-background px-2 text-sm"
+                      >
+                        {countryOptions.map(country => {
+                          const code = `+${country.phonecode.replace(/^\+/, "")}`;
+                          return <option key={country.isoCode} value={code}>{code} {country.name}</option>;
+                        })}
+                      </select>
+                      <div className="relative min-w-0 flex-1">
+                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
                         id="phone"
-                        placeholder="10-digit number"
+                        type="tel"
+                        inputMode="numeric"
+                        placeholder="Phone number"
                         value={formData.phone}
                         onChange={set("phone")}
                         className={`pl-10 ${errors.phone ? "border-destructive" : ""}`}
                       />
+                      </div>
                     </div>
                     {errors.phone && <p className="text-xs text-destructive">{errors.phone}</p>}
                   </div>
@@ -298,7 +322,7 @@ export default function SanghaRegisterPage() {
               <CardTitle className="text-2xl">Verify OTP</CardTitle>
               <CardDescription>
                 Enter the OTP sent to{" "}
-                <span className="font-medium text-foreground">{identifier}</span>
+                <span className="font-medium text-foreground">{otpSentTo || identifier}</span>
               </CardDescription>
             </CardHeader>
             <CardContent>

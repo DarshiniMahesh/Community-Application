@@ -6,6 +6,9 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { COMPANY_TYPES } from "@/lib/constants";
 import { Building2, Save, Send, Camera, Globe, Mail, Phone } from "lucide-react";
+import { Country } from "country-state-city";
+
+const countryOptions = Country.getAllCountries().filter(country => country.phonecode);
 
 interface ProfileForm {
   company_name: string;
@@ -28,6 +31,7 @@ interface ProfileForm {
   website: string;
   contact_email: string;
   contact_phone: string;
+  contact_phone_country_code: string;
 }
 
 const EMPTY_FORM: ProfileForm = {
@@ -51,6 +55,7 @@ const EMPTY_FORM: ProfileForm = {
   website: "",
   contact_email: "",
   contact_phone: "",
+  contact_phone_country_code: "+91",
 };
 
 function CompanyProfilePageInner() {
@@ -69,6 +74,7 @@ function CompanyProfilePageInner() {
   // Registered contact — read-only, sourced from company_auth (login credentials)
   const [registeredEmail, setRegisteredEmail] = useState("");
   const [registeredPhone, setRegisteredPhone] = useState("");
+  const [registeredPhoneCountryCode, setRegisteredPhoneCountryCode] = useState("+91");
 
   // Logo
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -101,9 +107,11 @@ function CompanyProfilePageInner() {
           website: d.website || "",
           contact_email: d.contact_email || "",
           contact_phone: d.contact_phone || "",
+          contact_phone_country_code: d.contact_phone_country_code || "+91",
         });
         setRegisteredEmail(d.registered_email || "");
         setRegisteredPhone(d.registered_phone || "");
+        setRegisteredPhoneCountryCode(d.registered_phone_country_code || "+91");
         setLogoUrl(d.logo_url || "");
         setLogoPreview(d.logo_url || "");
         setCompanyStatus(d.status);
@@ -153,8 +161,8 @@ function CompanyProfilePageInner() {
       e.website = "Enter a valid URL (starting with http:// or https://)";
     if (form.contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contact_email))
       e.contact_email = "Enter a valid email";
-    if (form.contact_phone && !/^\d{10}$/.test(form.contact_phone))
-      e.contact_phone = "Enter a valid 10-digit phone number";
+    if (form.contact_phone && !/^\d{7,15}$/.test(form.contact_phone))
+      e.contact_phone = "Enter a valid phone number (7–15 digits)";
 
     return e;
   };
@@ -363,21 +371,21 @@ function CompanyProfilePageInner() {
           </div>
 
           <hr style={styles.divider} />
-          <h4 style={styles.sectionTitle}>Registered Contact</h4>
+          <h4 style={styles.sectionTitle}>Primary Contact</h4>
           <p style={styles.sectionSub}>The email/phone you used to log in. Contact support to change this.</p>
 
           <div style={styles.grid2}>
             <div style={styles.fieldGroup}>
               <label style={styles.label}>
-                <Mail size={13} style={{ marginRight: 4, verticalAlign: -2 }} /> Registered Email
+                <Mail size={13} style={{ marginRight: 4, verticalAlign: -2 }} /> Primary Email
               </label>
               <input style={{ ...styles.input, ...styles.inputReadOnly }} value={registeredEmail || "—"} readOnly />
             </div>
             <div style={styles.fieldGroup}>
               <label style={styles.label}>
-                <Phone size={13} style={{ marginRight: 4, verticalAlign: -2 }} /> Registered Phone
+                <Phone size={13} style={{ marginRight: 4, verticalAlign: -2 }} /> Primary Phone
               </label>
-              <input style={{ ...styles.input, ...styles.inputReadOnly }} value={registeredPhone || "—"} readOnly />
+              <input style={{ ...styles.input, ...styles.inputReadOnly }} value={registeredPhone ? `${registeredPhoneCountryCode} ${registeredPhone}` : "—"} readOnly />
             </div>
           </div>
 
@@ -490,7 +498,7 @@ function CompanyProfilePageInner() {
           )}
 
           <hr style={styles.divider} />
-          <h4 style={styles.sectionTitle}>Website & Contact (optional)</h4>
+          <h4 style={styles.sectionTitle}>Website & Secondary Contact (optional)</h4>
 
           <div style={styles.fieldGroup}>
             <label style={styles.label}>
@@ -507,7 +515,7 @@ function CompanyProfilePageInner() {
 
           <div style={styles.grid2}>
             <div style={styles.fieldGroup}>
-              <label style={styles.label}>Contact Email</label>
+              <label style={styles.label}>Secondary Email</label>
               <input
                 style={{ ...styles.input, ...(errors.contact_email ? styles.inputError : {}) }}
                 placeholder="hr@yourcompany.com"
@@ -517,14 +525,27 @@ function CompanyProfilePageInner() {
               {errors.contact_email && <p style={styles.errText}>{errors.contact_email}</p>}
             </div>
             <div style={styles.fieldGroup}>
-              <label style={styles.label}>Contact Phone</label>
-              <input
-                style={{ ...styles.input, ...(errors.contact_phone ? styles.inputError : {}) }}
-                placeholder="10-digit phone"
-                maxLength={10}
-                value={form.contact_phone}
-                onChange={(e) => set("contact_phone", e.target.value.replace(/\D/g, "").slice(0, 10))}
-              />
+              <label style={styles.label}>Secondary Phone</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <select
+                  aria-label="Secondary phone country code"
+                  value={form.contact_phone_country_code || "+91"}
+                  onChange={(e) => set("contact_phone_country_code", e.target.value)}
+                  style={{ ...styles.select, width: 120 }}
+                >
+                  {countryOptions.map((country) => {
+                    const code = country.phonecode.startsWith("+") ? country.phonecode : `+${country.phonecode}`;
+                    return <option key={country.isoCode} value={code}>{code} {country.name}</option>;
+                  })}
+                </select>
+                <input
+                  style={{ ...styles.input, ...(errors.contact_phone ? styles.inputError : {}) }}
+                  placeholder="Phone number"
+                  maxLength={15}
+                  value={form.contact_phone}
+                  onChange={(e) => set("contact_phone", e.target.value.replace(/\D/g, "").slice(0, 15))}
+                />
+              </div>
               {errors.contact_phone && <p style={styles.errText}>{errors.contact_phone}</p>}
             </div>
           </div>

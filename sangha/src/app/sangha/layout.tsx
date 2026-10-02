@@ -98,10 +98,10 @@ export default function SanghaLayout({ children }: { children: React.ReactNode }
         </div>
       </header>
 
-      <div className="flex">
+      <div className="flex min-w-0">
         {/* ── Sidebar ── */}
         <aside className={`
-          fixed lg:sticky top-16 left-0 z-40 h-[calc(100vh-4rem)] w-64
+          fixed lg:static top-16 left-0 z-40 h-[calc(100vh-4rem)] w-64 shrink-0
           bg-white border-r border-border transition-transform duration-300
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         `}>
@@ -128,12 +128,6 @@ export default function SanghaLayout({ children }: { children: React.ReactNode }
               );
             })}
           </nav>
-          <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-border bg-secondary/50">
-            <div className="text-xs text-muted-foreground text-center">
-              <p className="font-medium">Community Portal</p>
-              <p className="mt-1">Sangha Module</p>
-            </div>
-          </div>
         </aside>
 
         {/* ── Mobile overlay ── */}
@@ -145,7 +139,7 @@ export default function SanghaLayout({ children }: { children: React.ReactNode }
         )}
 
         {/* ── Main content ── */}
-        <main className="flex-1 p-4 lg:p-6 min-h-[calc(100vh-4rem)]">
+        <main className="min-w-0 flex-1 p-4 lg:p-6 min-h-[calc(100vh-4rem)]">
           {children}
         </main>
       </div>

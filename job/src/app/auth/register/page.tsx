@@ -4,10 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, saveCompanyAuth } from "@/lib/api";
 import { Eye, EyeOff, Building2, Mail, Lock } from "lucide-react";
+import { Country } from "country-state-city";
+
+const countryOptions = Country.getAllCountries().filter(country => country.phonecode);
 
 export default function CompanyRegisterPage() {
   const router = useRouter();
   const [contact, setContact] = useState("");
+  const [phoneCountryCode, setPhoneCountryCode] = useState("+91");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -55,7 +59,7 @@ export default function CompanyRegisterPage() {
     try {
       const isPhone = /^\d{10}$/.test(contact);
       const body = isPhone
-        ? { phone: contact, password }
+        ? { phone: contact, phone_country_code: phoneCountryCode, password }
         : { email: contact, password };
 
       const data = await api.post("/company/auth/register", body);
@@ -111,6 +115,19 @@ export default function CompanyRegisterPage() {
             {/* Contact */}
             <div style={styles.fieldGroup}>
               <label style={styles.label}>Email Address or Phone Number</label>
+              {/^[0-9]+$/.test(contact) && (
+                <select
+                  aria-label="Phone country code"
+                  value={phoneCountryCode}
+                  onChange={(e) => setPhoneCountryCode(e.target.value)}
+                  style={styles.select}
+                >
+                  {countryOptions.map((country) => {
+                    const code = country.phonecode.startsWith("+") ? country.phonecode : `+${country.phonecode}`;
+                    return <option key={country.isoCode} value={code}>{code} {country.name}</option>;
+                  })}
+                </select>
+              )}
               <div style={styles.inputWrap}>
                 <Mail size={16} style={styles.inputIcon} />
                 <input

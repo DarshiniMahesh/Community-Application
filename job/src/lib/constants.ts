@@ -21,7 +21,7 @@ export const COMPANY_TYPES: Record<string, string[]> = {
   "Environmental Services": ["Waste Management", "Recycling", "Environmental Consulting"],
 };
 
-export const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Internship", "Volunteer", "Contract"];
+export const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Internship", "Volunteer", "Contract", "Freelance Consultant"];
 export const WORK_SETTINGS = ["On-site", "Hybrid", "Remote"];
 export const EXPERIENCE_LEVELS = ["Entry level", "Associate", "Mid-Senior level", "Director", "Executive"];
 export const GENDERS = ["Male", "Female", "Other", "Prefer not to say"];

@@ -12,9 +12,16 @@ const { sendOtpEmail }  = require('../config/mailer');
 
 async function writeOtp(identifier) {
   const isEmail = identifier.includes('@');
+  const userResult = await pool.query(
+    `SELECT id, email FROM users WHERE ${isEmail ? 'email' : 'phone'}=$1 AND role='sangha'`,
+    [identifier]
+  );
+  const user = userResult.rows[0];
+  if (!user) throw new Error('Sangha account not found');
 
-  if (!isEmail) {
-    throw new Error('Please use your email address for OTP');
+  const deliveryEmail = isEmail ? identifier : user.email;
+  if (!deliveryEmail) {
+    throw new Error('This phone-only account has no email address, and SMS OTP is not configured');
   }
 
   const otp     = generateOtp();
@@ -23,11 +30,12 @@ async function writeOtp(identifier) {
   );
 
   await pool.query(
-    `UPDATE users SET otp_code=$1, otp_expires_at=$2 WHERE email=$3`,
-    [otp, expires, identifier]
+    `UPDATE users SET otp_code=$1, otp_expires_at=$2 WHERE id=$3`,
+    [otp, expires, user.id]
   );
 
-  await sendOtpEmail(identifier, otp); // throws if Gmail fails
+  await sendOtpEmail(deliveryEmail, otp);
+  return deliveryEmail;
 }
 
 async function checkOtp(identifier, otp) {
@@ -61,7 +69,7 @@ async function getSanghaId(userId) {
 // ════════════════════════════════════════════════════════════
 const registerSendOtp = async (req, res) => {
   try {
-    const { sangha_name, email, phone, password } = req.body;
+    const { sangha_name, email, phone, phone_country_code = '+91', password } = req.body;
     if (!sangha_name || !password || (!email && !phone)) {
       return res.status(400).json({ message: 'sangha_name, password, and email or phone are required' });
     }
@@ -80,8 +88,8 @@ const registerSendOtp = async (req, res) => {
       }
       const password_hash = await bcrypt.hash(password, 10);
       await pool.query(
-        `UPDATE users SET password_hash=$1, otp_code=NULL, otp_expires_at=NULL WHERE id=$2`,
-        [password_hash, existingUser.id]
+        `UPDATE users SET password_hash=$1, phone_country_code=$2, otp_code=NULL, otp_expires_at=NULL WHERE id=$3`,
+        [password_hash, phone_country_code, existingUser.id]
       );
       await pool.query(
         `INSERT INTO sanghas (sangha_auth_id, sangha_name, email, phone, status)
@@ -93,9 +101,9 @@ const registerSendOtp = async (req, res) => {
     } else {
       const password_hash = await bcrypt.hash(password, 10);
       const userRes = await pool.query(
-        `INSERT INTO users (role, email, phone, password_hash, is_active)
-         VALUES ('sangha', $1, $2, $3, false) RETURNING id`,
-        [email || null, phone || null, password_hash]
+        `INSERT INTO users (role, email, phone, phone_country_code, password_hash, is_active)
+         VALUES ('sangha', $1, $2, $3, $4, false) RETURNING id`,
+        [email || null, phone || null, phone_country_code, password_hash]
       );
       const userId = userRes.rows[0].id;
       await pool.query(
@@ -106,8 +114,8 @@ const registerSendOtp = async (req, res) => {
     }
 
     const identifier = email || phone;
-    await writeOtp(identifier);
-    res.json({ message: 'OTP sent successfully' });
+    const sentTo = await writeOtp(identifier);
+    res.json({ message: 'OTP sent successfully', sentTo });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -184,8 +192,8 @@ const loginSendOtp = async (req, res) => {
     if (!valid)
       return res.status(401).json({ message: 'Invalid credentials' });
 
-    await writeOtp(identifier);
-    res.json({ message: 'Credentials verified. OTP sent.' });
+    const sentTo = await writeOtp(identifier);
+    res.json({ message: 'Credentials verified. OTP sent.', sentTo });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -517,8 +525,8 @@ const forgotSendOtp = async (req, res) => {
     if (userRes.rows.length === 0)
       return res.status(404).json({ message: 'No active Sangha account found with this email/phone' });
 
-    await writeOtp(identifier);
-    res.json({ message: 'OTP sent successfully' });
+    const sentTo = await writeOtp(identifier);
+    res.json({ message: 'OTP sent successfully', sentTo });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -593,7 +601,8 @@ const getSanghaProfile = async (req, res) => {
          s.address_line2 AS address_line_2,
          s.address_line3 AS address_line_3,
          u.email AS reg_email,
-         u.phone AS reg_phone
+         u.phone AS reg_phone,
+         u.phone_country_code
        FROM sanghas s
        JOIN users u ON u.id = s.sangha_auth_id
        WHERE s.sangha_auth_id = $1`,
@@ -614,21 +623,22 @@ const updateSanghaProfile = async (req, res) => {
     const {
       sangha_name, description, address_line_1, address_line_2, address_line_3,
       city, pincode, village_town, taluk, district, state,
-      sangha_contact_same, sangha_phone, sangha_email, logo_url,
+      sangha_contact_same, sangha_phone, sangha_phone_country_code, sangha_email, logo_url,
     } = req.body;
 
     const result = await pool.query(
       `UPDATE sanghas
        SET sangha_name=$1, description=$2, address_line=$3, address_line2=$4,
            address_line3=$5, city=$6, pincode=$7, village_town=$8, taluk=$9,
-           district=$10, state=$11, sangha_contact_same=$12, sangha_phone=$13,
-           sangha_email=$14, logo_url=$15, updated_at=NOW()
-       WHERE sangha_auth_id=$16 RETURNING *`,
+             district=$10, state=$11, sangha_contact_same=$12, sangha_phone=$13,
+             sangha_phone_country_code=$14, sangha_email=$15, logo_url=$16, updated_at=NOW()
+           WHERE sangha_auth_id=$17 RETURNING *`,
       [
         sangha_name, description || null, address_line_1 || null, address_line_2 || null,
         address_line_3 || null, city || null, pincode || null, village_town || null,
         taluk || null, district || null, state || null, sangha_contact_same ?? true,
         sangha_contact_same ? null : (sangha_phone || null),
+        sangha_contact_same ? null : (sangha_phone_country_code || '+91'),
         sangha_contact_same ? null : (sangha_email || null),
         logo_url || null, userId,
       ]
@@ -1151,7 +1161,7 @@ const getTeamMembers = async (req, res) => {
     const result = await pool.query(
       `SELECT id,
          TRIM(CONCAT(first_name, ' ', COALESCE(middle_name || ' ', ''), last_name)) AS full_name,
-         first_name, middle_name, last_name, gender, phone, email, dob, role, member_type, created_at
+         first_name, middle_name, last_name, gender, phone, phone_country_code, email, dob, role, member_type, created_at
        FROM sangha_members WHERE sangha_id=$1 ORDER BY created_at DESC`,
       [sanghaId]
     );
@@ -1168,7 +1178,7 @@ const addTeamMember = async (req, res) => {
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
-    const { firstName, middleName, lastName, gender, phone, email, dob, role, memberType } = req.body;
+    const { firstName, middleName, lastName, gender, phone, phone_country_code = '+91', email, dob, role, memberType } = req.body;
 
     if (!firstName || !lastName || !role)
       return res.status(400).json({ message: 'First name, last name and role are required' });
@@ -1198,10 +1208,10 @@ const addTeamMember = async (req, res) => {
 
     const result = await pool.query(
       `INSERT INTO sangha_members
-         (sangha_id, first_name, middle_name, last_name, gender, phone, email, dob, role, member_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+         (sangha_id, first_name, middle_name, last_name, gender, phone, phone_country_code, email, dob, role, member_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [sanghaId, firstName, middleName || null, lastName,
-       gender || null, phone || null, email || null, dob || null, role, memberType || null]
+       gender || null, phone || null, phone_country_code, email || null, dob || null, role, memberType || null]
     );
 
     res.status(201).json({ message: 'Member added', member: result.rows[0] });

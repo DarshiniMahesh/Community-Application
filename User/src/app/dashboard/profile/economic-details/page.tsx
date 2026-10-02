@@ -14,6 +14,7 @@ import { ArrowLeft, ArrowRight, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { INCOME_SLAB_MAP, INCOME_SLAB_REVERSE } from "@/lib/constants";
+import { useProfileFocus } from "@/lib/useProfileFocus";
 
 const steps = [
   { id: "1", name: "Personal",  href: "/dashboard/profile/personal-details" },
@@ -170,6 +171,7 @@ function SelectCell({
 }
 
 export default function Page() {
+  useProfileFocus();
   const router = useRouter();
   const [loading, setLoading]                         = useState(false);
   const [selfIncome, setSelfIncome]                   = useState("");
@@ -437,7 +439,7 @@ export default function Page() {
       <Stepper steps={steps} currentStep={5} />
 
       {/* Annual Income */}
-      <Card className="shadow-sm border-l-4 border-l-primary">
+      <Card id="section-income" className="shadow-sm border-l-4 border-l-primary">
         <CardHeader>
           <CardTitle>Annual Income</CardTitle>
           <CardDescription>Select the applicable income range</CardDescription>

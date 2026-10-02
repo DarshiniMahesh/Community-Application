@@ -13,22 +13,26 @@ interface StepperProps {
 
 export function Stepper({ steps, currentStep }: StepperProps) {
   return (
-    <div className="w-full py-6">
+    <div className="w-full overflow-x-auto py-6">
       <nav aria-label="Progress">
-        <ol className="flex items-center justify-between">
+        <ol className="grid min-w-[700px] grid-cols-7">
           {steps.map((step, index) => {
             const isCompleted = index < currentStep;
             const isCurrent = index === currentStep;
             const isLast = index === steps.length - 1;
 
             return (
-              <li key={step.id} className="flex items-center flex-1">
-                <div className="flex flex-col items-center flex-1">
-                  <div className="flex items-center w-full">
-                    {/* Step Circle */}
-                    <div
-                      className={`
-                        relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors
+              <li key={step.id} className="relative flex min-w-0 flex-col items-center">
+                {!isLast && (
+                  <div
+                    aria-hidden="true"
+                    className={`absolute left-1/2 right-[-50%] top-5 -z-0 h-0.5 transition-colors ${
+                      isCompleted ? "bg-primary" : "bg-gray-300"
+                    }`}
+                  />
+                )}
+                <div
+                  className={`relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border-2 bg-background transition-colors
                         ${
                           isCompleted
                             ? "border-primary bg-primary text-primary-foreground"
@@ -37,29 +41,13 @@ export function Stepper({ steps, currentStep }: StepperProps) {
                             : "border-gray-300 bg-white text-gray-500"
                         }
                       `}
-                    >
-                      {isCompleted ? (
-                        <Check className="h-5 w-5" />
-                      ) : (
-                        <span className="font-medium">{index + 1}</span>
-                      )}
-                    </div>
+                >
+                  {isCompleted ? <Check className="h-5 w-5" /> : <span className="font-medium">{index + 1}</span>}
+                </div>
 
-                    {/* Connecting Line */}
-                    {!isLast && (
-                      <div
-                        className={`
-                          h-0.5 flex-1 transition-colors mx-2
-                          ${isCompleted ? "bg-primary" : "bg-gray-300"}
-                        `}
-                      />
-                    )}
-                  </div>
-
-                  {/* Step Name */}
-                  <div className="mt-2 text-center">
-                    <span
-                      className={`
+                <div className="mt-2 min-h-8 w-full px-1 text-center">
+                  <span
+                    className={`
                         text-xs font-medium transition-colors
                         ${
                           isCurrent
@@ -69,10 +57,9 @@ export function Stepper({ steps, currentStep }: StepperProps) {
                             : "text-muted-foreground"
                         }
                       `}
-                    >
-                      {step.name}
-                    </span>
-                  </div>
+                  >
+                    {step.name}
+                  </span>
                 </div>
               </li>
             );

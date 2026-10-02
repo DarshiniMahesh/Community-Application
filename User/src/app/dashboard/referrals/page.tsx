@@ -6,7 +6,7 @@ import { Share2, Plus, Trash2, ArrowLeft, CheckCircle2, List } from "lucide-reac
 import { useRouter } from "next/navigation";
 
 const WORK_TYPES = ["Remote", "On-site", "Hybrid"];
-const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Contract", "Internship", "Volunteer"];
+const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Contract", "Internship", "Volunteer", "Freelance Consultant"];
 const EXPERIENCE_LEVELS = ["Entry level", "Mid level", "Senior level", "Director", "Executive"];
 
 interface ReferralForm {

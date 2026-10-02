@@ -12,6 +12,9 @@ import { Separator } from "@/components/ui/separator";
 import { Clock3, RefreshCw, Camera, Phone, Mail, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { api, saveAuth } from "@/lib/api";
+import { Country } from "country-state-city";
+
+const countryOptions = Country.getAllCountries().filter(country => country.phonecode);
 
 interface SanghaProfile {
   sangha_name: string;
@@ -27,9 +30,11 @@ interface SanghaProfile {
   state: string;
   email: string;
   phone: string;
+  phone_country_code?: string;
   description: string;
   sangha_contact_same: boolean;
   sangha_phone: string;
+  sangha_phone_country_code: string;
   sangha_email: string;
   status: string;
 }
@@ -48,9 +53,11 @@ const emptyProfile: SanghaProfile = {
   state: "",
   email: "",
   phone: "",
+  phone_country_code: "+91",
   description: "",
   sangha_contact_same: true,
   sangha_phone: "",
+  sangha_phone_country_code: "+91",
   sangha_email: "",
   status: "",
 };
@@ -160,8 +167,8 @@ export default function SanghaProfilePage() {
         e.sangha_phone = "Provide at least one contact (phone or email)";
       if (formData.sangha_email && !formData.sangha_email.includes("@"))
         e.sangha_email = "Enter a valid email";
-      if (formData.sangha_phone && !/^\d{10}$/.test(formData.sangha_phone))
-        e.sangha_phone = "Enter a valid 10-digit phone";
+      if (formData.sangha_phone && !/^\d{7,15}$/.test(formData.sangha_phone))
+        e.sangha_phone = "Enter a valid phone number (7–15 digits)";
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -197,6 +204,7 @@ export default function SanghaProfilePage() {
         description:         formData.description,
         sangha_contact_same: formData.sangha_contact_same,
         sangha_phone:        formData.sangha_contact_same ? undefined : formData.sangha_phone,
+        sangha_phone_country_code: formData.sangha_contact_same ? undefined : formData.sangha_phone_country_code,
         sangha_email:        formData.sangha_contact_same ? undefined : formData.sangha_email,
       });
 
@@ -282,11 +290,11 @@ export default function SanghaProfilePage() {
             <div className="text-sm space-y-1">
               <p className="flex items-center gap-2">
                 <Mail className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                {profile.email || "-"}
+                <><span className="font-medium">Primary Email:</span> {profile.email || "-"}</>
               </p>
               <p className="flex items-center gap-2">
                 <Phone className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                {profile.phone || "-"}
+                <><span className="font-medium">Primary Phone:</span> {profile.phone ? `${profile.phone_country_code || "+91"} ${profile.phone}` : "-"}</>
               </p>
             </div>
 
@@ -354,19 +362,19 @@ export default function SanghaProfilePage() {
 
             <div className="space-y-1">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Registered Contact
+                Primary Contact
               </p>
               <div className="text-sm space-y-1">
                 {profile.email && (
                   <p className="flex items-center gap-2">
                     <Mail className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    {profile.email}
+                    <><span className="font-medium">Primary Email:</span> {profile.email}</>
                   </p>
                 )}
                 {profile.phone && (
                   <p className="flex items-center gap-2">
                     <Phone className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    {profile.phone}
+                    <><span className="font-medium">Primary Phone:</span> {profile.phone_country_code || "+91"} {profile.phone}</>
                   </p>
                 )}
               </div>
@@ -388,19 +396,19 @@ export default function SanghaProfilePage() {
 
             <div className="space-y-1">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Sangha Contact
+                Secondary Contact
               </p>
               <div className="text-sm space-y-1">
                 {displaySanghaPhone && (
                   <p className="flex items-center gap-2">
                     <Phone className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    {displaySanghaPhone}
+                    <><span className="font-medium">Secondary Phone:</span> {profile.sangha_contact_same ? profile.phone_country_code || "+91" : profile.sangha_phone_country_code || "+91"} {displaySanghaPhone}</>
                   </p>
                 )}
                 {displaySanghaEmail && (
                   <p className="flex items-center gap-2">
                     <Mail className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    {displaySanghaEmail}
+                    <><span className="font-medium">Secondary Email:</span> {displaySanghaEmail}</>
                   </p>
                 )}
                 {profile.sangha_contact_same && (
@@ -631,11 +639,11 @@ export default function SanghaProfilePage() {
 
         {/* Registered contact (read-only) */}
         <Card className="shadow-sm">
-          <CardHeader><CardTitle>Registered Contact</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Primary Contact</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label htmlFor="reg-email-input">Email</Label>
+                <Label htmlFor="reg-email-input">Primary Email</Label>
                 <Input
                   id="reg-email-input"
                   value={profile.email || "-"}
@@ -645,10 +653,10 @@ export default function SanghaProfilePage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="reg-phone-input">Phone</Label>
+                <Label htmlFor="reg-phone-input">Primary Phone</Label>
                 <Input
                   id="reg-phone-input"
-                  value={profile.phone || "-"}
+                  value={profile.phone ? `${profile.phone_country_code || "+91"} ${profile.phone}` : "-"}
                   readOnly
                   aria-readonly="true"
                   className="bg-muted"
@@ -675,9 +683,9 @@ export default function SanghaProfilePage() {
           </CardContent>
         </Card>
 
-        {/* Sangha Contact */}
+        {/* Secondary Contact */}
         <Card className="shadow-sm">
-          <CardHeader><CardTitle>Sangha Contact</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Secondary Contact</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <label className="flex items-center gap-2 cursor-pointer text-sm select-none">
               <input
@@ -694,15 +702,25 @@ export default function SanghaProfilePage() {
             {!formData.sangha_contact_same && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label htmlFor="sangha-phone-input">Sangha Phone</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  <Label htmlFor="sangha-phone-input">Secondary Phone</Label>
+                  <div className="flex gap-2">
+                    <select
+                      aria-label="Secondary phone country code"
+                      value={formData.sangha_phone_country_code || "+91"}
+                      onChange={e => setFormData(prev => ({ ...prev, sangha_phone_country_code: e.target.value }))}
+                      className="w-28 rounded-md border border-input bg-background px-2 text-sm"
+                    >
+                      {countryOptions.map(country => {
+                        const code = `+${country.phonecode.replace(/^\+/, "")}`;
+                        return <option key={country.isoCode} value={code}>{code} {country.name}</option>;
+                      })}
+                    </select>
                     <Input
                       id="sangha-phone-input"
-                      placeholder="10-digit number"
+                      placeholder="Phone number"
                       value={formData.sangha_phone}
                       onChange={set("sangha_phone")}
-                      className={`pl-9 ${errors.sangha_phone ? "border-destructive" : ""}`}
+                      className={errors.sangha_phone ? "border-destructive" : ""}
                     />
                   </div>
                   {errors.sangha_phone && (
@@ -710,7 +728,7 @@ export default function SanghaProfilePage() {
                   )}
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="sangha-email-input">Sangha Email</Label>
+                  <Label htmlFor="sangha-email-input">Secondary Email</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
                     <Input

@@ -12,7 +12,7 @@ const supabase = createClient(
 
 // ── Register ──────────────────────────────────────────────────
 const register = async (req, res) => {
-  const { email, phone, password } = req.body;
+  const { email, phone, phone_country_code = '+91', password } = req.body;
 
   if (!password || password.length < 8)
     return res.status(400).json({ message: 'Password must be at least 8 characters' });
@@ -37,9 +37,9 @@ const register = async (req, res) => {
     );
 
     const result = await pool.query(
-      `INSERT INTO company_auth (email, phone, password_hash, otp_code, otp_expires_at, is_verified)
-       VALUES ($1,$2,$3,$4,$5,false) RETURNING id`,
-      [email || null, phone || null, password_hash, otp, otp_expires_at]
+      `INSERT INTO company_auth (email, phone, phone_country_code, password_hash, otp_code, otp_expires_at, is_verified)
+       VALUES ($1,$2,$3,$4,$5,$6,false) RETURNING id`,
+      [email || null, phone || null, phone_country_code, password_hash, otp, otp_expires_at]
     );
 
     if (email) await sendOtpEmail(email, otp);
@@ -158,7 +158,8 @@ const login = async (req, res) => {
 const getProfile = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT c.*, ca.email AS registered_email, ca.phone AS registered_phone
+            `SELECT c.*, ca.email AS registered_email, ca.phone AS registered_phone,
+              ca.phone_country_code AS registered_phone_country_code
        FROM companies c
        JOIN company_auth ca ON ca.id = c.company_auth_id
        WHERE c.company_auth_id = $1`,
@@ -221,7 +222,7 @@ const createProfile = async (req, res) => {
     same_as_registered,
     company_address_line1, company_address_line2,
     company_city, company_pincode,
-    website, contact_email, contact_phone,
+    website, contact_email, contact_phone, contact_phone_country_code,
     logo_url,
   } = req.body;
 
@@ -247,9 +248,9 @@ const createProfile = async (req, res) => {
           registered_address_line1, registered_address_line2, registered_city, registered_pincode,
           same_as_registered,
           company_address_line1, company_address_line2, company_city, company_pincode,
-          website, contact_email, contact_phone, logo_url,
+          website, contact_email, contact_phone, contact_phone_country_code, logo_url,
           status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'pending')`,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'pending')`,
       [
         req.user.id, company_name, company_description, Number(company_size),
         company_category, company_subcategory,
@@ -259,7 +260,7 @@ const createProfile = async (req, res) => {
         sameAsRegistered ? null : (company_address_line2 || null),
         sameAsRegistered ? null : company_city,
         sameAsRegistered ? null : company_pincode,
-        website || null, contact_email || null, contact_phone || null, logo_url || null,
+        website || null, contact_email || null, contact_phone || null, contact_phone_country_code || '+91', logo_url || null,
       ]
     );
     return res.status(201).json({ message: 'Profile created. Pending admin approval.' });
@@ -279,7 +280,7 @@ const updateProfile = async (req, res) => {
     same_as_registered,
     company_address_line1, company_address_line2,
     company_city, company_pincode,
-    website, contact_email, contact_phone,
+    website, contact_email, contact_phone, contact_phone_country_code,
     logo_url,
   } = req.body;
 
@@ -293,10 +294,10 @@ const updateProfile = async (req, res) => {
          registered_address_line1=$6, registered_address_line2=$7, registered_city=$8, registered_pincode=$9,
          same_as_registered=$10,
          company_address_line1=$11, company_address_line2=$12, company_city=$13, company_pincode=$14,
-         website=$15, contact_email=$16, contact_phone=$17,
-         logo_url=COALESCE($18, logo_url),
+         website=$15, contact_email=$16, contact_phone=$17, contact_phone_country_code=$18,
+         logo_url=COALESCE($19, logo_url),
          status='pending', rejection_reason=NULL, updated_at=now()
-       WHERE company_auth_id=$19
+      WHERE company_auth_id=$20
        RETURNING status`,
       [
         company_name, company_description, Number(company_size),
@@ -307,7 +308,7 @@ const updateProfile = async (req, res) => {
         sameAsRegistered ? null : (company_address_line2 || null),
         sameAsRegistered ? null : company_city,
         sameAsRegistered ? null : company_pincode,
-        website || null, contact_email || null, contact_phone || null,
+        website || null, contact_email || null, contact_phone || null, contact_phone_country_code || '+91',
         logo_url || null,
         req.user.id,
       ]

@@ -16,6 +16,7 @@ import { ArrowLeft, ArrowRight, Plus, Trash2, X, RotateCcw, GraduationCap, Check
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
+import { useProfileFocus } from "@/lib/useProfileFocus";
 import { indiaDateInputValue } from "@/lib/dateTime";
 
 const steps = [
@@ -136,6 +137,7 @@ function buildExpectedMembers(
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Page() {
+  useProfileFocus();
   const router = useRouter();
   const [members, setMembers]                 = useState<MemberData[]>([blankMember("self", "", "Self")]);
   const [errors, setErrors]                   = useState<Record<string, Record<string, string>>>({});
@@ -489,6 +491,7 @@ const isComplete = (m: MemberData): boolean => {
         {members.map((member, index) => (
           <AccordionItem
             key={member.id} value={member.id}
+            id={member.id}
             className="border border-border rounded-xl overflow-hidden shadow-sm bg-white"
           >
             <AccordionTrigger className="px-5 py-4 hover:no-underline hover:bg-muted/20 [&[data-state=open]]:bg-muted/10">

@@ -60,7 +60,7 @@ interface Applicant {
 }
 
 const WORK_SETTINGS = ["On-site", "Hybrid", "Remote"];
-const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Internship", "Volunteer", "Contract"];
+const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Internship", "Volunteer", "Contract", "Freelance Consultant"];
 const JOB_STATUSES = ["active", "draft", "expired"];
 
 export default function JobDetailPage() {

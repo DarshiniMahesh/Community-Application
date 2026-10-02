@@ -32,6 +32,7 @@ interface Member {
   full_name: string;
   role: string;
   phone: string | null;
+  phone_country_code: string | null;
   email: string | null;
   member_type: string | null;
   gender: string | null;
@@ -96,7 +97,7 @@ export default function MembersPage() {
                   <TableHead>Full Name</TableHead>
                   <TableHead>Gender</TableHead>
                   <TableHead>Role</TableHead>
-                  <TableHead>Phone</TableHead>
+                  <TableHead>Primary Phone</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Member Type</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -127,7 +128,7 @@ export default function MembersPage() {
                       <TableCell className="font-medium">{m.full_name}</TableCell>
                       <TableCell>{m.gender || "—"}</TableCell>
                       <TableCell>{m.role}</TableCell>
-                      <TableCell>{m.phone || "—"}</TableCell>
+                      <TableCell>{m.phone ? `${m.phone_country_code || "+91"} ${m.phone}` : "—"}</TableCell>
                       <TableCell>{m.email || "—"}</TableCell>
                       <TableCell>{m.member_type || "—"}</TableCell>
                       <TableCell className="text-right">

@@ -8,7 +8,7 @@ require('dotenv').config();
 // ─── USER REGISTER ─────────────────────────────────────────────
 const userRegister = async (req, res) => {
   try {
-    const { email, phone, password } = req.body;
+    const { email, phone, phone_country_code = '+91', password } = req.body;
 
     if (!password || (!email && !phone)) {
       return res.status(400).json({ message: 'Password and email or phone are required' });
@@ -24,8 +24,8 @@ const userRegister = async (req, res) => {
     const password_hash = await bcrypt.hash(password, 10);
 
     const result = await pool.query(
-      'INSERT INTO users (role, email, phone, password_hash) VALUES ($1,$2,$3,$4) RETURNING id, role, email, phone',
-      ['user', email || null, phone || null, password_hash]
+      'INSERT INTO users (role, email, phone, phone_country_code, password_hash) VALUES ($1,$2,$3,$4,$5) RETURNING id, role, email, phone, phone_country_code',
+      ['user', email || null, phone || null, phone_country_code, password_hash]
     );
 
     await pool.query('INSERT INTO profiles (user_id) VALUES ($1)', [result.rows[0].id]);

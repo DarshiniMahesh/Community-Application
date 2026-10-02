@@ -1,7 +1,7 @@
 // Community-Application\backend\server.js
 const path = require('path');         // ← must come first
 const dotenv = require('dotenv');
-dotenv.config({ path: path.resolve(__dirname, '.env') }); // .env is right next to server.js
+dotenv.config({ path: path.resolve(__dirname, 'src', '.env') });
 
 console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'loaded ✓' : 'MISSING ✗');
 
