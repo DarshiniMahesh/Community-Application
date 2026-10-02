@@ -143,7 +143,13 @@ function PageContent() {
     secondary_phone_country_code: formData.secondaryPhone ? formData.secondaryPhoneCountryCode : undefined,
   });
 
-  useAutoSave("/users/profile/step1", buildPayload, [formData], initialDataLoaded);
+  const canAutoSaveStep1 =
+    initialDataLoaded &&
+    !!formData.firstName.trim() &&
+    !!formData.lastName.trim() &&
+    !!formData.gender;
+
+  useAutoSave("/users/profile/step1", buildPayload, [formData], canAutoSaveStep1);
 
   const validate = () => {
     const e: Record<string, string> = {};
