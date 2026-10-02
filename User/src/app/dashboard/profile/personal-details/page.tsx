@@ -39,6 +39,7 @@ function PageContent() {
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting]           = useState(false);
   const [canReset, setCanReset]             = useState(false);
+  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   // Primary (registered) contact: comes from users.email / users.phone via GET /users/profile
   const [registeredContact, setRegisteredContact] = useState({ email: "", phone: "" });
 
@@ -114,7 +115,11 @@ function PageContent() {
           phoneCountryCode: metaPhoneCC,
         }));
       }
-    }).catch(() => {});
+
+      setInitialDataLoaded(true);
+    }).catch(() => {
+      setInitialDataLoaded(true);
+    });
   }, []);
 
   const buildPayload = () => ({
@@ -138,7 +143,7 @@ function PageContent() {
     secondary_phone_country_code: formData.secondaryPhone ? formData.secondaryPhoneCountryCode : undefined,
   });
 
-  useAutoSave("/users/profile/step1", buildPayload, [formData]);
+  useAutoSave("/users/profile/step1", buildPayload, [formData], initialDataLoaded);
 
   const validate = () => {
     const e: Record<string, string> = {};
