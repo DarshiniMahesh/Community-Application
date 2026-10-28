@@ -8,6 +8,11 @@ const API_BASE = configuredApiBase
   .replace(/\/api\/?$/, "")
   .replace(/\/+$/, "");
 
+// Scales the whole page so it looks like a 67% browser zoom (compact, neat layout)
+// while the browser itself stays at 100%. Change this one number to make it
+// larger (e.g. 0.8) or smaller (e.g. 0.6).
+const PAGE_ZOOM = 0.67;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 type AgeLimit = { min: number | ""; max: number | "" };
 type GenderEligibility = "all" | "male" | "female" | "other";
@@ -254,10 +259,23 @@ const CUSTOM_COVERAGE_OPTIONS: { label: string; value: CustomCoverageCoverage; i
   { label: "Must not have", value: "must_not_have", icon: "ti-circle-x", color: "var(--color-text-danger)" },
 ];
 
+// ─── Applicant status theme (used by the applicants list tabs, rows & detail header) ──
+type ApplicantStatusKey = "all" | "pending" | "approved" | "rejected";
+const APPLICANT_STATUS_META: Record<ApplicantStatusKey, { label: string; color: string; soft: string; border: string; icon: string }> = {
+  all:      { label: "All",      color: "#534AB7", soft: "rgba(83,74,183,0.10)",  border: "rgba(83,74,183,0.38)",  icon: "ti-list-details" },
+  pending:  { label: "Pending",  color: "#C98A1B", soft: "rgba(201,138,27,0.12)", border: "rgba(201,138,27,0.42)", icon: "ti-clock" },
+  approved: { label: "Approved", color: "#0F6E56", soft: "rgba(15,110,86,0.11)",  border: "rgba(15,110,86,0.40)",  icon: "ti-circle-check" },
+  rejected: { label: "Rejected", color: "#C0392B", soft: "rgba(192,57,43,0.10)",  border: "rgba(192,57,43,0.40)",  icon: "ti-circle-x" },
+};
+const APPLICANT_STATUS_TABS: ApplicantStatusKey[] = ["all", "pending", "approved", "rejected"];
+const getApplicantStatusMeta = (s: string | null | undefined) =>
+  APPLICANT_STATUS_META[(s as ApplicantStatusKey) in APPLICANT_STATUS_META ? (s as ApplicantStatusKey) : "pending"];
+
 // ─── Global Styles ─────────────────────────────────────────────────────────────
 // NOTE: DM Sans loads weights up to 900 so the bold headings actually render bold.
 // Text sizes across this page were raised again for a bolder, larger look
-// (form controls now 25px).
+// (form controls now 25px). The whole page is then scaled by PAGE_ZOOM so it
+// renders compactly at a normal 100% browser zoom.
 const GLOBAL_STYLES = `
   @import url('https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.x/dist/tabler-icons.min.css');
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,400&display=swap');
@@ -301,6 +319,14 @@ const GLOBAL_STYLES = `
   /* ── All Applicants: separated Year / From / To filter cards ── */
   .filter-field-card { transition:box-shadow 0.15s ease, border-color 0.15s ease; }
   .filter-field-card:focus-within { border-color:#534AB7 !important; box-shadow:0 0 0 3px rgba(83,74,183,0.18); }
+
+  /* ── Applicants list modal: status tabs + applicant row cards ── */
+  .status-tab { transition:all 0.2s cubic-bezier(0.16,1,0.3,1); font-family:'DM Sans',sans-serif; }
+  .status-tab:not(.is-active):hover { background:var(--color-background-primary) !important; transform:translateY(-1px); box-shadow:0 4px 14px rgba(0,0,0,0.08); }
+  .applicant-row-card { transition:box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease; animation:cardIn 0.3s cubic-bezier(0.16,1,0.3,1) both; }
+  .applicant-row-card:hover { box-shadow:0 10px 30px rgba(83,74,183,0.16); transform:translateY(-2px); border-color:rgba(83,74,183,0.35); }
+  .detail-view-btn { transition:all 0.15s ease; }
+  .detail-view-btn:hover { background:#534AB7 !important; color:#fff !important; border-color:#534AB7 !important; }
 
   /* ── Larger, bolder form controls ── */
   input, textarea, select {
@@ -577,7 +603,6 @@ function ProfileViewerModal({ scholarshipId, profileId, applicantName, familyMem
                 <ProfileField label="Disability" value={pd?.has_disability} />
               </ProfileSection>
 
-              {/* ↓↓↓ Everything below is UNCHANGED from your current code ↓↓↓ */}
               <ProfileSection icon="ti-flame" title="Religious Details" accent="#993C1D">
                 <ProfileField label="Gotra" value={rd?.gotra} />
                 <ProfileField label="Pravara" value={rd?.pravara} />
@@ -1290,38 +1315,39 @@ function SanghaScholarshipHistoryTab({ applicationId, type }: { applicationId: s
   const accentColor = type === "applied" ? "#534AB7" : "#0F6E56";
 
   return (
-    <div style={{ padding:"24px 28px 30px",display:"flex",flexDirection:"column",gap:18 }}>
-      <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
+    <div style={{ padding:"36px 40px 44px",display:"flex",flexDirection:"column",gap:26 }}>
+      <div style={{ display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",padding:"18px 22px",borderRadius:18,background:"var(--color-background-primary)",border:"1px solid var(--color-border-tertiary)",boxShadow:"0 2px 10px rgba(0,0,0,0.05)" }}>
         <span style={{ fontSize:22,color:"var(--color-text-tertiary)",fontWeight:900 }}>From</span>
         <input type="date" value={startDate} max={endDate||undefined} onChange={(e)=>setStartDate(e.target.value)} style={{ fontSize:23,padding:"10px 13px",borderRadius:11,border:"1px solid var(--color-border-secondary)" }} />
         <span style={{ fontSize:22,color:"var(--color-text-tertiary)",fontWeight:900 }}>To</span>
         <input type="date" value={endDate} min={startDate||undefined} onChange={(e)=>setEndDate(e.target.value)} style={{ fontSize:23,padding:"10px 13px",borderRadius:11,border:"1px solid var(--color-border-secondary)" }} />
-        <button onClick={()=>load(startDate,endDate)} disabled={!startDate&&!endDate} style={{ padding:"10px 20px",fontSize:23,fontWeight:900,borderRadius:11,border:"none",background:accentColor,color:"#fff",cursor:(!startDate&&!endDate)?"not-allowed":"pointer",opacity:(!startDate&&!endDate)?0.5:1 }}>Apply</button>
-        {(startDate||endDate) && <button onClick={()=>{setStartDate("");setEndDate("");load("","");}} style={{ padding:"10px 18px",fontSize:23,fontWeight:800,borderRadius:11,border:"1px solid var(--color-border-secondary)",background:"none",cursor:"pointer",color:"var(--color-text-secondary)" }}>Clear</button>}
+        <button onClick={()=>load(startDate,endDate)} disabled={!startDate&&!endDate} style={{ padding:"12px 24px",fontSize:23,fontWeight:900,borderRadius:11,border:"none",background:accentColor,color:"#fff",cursor:(!startDate&&!endDate)?"not-allowed":"pointer",opacity:(!startDate&&!endDate)?0.5:1 }}>Apply</button>
+        {(startDate||endDate) && <button onClick={()=>{setStartDate("");setEndDate("");load("","");}} style={{ padding:"12px 22px",fontSize:23,fontWeight:800,borderRadius:11,border:"1px solid var(--color-border-secondary)",background:"none",cursor:"pointer",color:"var(--color-text-secondary)" }}>Clear</button>}
       </div>
 
       {loading ? (
-        <div style={{ display:"flex",alignItems:"center",justifyContent:"center",height:170,gap:12,color:accentColor }}>
+        <div style={{ display:"flex",alignItems:"center",justifyContent:"center",height:200,gap:12,color:accentColor }}>
           <i className="ti ti-loader-2 ti-spin" style={{ fontSize:34 }} /><span style={{ fontSize:25,fontWeight:700 }}>Loading…</span>
         </div>
       ) : error ? (
         <div style={{ textAlign:"center",color:"var(--color-text-danger)",padding:"1.25rem",fontSize:25,fontWeight:700 }}>{error}</div>
       ) : records.length === 0 ? (
-        <div style={{ textAlign:"center",color:"var(--color-text-tertiary)",padding:"2.5rem",fontSize:25,fontWeight:700 }}>
+        <div style={{ textAlign:"center",color:"var(--color-text-tertiary)",padding:"3rem",fontSize:25,fontWeight:700,border:"2px dashed var(--color-border-secondary)",borderRadius:18,background:"var(--color-background-primary)" }}>
+          <i className="ti ti-inbox" style={{ fontSize:46,opacity:0.35,display:"block",marginBottom:12 }} />
           No {type === "applied" ? "applications" : "approved scholarships"} found.
         </div>
       ) : (
-        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+        <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
           {records.map((rec) => (
-            <div key={rec.applicationId} style={{ padding:"18px 20px",borderRadius:14,border:"1px solid var(--color-border-tertiary)",background:"var(--color-background-primary)" }}>
-              <div style={{ display:"flex",justifyContent:"space-between",gap:12,marginBottom:12 }}>
-                <div style={{ fontSize:28,fontWeight:900,color:"var(--color-text-primary)" }}>{rec.scholarship.title}</div>
-                <span style={{ fontSize:22,fontWeight:900,padding:"4px 12px",borderRadius:100,background:rec.status==="approved"?"rgba(15,110,86,0.12)":rec.status==="rejected"?"rgba(192,57,43,0.1)":"var(--color-background-secondary)",color:rec.status==="approved"?"var(--color-text-success)":rec.status==="rejected"?"var(--color-text-danger)":"var(--color-text-secondary)" }}>{rec.status}</span>
+            <div key={rec.applicationId} style={{ padding:"26px 30px",borderRadius:18,border:"1px solid var(--color-border-tertiary)",borderLeft:`6px solid ${accentColor}`,background:"var(--color-background-primary)",boxShadow:"0 3px 14px rgba(0,0,0,0.06)" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,marginBottom:22 }}>
+                <div style={{ fontSize:29,fontWeight:900,color:"var(--color-text-primary)",lineHeight:1.45 }}>{rec.scholarship.title}</div>
+                <span style={{ fontSize:22,fontWeight:900,padding:"6px 16px",borderRadius:100,flexShrink:0,textTransform:"capitalize",background:rec.status==="approved"?"rgba(15,110,86,0.12)":rec.status==="rejected"?"rgba(192,57,43,0.1)":"var(--color-background-secondary)",color:rec.status==="approved"?"var(--color-text-success)":rec.status==="rejected"?"var(--color-text-danger)":"var(--color-text-secondary)" }}>{rec.status}</span>
               </div>
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,fontSize:22.5,fontWeight:700,color:"var(--color-text-secondary)" }}>
-                <div>Applied: {formatIndiaDate(rec.appliedAt)}</div>
-                <div>Amount: {rec.scholarship.amount!=null?`₹${Number(rec.scholarship.amount).toLocaleString("en-IN")}`:"—"}</div>
-                <div>Disbursement: {formatIndiaDate(rec.scholarship.disbursementDate)}</div>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:"22px 32px" }}>
+                <DetailField label="Applied on" value={formatIndiaDate(rec.appliedAt)} />
+                <DetailField label="Amount" value={rec.scholarship.amount!=null?`₹${Number(rec.scholarship.amount).toLocaleString("en-IN")}`:null} />
+                <DetailField label="Disbursement" value={rec.scholarship.disbursementDate?formatIndiaDate(rec.scholarship.disbursementDate):null} />
               </div>
             </div>
           ))}
@@ -1331,9 +1357,67 @@ function SanghaScholarshipHistoryTab({ applicationId, type }: { applicationId: s
   );
 }
 
+// ─── Detail-modal building blocks ─────────────────────────────────────────────
+function DetailSection({ icon, title, accent = "#534AB7", children }: {
+  icon: string; title: string; accent?: string; children: React.ReactNode;
+}) {
+  return (
+    <section style={{ background:"var(--color-background-primary,#fff)",border:"1px solid var(--color-border-tertiary)",borderRadius:22,overflow:"hidden",boxShadow:"0 4px 20px rgba(0,0,0,0.06)" }}>
+      <header style={{ display:"flex",alignItems:"center",gap:16,padding:"22px 32px",borderBottom:"1px solid var(--color-border-tertiary)",background:`linear-gradient(135deg,${accent}14,transparent)` }}>
+        <span style={{ width:50,height:50,borderRadius:14,background:accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`0 4px 14px ${accent}55` }}>
+          <i className={`ti ${icon}`} style={{ fontSize:29,color:"#fff" }} />
+        </span>
+        <h3 style={{ margin:0,fontSize:31,fontWeight:900,color:"var(--color-text-primary)",fontFamily:"'DM Sans',sans-serif",letterSpacing:"-0.01em" }}>{title}</h3>
+      </header>
+      <div style={{ padding:"30px 32px" }}>{children}</div>
+    </section>
+  );
+}
+
+function DetailGrid({ children, min = 300 }: { children: React.ReactNode; min?: number }) {
+  return <div style={{ display:"grid",gridTemplateColumns:`repeat(auto-fit,minmax(${min}px,1fr))`,gap:"32px 40px" }}>{children}</div>;
+}
+
+function DetailField({ label, value }: { label: string; value?: string | number | null }) {
+  const empty = value === null || value === undefined || value === "";
+  return (
+    <div style={{ minWidth:0 }}>
+      <div style={{ fontSize:20,fontWeight:900,color:"var(--color-text-tertiary)",letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:10,lineHeight:1.5 }}>{label}</div>
+      <div style={{ fontSize:26,fontWeight:empty?600:800,lineHeight:1.7,color:empty?"var(--color-text-tertiary)":"var(--color-text-primary)",fontStyle:empty?"italic":"normal",wordBreak:"break-word" }}>
+        {empty ? "Not provided" : String(value)}
+      </div>
+    </div>
+  );
+}
+
+function DetailSubCard({ title, right, children }: { title: string; right?: React.ReactNode; children?: React.ReactNode }) {
+  return (
+    <div style={{ padding:"26px 30px",borderRadius:18,background:"var(--color-background-secondary)",border:"1px solid var(--color-border-tertiary)" }}>
+      <div style={{ display:"flex",alignItems:"center",gap:14,marginBottom:children?24:0 }}>
+        <span style={{ fontSize:27,fontWeight:900,color:"var(--color-text-primary)",flex:1,lineHeight:1.45 }}>{title}</span>
+        {right}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function DetailNote({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize:24,fontWeight:700,color:"var(--color-text-tertiary)",fontStyle:"italic",lineHeight:1.7 }}>{children}</div>;
+}
+
+function DetailEmpty({ icon, children }: { icon: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display:"flex",alignItems:"center",gap:16,padding:"26px 28px",borderRadius:16,border:"2px dashed var(--color-border-secondary)",background:"var(--color-background-secondary)",color:"var(--color-text-tertiary)" }}>
+      <i className={`ti ${icon}`} style={{ fontSize:34,opacity:0.6 }} />
+      <span style={{ fontSize:24.5,fontWeight:700,fontStyle:"italic",lineHeight:1.6 }}>{children}</span>
+    </div>
+  );
+}
+
 // ─── Full Applicant Detail Modal (Info / Applied / Benefitted) ────────────────
-function SanghaApplicantDetailModal({ applicationId, applicantName, isFamilyMember, onClose }: {
-  applicationId: string; applicantName: string; isFamilyMember: boolean; onClose: () => void;
+function SanghaApplicantDetailModal({ applicationId, applicantName, isFamilyMember, status, onClose }: {
+  applicationId: string; applicantName: string; isFamilyMember: boolean; status?: string; onClose: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"info"|"applied"|"benefitted">("info");
   const [detail, setDetail] = useState<FullApplicantDetail | null>(null);
@@ -1359,152 +1443,167 @@ function SanghaApplicantDetailModal({ applicationId, applicantName, isFamilyMemb
 
   const isSelf = detail?.applicantType === "self";
   const d = detail?.data;
+  const sm = getApplicantStatusMeta(status);
 
   return (
     <div style={{ position:"fixed",inset:0,zIndex:2500,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
       <div onClick={onClose} style={{ position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",backdropFilter:"blur(6px)",animation:"fadeIn 0.2s ease" }} />
-      <div style={{ position:"relative",background:"var(--color-background-primary,#fff)",borderRadius:22,width:"100%",maxWidth:1120,maxHeight:"94vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 30px 80px rgba(0,0,0,0.36)",animation:"slideUp 0.28s cubic-bezier(0.16,1,0.3,1) both",fontFamily:"'DM Sans',sans-serif" }}>
-        <div style={{ background:"linear-gradient(135deg,#534AB7,#7B72D9)",padding:"26px 30px",flexShrink:0 }}>
-          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
-            <div>
-              <p style={{ color:"rgba(255,255,255,0.85)",fontSize:22,fontWeight:900,margin:"0 0 6px" }}>
-                {isFamilyMember ? "Family Member Applicant" : "User Applicant"}
-              </p>
-              <h2 style={{ color:"#fff",fontSize:42,fontWeight:900,margin:0,fontFamily:"'DM Sans',sans-serif" }}>{applicantName}</h2>
+      <div style={{ position:"relative",background:"var(--color-background-primary,#fff)",borderRadius:26,width:"100%",maxWidth:1400,maxHeight:"95vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 30px 90px rgba(0,0,0,0.4)",animation:"slideUp 0.28s cubic-bezier(0.16,1,0.3,1) both",fontFamily:"'DM Sans',sans-serif" }}>
+        {/* ── Header ── */}
+        <div style={{ background:"linear-gradient(135deg,#2D2870 0%,#534AB7 55%,#7B72D9 100%)",padding:"32px 40px 28px",flexShrink:0,position:"relative",overflow:"hidden" }}>
+          <div style={{ position:"absolute",top:-50,right:-40,width:240,height:240,borderRadius:"50%",background:"rgba(255,255,255,0.07)" }} />
+          <div style={{ position:"relative",display:"flex",alignItems:"center",gap:26 }}>
+            <div style={{ padding:5,borderRadius:"50%",background:"rgba(255,255,255,0.28)",flexShrink:0 }}>
+              <Avatar name={applicantName||"?"} size={92} />
             </div>
-            <button onClick={onClose} style={{ color:"rgba(255,255,255,0.9)",background:"none",border:"none",cursor:"pointer",padding:4 }}><i className="ti ti-x" style={{ fontSize:34 }} /></button>
+            <div style={{ flex:1,minWidth:0 }}>
+              <div style={{ display:"flex",gap:12,flexWrap:"wrap",marginBottom:12 }}>
+                <span style={{ fontSize:21,fontWeight:900,padding:"6px 16px",borderRadius:100,background:"rgba(255,255,255,0.2)",color:"#fff",border:"1px solid rgba(255,255,255,0.35)",display:"inline-flex",alignItems:"center",gap:8 }}>
+                  <i className={`ti ${isFamilyMember?"ti-users":"ti-user"}`} style={{ fontSize:21 }} />
+                  {isFamilyMember ? "Family Member Applicant" : "User Applicant"}
+                </span>
+                {status && (
+                  <span style={{ fontSize:21,fontWeight:900,padding:"6px 16px",borderRadius:100,background:"rgba(255,255,255,0.96)",color:sm.color,display:"inline-flex",alignItems:"center",gap:8,textTransform:"capitalize" }}>
+                    <i className={`ti ${sm.icon}`} style={{ fontSize:21 }} />{sm.label}
+                  </span>
+                )}
+              </div>
+              <h2 style={{ color:"#fff",fontSize:46,fontWeight:900,margin:0,fontFamily:"'DM Sans',sans-serif",lineHeight:1.2,letterSpacing:"-0.01em" }}>{applicantName}</h2>
+            </div>
+            <button onClick={onClose} style={{ width:50,height:50,borderRadius:14,color:"#fff",background:"rgba(255,255,255,0.16)",border:"1px solid rgba(255,255,255,0.3)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",alignSelf:"flex-start",flexShrink:0 }}>
+              <i className="ti ti-x" style={{ fontSize:30 }} />
+            </button>
           </div>
-          <div style={{ display:"flex",gap:8,marginTop:20,flexWrap:"wrap" }}>
+          <div style={{ position:"relative",display:"flex",gap:12,marginTop:28,flexWrap:"wrap" }}>
             {[{key:"info",label:"Info",icon:"ti-user"},{key:"applied",label:"Applied Scholarships",icon:"ti-clipboard-list"},{key:"benefitted",label:"Benefitted Scholarships",icon:"ti-award"}].map((t) => (
-              <button key={t.key} onClick={()=>setActiveTab(t.key as any)} style={{ display:"flex",alignItems:"center",gap:8,padding:"11px 20px",fontSize:25,fontWeight:900,borderRadius:12,border:"none",cursor:"pointer",background:activeTab===t.key?"rgba(255,255,255,0.97)":"rgba(255,255,255,0.16)",color:activeTab===t.key?"#534AB7":"rgba(255,255,255,0.92)" }}>
-                <i className={`ti ${t.icon}`} style={{ fontSize:23 }} /> {t.label}
+              <button key={t.key} onClick={()=>setActiveTab(t.key as any)} style={{ display:"flex",alignItems:"center",gap:10,padding:"14px 26px",fontSize:25,fontWeight:900,borderRadius:14,border:"none",cursor:"pointer",background:activeTab===t.key?"rgba(255,255,255,0.97)":"rgba(255,255,255,0.15)",color:activeTab===t.key?"#534AB7":"rgba(255,255,255,0.92)",boxShadow:activeTab===t.key?"0 6px 18px rgba(0,0,0,0.2)":"none",transition:"all 0.18s ease",fontFamily:"'DM Sans',sans-serif" }}>
+                <i className={`ti ${t.icon}`} style={{ fontSize:25 }} /> {t.label}
               </button>
             ))}
           </div>
         </div>
 
-        <div style={{ flex:1,overflowY:"auto",background:"var(--color-background-secondary,#fafafa)" }}>
+        {/* ── Body ── */}
+        <div style={{ flex:1,overflowY:"auto",background:"var(--color-background-secondary,#f4f5f9)" }}>
           {activeTab === "info" && (
             loading ? (
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:280,gap:14 }}>
-                <i className="ti ti-loader-2 ti-spin" style={{ fontSize:44,color:"#534AB7" }} />
-                <span style={{ fontSize:25,fontWeight:700,color:"var(--color-text-tertiary)" }}>Loading applicant details…</span>
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:320,gap:16 }}>
+                <i className="ti ti-loader-2 ti-spin" style={{ fontSize:48,color:"#534AB7" }} />
+                <span style={{ fontSize:26,fontWeight:700,color:"var(--color-text-tertiary)" }}>Loading applicant details…</span>
               </div>
             ) : error ? (
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:280,gap:12,color:"var(--color-text-danger)" }}>
-                <i className="ti ti-alert-circle" style={{ fontSize:42 }} /><span style={{ fontSize:25,fontWeight:700 }}>{error}</span>
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:320,gap:14,color:"var(--color-text-danger)" }}>
+                <i className="ti ti-alert-circle" style={{ fontSize:46 }} /><span style={{ fontSize:26,fontWeight:700 }}>{error}</span>
               </div>
             ) : d ? (
-              <div style={{ padding:"28px 30px",display:"flex",flexDirection:"column",gap:28 }}>
+              <div style={{ padding:"36px 40px 44px",display:"flex",flexDirection:"column",gap:32 }}>
 
                 {/* Basic Info */}
-                <div>
-                  <SubSectionHeader label="Basic Information" />
-                  <div style={{ display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16 }}>
+                <DetailSection icon="ti-user" title="Basic Information" accent="#534AB7">
+                  <DetailGrid>
                     {isSelf ? (
                       <>
-                        <ProfileField label="Full name" value={d.personal?.fullName} />
-                        <ProfileField label="Gender" value={d.personal?.gender} />
-                        <ProfileField label="Date of birth" value={d.personal?.dateOfBirth ? formatIndiaDate(d.personal.dateOfBirth) : null} />
-                        <ProfileField label="Marital status" value={d.personal?.maritalStatus} />
-                        <ProfileField label="Father's name" value={d.personal?.fathersName} />
-                        <ProfileField label="Mother's name" value={d.personal?.mothersName} />
-                        <ProfileField label="Email" value={d.contact?.email} />
-                        <ProfileField label="Phone" value={d.contact?.phone} />
+                        <DetailField label="Full name" value={d.personal?.fullName} />
+                        <DetailField label="Gender" value={d.personal?.gender} />
+                        <DetailField label="Date of birth" value={d.personal?.dateOfBirth ? formatIndiaDate(d.personal.dateOfBirth) : null} />
+                        <DetailField label="Marital status" value={d.personal?.maritalStatus} />
+                        <DetailField label="Father's name" value={d.personal?.fathersName} />
+                        <DetailField label="Mother's name" value={d.personal?.mothersName} />
+                        <DetailField label="Email" value={d.contact?.email} />
+                        <DetailField label="Phone" value={d.contact?.phone} />
                       </>
                     ) : (
                       <>
-                        <ProfileField label="Name" value={d.name} />
-                        <ProfileField label="Relation" value={d.relation} />
-                        <ProfileField label="Gender" value={d.gender} />
-                        <ProfileField label="Date of birth" value={d.dob ? formatIndiaDate(d.dob) : null} />
-                        {d.age != null && <ProfileField label="Age" value={`${d.age} years`} />}
-                        <ProfileField label="Disability" value={d.disability === "yes" ? "Yes" : d.disability === "no" ? "No" : null} />
+                        <DetailField label="Name" value={d.name} />
+                        <DetailField label="Relation" value={d.relation} />
+                        <DetailField label="Gender" value={d.gender} />
+                        <DetailField label="Date of birth" value={d.dob ? formatIndiaDate(d.dob) : null} />
+                        <DetailField label="Age" value={d.age != null ? `${d.age} years` : null} />
+                        <DetailField label="Disability" value={d.disability === "yes" ? "Yes" : d.disability === "no" ? "No" : null} />
                       </>
                     )}
-                  </div>
-                </div>
+                  </DetailGrid>
+                </DetailSection>
 
                 {/* Education & Profession */}
                 {d.education && (
-                  <div>
-                    <SubSectionHeader label="Education & Profession" />
-                    <div style={{ display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16,marginBottom:14 }}>
-                      <ProfileField label="Highest education" value={d.education.highestEducation} />
-                      <ProfileField label="Profession" value={d.education.professionType} />
-                      <ProfileField label="Currently studying" value={d.education.isCurrentlyStudying ? "Yes" : "No"} />
-                      <ProfileField label="Currently working" value={d.education.isCurrentlyWorking ? "Yes" : "No"} />
-                    </div>
+                  <DetailSection icon="ti-school" title="Education & Profession" accent="#185FA5">
+                    <DetailGrid>
+                      <DetailField label="Highest education" value={d.education.highestEducation} />
+                      <DetailField label="Profession" value={d.education.professionType} />
+                      <DetailField label="Currently studying" value={d.education.isCurrentlyStudying ? "Yes" : "No"} />
+                      <DetailField label="Currently working" value={d.education.isCurrentlyWorking ? "Yes" : "No"} />
+                    </DetailGrid>
                     {d.education.degrees?.filter(dg=>dg.degree_type).length > 0 && (
-                      <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                      <div style={{ display:"flex",flexDirection:"column",gap:18,marginTop:34 }}>
+                        <div style={{ fontSize:22,fontWeight:900,color:"var(--color-text-tertiary)",letterSpacing:"0.05em",textTransform:"uppercase" }}>Degrees</div>
                         {d.education.degrees.filter(dg=>dg.degree_type).map((dg,i)=>(
-                          <div key={i} style={{ padding:"12px 16px",borderRadius:12,background:"var(--color-background-primary)",border:"1px solid var(--color-border-tertiary)",fontSize:23.5,fontWeight:700 }}>
-                            <strong style={{ fontWeight:900 }}>{dg.degree_type}</strong>{dg.degree_name && ` · ${dg.degree_name}`}{dg.university && ` · ${dg.university}`}
-                          </div>
+                          <DetailSubCard key={i} title={dg.degree_type}>
+                            <DetailGrid min={260}>
+                              <DetailField label="Degree name" value={dg.degree_name} />
+                              <DetailField label="University / institution" value={dg.university} />
+                            </DetailGrid>
+                          </DetailSubCard>
                         ))}
                       </div>
                     )}
-                  </div>
+                  </DetailSection>
                 )}
 
                 {/* Addresses (self only) */}
                 {isSelf && d.addresses && d.addresses.length > 0 && (
-                  <div>
-                    <SubSectionHeader label="Addresses" />
-                    <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                  <DetailSection icon="ti-map-pin" title="Addresses" accent="#993C1D">
+                    <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
                       {d.addresses.map((a,i)=>(
-                        <div key={i} style={{ padding:"14px 16px",borderRadius:12,background:"var(--color-background-primary)",border:"1px solid var(--color-border-tertiary)",fontSize:23.5,fontWeight:700,lineHeight:1.6 }}>
-                          <div style={{ fontSize:21,fontWeight:900,color:"#CC5500",marginBottom:6 }}>{a.type}</div>
-                          {[a.flatNo,a.building,a.street,a.landmark,a.area,a.city,a.taluk,a.district,a.state,a.pincode,a.country].filter(Boolean).join(", ")}
-                        </div>
+                        <DetailSubCard key={i} title={a.type || `Address ${i+1}`}>
+                          <div style={{ fontSize:26,fontWeight:700,lineHeight:1.9,color:"var(--color-text-primary)" }}>
+                            {[a.flatNo,a.building,a.street,a.landmark,a.area,a.city,a.taluk,a.district,a.state,a.pincode,a.country].filter(Boolean).join(", ")}
+                          </div>
+                        </DetailSubCard>
                       ))}
                     </div>
-                  </div>
+                  </DetailSection>
                 )}
 
                 {/* Economic (self only) */}
                 {isSelf && d.economic && (
-                  <div>
-                    <SubSectionHeader label="Economic Details" />
-                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:14 }}>
-                      <ProfileField label="Self income" value={d.economic.selfIncome ? `₹${Number(d.economic.selfIncome).toLocaleString("en-IN")}/yr` : null} />
-                      <ProfileField label="Family income" value={d.economic.familyIncome ? `₹${Number(d.economic.familyIncome).toLocaleString("en-IN")}/yr` : null} />
-                    </div>
-                  </div>
+                  <DetailSection icon="ti-currency-rupee" title="Economic Details" accent="#854F0B">
+                    <DetailGrid>
+                      <DetailField label="Self income" value={d.economic.selfIncome ? `₹${Number(d.economic.selfIncome).toLocaleString("en-IN")}/yr` : null} />
+                      <DetailField label="Family income" value={d.economic.familyIncome ? `₹${Number(d.economic.familyIncome).toLocaleString("en-IN")}/yr` : null} />
+                    </DetailGrid>
+                  </DetailSection>
                 )}
 
                 {/* ── Education Documents ── */}
-                <div>
-                  <SubSectionHeader label="Education Documents" />
+                <DetailSection icon="ti-certificate" title="Education Documents" accent="#0F6E56">
                   {d.documents ? (
-                    <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+                    <div style={{ display:"flex",flexDirection:"column",gap:24 }}>
 
                       {d.documents.employmentType && (
-                        <div style={{ fontSize:23.5,fontWeight:700,color:"var(--color-text-secondary)" }}>
+                        <div style={{ display:"inline-flex",alignSelf:"flex-start",alignItems:"center",gap:10,padding:"10px 20px",borderRadius:100,background:"rgba(83,74,183,0.09)",border:"1px solid rgba(83,74,183,0.28)",fontSize:23.5,fontWeight:800,color:"#534AB7" }}>
+                          <i className={`ti ${d.documents.employmentType==="student"?"ti-school":"ti-briefcase"}`} style={{ fontSize:23 }} />
                           Status: <strong style={{ fontWeight:900 }}>{d.documents.employmentType === "student" ? "Currently studying" : "Employed"}</strong>
                         </div>
                       )}
 
                       {/* ── SSLC ── */}
-                      <div style={{ padding:"16px 18px",borderRadius:12,background:"var(--color-background-primary)",border:"1px solid var(--color-border-tertiary)" }}>
-                        <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom: d.documents.sslcPursued===true ? 14 : 0 }}>
-                          <span style={{ fontSize:25,color:"var(--color-text-secondary)",fontWeight:900,flex:1 }}>SSLC Pursued</span>
-                          <PursuedBadge value={d.documents.sslcPursued} />
-                        </div>
-                        {d.documents.sslcPursued === true && (
-                          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-                            <ProfileField label="School name" value={d.documents.sslcSchoolName} />
-                            <ProfileField label="Year of passing" value={d.documents.sslcYear} />
-                            <ProfileField label="Percentage" value={d.documents.sslcPercentage} />
+                      <DetailSubCard title="SSLC" right={<PursuedBadge value={d.documents.sslcPursued} />}>
+                        {d.documents.sslcPursued === true ? (
+                          <div style={{ display:"flex",flexDirection:"column",gap:26 }}>
+                            <DetailGrid min={260}>
+                              <DetailField label="School name" value={d.documents.sslcSchoolName} />
+                              <DetailField label="Year of passing" value={d.documents.sslcYear} />
+                              <DetailField label="Percentage" value={d.documents.sslcPercentage} />
+                            </DetailGrid>
                             <DocFileChip label="SSLC Marks Card" url={d.documents.sslcMarksCardUrl} />
                           </div>
+                        ) : d.documents.sslcPursued === false ? (
+                          <DetailNote>Marked as not pursued by the applicant.</DetailNote>
+                        ) : (
+                          <DetailNote>Not specified by the applicant.</DetailNote>
                         )}
-                        {d.documents.sslcPursued === false && (
-                          <div style={{ fontSize:23,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
-                            Marked as not pursued by the applicant.
-                          </div>
-                        )}
-                      </div>
+                      </DetailSubCard>
 
                       {/* ── PU — four-state rendering ──────────────────────────────
                           Derives the effective status from the `puStatus` /
@@ -1536,106 +1635,82 @@ function SanghaApplicantDetailModal({ applicationId, applicantName, isFamilyMemb
                         const secondPuCertUrl = docs.puSecondCertificateUrl ?? docs.puMarksCardUrl;
 
                         return (
-                          <div style={{ padding:"16px 18px",borderRadius:12,background:"var(--color-background-primary)",border:"1px solid var(--color-border-tertiary)" }}>
-                            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom: (isPursued || firstPuCompleted || stillOnFirstPu || isNotPursued) ? 14 : 0 }}>
-                              <span style={{ fontSize:25,color:"var(--color-text-secondary)",fontWeight:900,flex:1 }}>PU Status</span>
-                              <PuStatusBadge status={derivedStatus} firstStatus={firstStatus} />
-                            </div>
-
+                          <DetailSubCard title="PU Status" right={<PuStatusBadge status={derivedStatus} firstStatus={firstStatus} />}>
                             {isPursued && (
-                              <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-                                <ProfileField label="College name" value={docs.puCollegeName} />
-                                <ProfileField label="Year of passing" value={docs.puYear} />
-                                <ProfileField label="Percentage" value={docs.puPercentage} />
-                                <DocFileChip label="1st PU Marks Card" url={docs.puFirstCertificateUrl} />
-                                <DocFileChip label="2nd PU Marks Card" url={secondPuCertUrl} />
+                              <div style={{ display:"flex",flexDirection:"column",gap:26 }}>
+                                <DetailGrid min={260}>
+                                  <DetailField label="College name" value={docs.puCollegeName} />
+                                  <DetailField label="Year of passing" value={docs.puYear} />
+                                  <DetailField label="Percentage" value={docs.puPercentage} />
+                                </DetailGrid>
+                                <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+                                  <DocFileChip label="1st PU Marks Card" url={docs.puFirstCertificateUrl} />
+                                  <DocFileChip label="2nd PU Marks Card" url={secondPuCertUrl} />
+                                </div>
                               </div>
                             )}
 
                             {firstPuCompleted && (
-                              <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-                                <div style={{ fontSize:23,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
-                                  Completed 1st PU and is currently pursuing 2nd PU.
-                                </div>
+                              <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
+                                <DetailNote>Completed 1st PU and is currently pursuing 2nd PU.</DetailNote>
                                 <DocFileChip label="1st PU Marks Card" url={docs.puFirstCertificateUrl} />
                               </div>
                             )}
 
-                            {stillOnFirstPu && (
-                              <div style={{ fontSize:23,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
-                                Currently pursuing 1st PU.
-                              </div>
-                            )}
-
-                            {isNotPursued && (
-                              <div style={{ fontSize:23,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
-                                Marked as not pursued by the applicant.
-                              </div>
-                            )}
-
-                            {derivedStatus === null && (
-                              <div style={{ fontSize:23,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
-                                Not specified by the applicant.
-                              </div>
-                            )}
-                          </div>
+                            {stillOnFirstPu && <DetailNote>Currently pursuing 1st PU.</DetailNote>}
+                            {isNotPursued && <DetailNote>Marked as not pursued by the applicant.</DetailNote>}
+                            {derivedStatus === null && <DetailNote>Not specified by the applicant.</DetailNote>}
+                          </DetailSubCard>
                         );
                       })()}
 
                       {/* ── Degree (only shown if the applicant actually provided one) ── */}
                       {(d.documents.degreeName || d.documents.degreeInstitution || d.documents.degreeCertificateUrl) && (
-                        <div style={{ padding:"16px 18px",borderRadius:12,background:"var(--color-background-primary)",border:"1px solid var(--color-border-tertiary)" }}>
-                          <div style={{ fontSize:25,color:"var(--color-text-secondary)",fontWeight:900,marginBottom:14 }}>
-                            {d.documents.employmentType === "employed" ? "Highest Degree" : "Degree Details"}
-                          </div>
-                          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-                            <ProfileField label="Degree name" value={d.documents.degreeName} />
-                            <ProfileField label="Institution" value={d.documents.degreeInstitution} />
-                            <ProfileField label="Year of passing" value={d.documents.degreeYear} />
-                            <ProfileField label="Percentage" value={d.documents.degreePercentage} />
+                        <DetailSubCard title={d.documents.employmentType === "employed" ? "Highest Degree" : "Degree Details"}>
+                          <div style={{ display:"flex",flexDirection:"column",gap:26 }}>
+                            <DetailGrid min={260}>
+                              <DetailField label="Degree name" value={d.documents.degreeName} />
+                              <DetailField label="Institution" value={d.documents.degreeInstitution} />
+                              <DetailField label="Year of passing" value={d.documents.degreeYear} />
+                              <DetailField label="Percentage" value={d.documents.degreePercentage} />
+                            </DetailGrid>
                             <DocFileChip label="Degree Certificate" url={d.documents.degreeCertificateUrl} />
                           </div>
-                        </div>
+                        </DetailSubCard>
                       )}
                     </div>
                   ) : (
-                    <div style={{ fontSize:23,fontWeight:700,color:"var(--color-text-tertiary)",fontStyle:"italic",padding:"14px 16px",borderRadius:12,background:"var(--color-background-primary)",border:"2px dashed var(--color-border-secondary)" }}>
-                      No education documents submitted by the applicant yet.
-                    </div>
+                    <DetailEmpty icon="ti-file-off">No education documents submitted by the applicant yet.</DetailEmpty>
                   )}
-                </div>
+                </DetailSection>
 
                 {/* ── Bank Details ── */}
-                <div>
-                  <SubSectionHeader label="Bank Details" />
+                <DetailSection icon="ti-building-bank" title="Bank Details" accent="#185FA5">
                   {d.bankDetails ? (
-                    <div style={{ display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,padding:"16px 18px",borderRadius:14,background:"var(--color-background-primary)",border:"1px solid var(--color-border-tertiary)" }}>
-                      <ProfileField label="Account holder" value={d.bankDetails.accountHolderName} />
-                      <ProfileField label="Bank name" value={d.bankDetails.bankName} />
-                      <ProfileField label="Account number" value={d.bankDetails.accountNumber} />
-                      <ProfileField label="IFSC code" value={d.bankDetails.ifsc} />
-                      <ProfileField label="Branch" value={d.bankDetails.branch} />
-                    </div>
+                    <DetailGrid>
+                      <DetailField label="Account holder" value={d.bankDetails.accountHolderName} />
+                      <DetailField label="Bank name" value={d.bankDetails.bankName} />
+                      <DetailField label="Account number" value={d.bankDetails.accountNumber} />
+                      <DetailField label="IFSC code" value={d.bankDetails.ifsc} />
+                      <DetailField label="Branch" value={d.bankDetails.branch} />
+                    </DetailGrid>
                   ) : (
-                    <div style={{ fontSize:23,fontWeight:700,color:"var(--color-text-tertiary)",fontStyle:"italic",padding:"14px 16px",borderRadius:12,background:"var(--color-background-primary)",border:"2px dashed var(--color-border-secondary)" }}>
-                      No bank details submitted by the applicant yet.
-                    </div>
+                    <DetailEmpty icon="ti-building-bank">No bank details submitted by the applicant yet.</DetailEmpty>
                   )}
-                </div>
+                </DetailSection>
 
                 {/* Sangha memberships (self only) */}
                 {isSelf && d.sanghas && d.sanghas.length > 0 && (
-                  <div>
-                    <SubSectionHeader label="Sangha Memberships" />
-                    <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                  <DetailSection icon="ti-users-group" title="Sangha Memberships" accent="#7B3F00">
+                    <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                       {d.sanghas.map((sg,i)=>(
-                        <div key={i} style={{ display:"flex",justifyContent:"space-between",padding:"12px 16px",borderRadius:12,background:"var(--color-background-primary)",border:"1px solid var(--color-border-tertiary)",fontSize:23.5,fontWeight:800 }}>
-                          <span>{sg.sangha_name}{sg.role?` · ${sg.role}`:""}</span>
-                          <span style={{ color:"var(--color-text-tertiary)",fontWeight:700 }}>{sg.status}</span>
+                        <div key={i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,padding:"20px 26px",borderRadius:16,background:"var(--color-background-secondary)",border:"1px solid var(--color-border-tertiary)" }}>
+                          <span style={{ fontSize:26,fontWeight:900,color:"var(--color-text-primary)",lineHeight:1.5 }}>{sg.sangha_name}{sg.role?<span style={{ fontWeight:700,color:"var(--color-text-secondary)" }}> · {sg.role}</span>:null}</span>
+                          <span style={{ fontSize:22,fontWeight:900,padding:"6px 16px",borderRadius:100,background:"rgba(83,74,183,0.1)",color:"#534AB7",textTransform:"capitalize",flexShrink:0 }}>{sg.status}</span>
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </DetailSection>
                 )}
               </div>
             ) : null
@@ -1644,17 +1719,17 @@ function SanghaApplicantDetailModal({ applicationId, applicantName, isFamilyMemb
           {activeTab === "benefitted" && <SanghaScholarshipHistoryTab applicationId={applicationId} type="benefitted" />}
         </div>
 
-        <div style={{ padding:"18px 30px",borderTop:"1px solid var(--color-border-tertiary)",background:"var(--color-background-primary)",flexShrink:0,display:"flex",justifyContent:"flex-end" }}>
-          <button onClick={onClose} style={{ padding:"12px 30px",fontSize:25,fontWeight:900,borderRadius:12,border:"1px solid var(--color-border-secondary)",background:"none",color:"var(--color-text-secondary)",cursor:"pointer" }}>Close</button>
+        <div style={{ padding:"22px 40px",borderTop:"1px solid var(--color-border-tertiary)",background:"var(--color-background-primary)",flexShrink:0,display:"flex",justifyContent:"flex-end" }}>
+          <button onClick={onClose} className="action-btn" style={{ padding:"14px 38px",fontSize:25,fontWeight:900,borderRadius:14,border:"1px solid var(--color-border-secondary)",background:"var(--color-background-secondary)",color:"var(--color-text-secondary)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Close</button>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Applicants List Modal (per-scholarship, tabs All/Approved/Rejected/Pending) ─
+// ─── Applicants List Modal (per-scholarship, tabs All/Pending/Approved/Rejected) ─
 function ApplicantsListModal({ scholarship, onClose }: { scholarship: Scholarship; onClose: () => void }) {
-  const [activeTab, setActiveTab] = useState<"all"|"approved"|"rejected"|"pending">("all");
+  const [activeTab, setActiveTab] = useState<ApplicantStatusKey>("all");
   const [applicants, setApplicants] = useState<RichApplicant[]>([]);
   const [pagination, setPagination] = useState<RichApplicantsPagination | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1676,74 +1751,126 @@ function ApplicantsListModal({ scholarship, onClose }: { scholarship: Scholarshi
   useEffect(() => { setPage(1); }, [activeTab]);
 
   const getDisplayName = (a: RichApplicant) => a.familyMemberId && a.familyMemberName ? a.familyMemberName : a.user.fullName;
+  const activeMeta = APPLICANT_STATUS_META[activeTab];
 
   return (
     <>
       <div style={{ position:"fixed",inset:0,zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
         <div onClick={onClose} style={{ position:"absolute",inset:0,background:"rgba(0,0,0,0.55)",backdropFilter:"blur(6px)",animation:"fadeIn 0.2s ease" }} />
-        <div style={{ position:"relative",background:"var(--color-background-primary,#fff)",borderRadius:22,width:"100%",maxWidth:1260,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 25px 64px rgba(0,0,0,0.32)",animation:"slideUp 0.28s cubic-bezier(0.16,1,0.3,1) both",fontFamily:"'DM Sans',sans-serif" }}>
-          <div style={{ background:"linear-gradient(135deg,#534AB7,#7B72D9)",padding:"26px 30px" }}>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
+        <div style={{ position:"relative",background:"var(--color-background-primary,#fff)",borderRadius:26,width:"100%",maxWidth:1320,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 25px 70px rgba(0,0,0,0.34)",animation:"slideUp 0.28s cubic-bezier(0.16,1,0.3,1) both",fontFamily:"'DM Sans',sans-serif" }}>
+          {/* Header */}
+          <div style={{ background:"linear-gradient(135deg,#2D2870 0%,#534AB7 55%,#7B72D9 100%)",padding:"30px 40px",position:"relative",overflow:"hidden",flexShrink:0 }}>
+            <div style={{ position:"absolute",top:-50,right:-40,width:220,height:220,borderRadius:"50%",background:"rgba(255,255,255,0.07)" }} />
+            <div style={{ position:"relative",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:20 }}>
               <div>
-                <p style={{ color:"rgba(255,255,255,0.85)",fontSize:22,fontWeight:900,margin:"0 0 6px" }}>Applicants</p>
-                <h2 style={{ color:"#fff",fontSize:42,fontWeight:900,margin:0,fontFamily:"'DM Sans',sans-serif" }}>{scholarship.name}</h2>
+                <p style={{ color:"rgba(255,255,255,0.85)",fontSize:22,fontWeight:900,margin:"0 0 10px",letterSpacing:"0.04em",textTransform:"uppercase" }}>Applicants</p>
+                <h2 style={{ color:"#fff",fontSize:42,fontWeight:900,margin:0,fontFamily:"'DM Sans',sans-serif",lineHeight:1.25 }}>{scholarship.name}</h2>
               </div>
-              <button onClick={onClose} style={{ color:"rgba(255,255,255,0.9)",background:"none",border:"none",cursor:"pointer",padding:4 }}><i className="ti ti-x" style={{ fontSize:34 }} /></button>
+              <button onClick={onClose} style={{ width:50,height:50,borderRadius:14,color:"#fff",background:"rgba(255,255,255,0.16)",border:"1px solid rgba(255,255,255,0.3)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><i className="ti ti-x" style={{ fontSize:30 }} /></button>
             </div>
           </div>
 
-          <div style={{ borderBottom:"1px solid var(--color-border-tertiary)",padding:"0 30px" }}>
-            <div style={{ display:"flex",gap:6,marginBottom:-1 }}>
-              {(["all","approved","rejected","pending"] as const).map((tab) => (
-                <button key={tab} onClick={()=>setActiveTab(tab)} style={{ padding:"15px 22px",fontSize:25,fontWeight:900,textTransform:"capitalize",border:"none",borderBottom:activeTab===tab?"3px solid #534AB7":"3px solid transparent",color:activeTab===tab?"#534AB7":"var(--color-text-secondary)",background:"none",cursor:"pointer" }}>{tab}</button>
-              ))}
+          {/* ── Status tabs: the active tab is a solid, glowing, colour-coded pill ── */}
+          <div style={{ padding:"22px 40px 20px",borderBottom:"1px solid var(--color-border-tertiary)",background:"var(--color-background-primary)",flexShrink:0 }}>
+            <div role="tablist" aria-label="Filter applicants by status" style={{ display:"flex",gap:10,flexWrap:"wrap",padding:8,borderRadius:22,background:"var(--color-background-secondary)",border:"1px solid var(--color-border-tertiary)" }}>
+              {APPLICANT_STATUS_TABS.map((tab) => {
+                const m = APPLICANT_STATUS_META[tab];
+                const active = activeTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    role="tab"
+                    aria-selected={active}
+                    onClick={()=>setActiveTab(tab)}
+                    className={`status-tab${active ? " is-active" : ""}`}
+                    style={{
+                      flex:"1 1 190px",display:"flex",alignItems:"center",justifyContent:"center",gap:12,
+                      padding:"16px 22px",fontSize:25,fontWeight:900,borderRadius:16,cursor:"pointer",
+                      border:`2px solid ${active ? m.color : "transparent"}`,
+                      background:active ? `linear-gradient(135deg,${m.color},${m.color}d9)` : "transparent",
+                      color:active ? "#fff" : "var(--color-text-secondary)",
+                      boxShadow:active ? `0 10px 26px ${m.color}59` : "none",
+                      transform:active ? "translateY(-1px)" : "none",
+                    }}
+                  >
+                    <span style={{ width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:active?"rgba(255,255,255,0.22)":m.soft,flexShrink:0 }}>
+                      <i className={`ti ${m.icon}`} style={{ fontSize:25,color:active?"#fff":m.color }} />
+                    </span>
+                    {m.label}
+                    {active && pagination && (
+                      <span style={{ fontSize:22,fontWeight:900,padding:"2px 14px",borderRadius:100,background:"rgba(255,255,255,0.95)",color:m.color,minWidth:34,textAlign:"center" }}>{pagination.total}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display:"flex",alignItems:"center",gap:12,marginTop:18 }}>
+              <span style={{ width:12,height:12,borderRadius:"50%",background:activeMeta.color,boxShadow:`0 0 0 5px ${activeMeta.soft}`,flexShrink:0 }} />
+              <span style={{ fontSize:23.5,fontWeight:800,color:"var(--color-text-secondary)",lineHeight:1.6 }}>
+                Showing <strong style={{ color:activeMeta.color,fontWeight:900 }}>{activeTab === "all" ? "all" : activeMeta.label.toLowerCase()}</strong> applications
+                {pagination ? <> — <strong style={{ color:"var(--color-text-primary)",fontWeight:900 }}>{pagination.total}</strong> total</> : null}
+              </span>
             </div>
           </div>
 
-          <div style={{ flex:1,overflowY:"auto" }}>
+          {/* List */}
+          <div style={{ flex:1,overflowY:"auto",padding:"28px 40px 32px",background:"var(--color-background-secondary,#f4f5f9)" }}>
             {loading ? (
-              <div style={{ display:"flex",alignItems:"center",justifyContent:"center",height:220,gap:12,color:"#534AB7" }}>
-                <i className="ti ti-loader-2 ti-spin" style={{ fontSize:37 }} /><span style={{ fontSize:26,fontWeight:700 }}>Loading applicants…</span>
+              <div style={{ display:"flex",alignItems:"center",justifyContent:"center",height:240,gap:12,color:activeMeta.color }}>
+                <i className="ti ti-loader-2 ti-spin" style={{ fontSize:38 }} /><span style={{ fontSize:26,fontWeight:700 }}>Loading applicants…</span>
               </div>
             ) : applicants.length === 0 ? (
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:220,color:"var(--color-text-tertiary)" }}>
-                <i className="ti ti-users" style={{ fontSize:54,opacity:0.3,marginBottom:10 }} />
-                <p style={{ fontSize:26,fontWeight:700,margin:0 }}>No applicants found for this filter.</p>
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:260,color:"var(--color-text-tertiary)",border:"2px dashed var(--color-border-secondary)",borderRadius:20,background:"var(--color-background-primary)" }}>
+                <i className={`ti ${activeMeta.icon}`} style={{ fontSize:56,opacity:0.35,marginBottom:12,color:activeMeta.color }} />
+                <p style={{ fontSize:26,fontWeight:700,margin:0 }}>No {activeTab === "all" ? "" : activeMeta.label.toLowerCase() + " "}applicants found.</p>
               </div>
             ) : (
-              applicants.map((app, idx) => {
-                const isFM = !!app.familyMemberId;
-                const displayName = getDisplayName(app);
-                return (
-                  <div key={app.applicationId} style={{ padding:"20px 30px",borderTop:idx===0?"none":"1px solid var(--color-background-secondary)",display:"flex",alignItems:"center",gap:18 }}>
-                    <Avatar name={displayName||"?"} size={54} />
-                    <div style={{ flex:1,minWidth:0 }}>
-                      <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
-                        <span style={{ fontWeight:900,color:"var(--color-text-primary)",fontSize:28 }}>{displayName}</span>
-                        {isFM && <span style={{ fontSize:21,fontWeight:900,padding:"3px 10px",borderRadius:100,background:"rgba(24,95,165,0.12)",color:"#185FA5" }}>Family Member</span>}
-                        <span style={{ fontSize:22,fontWeight:900,padding:"3px 12px",borderRadius:100,background:app.status==="approved"?"rgba(15,110,86,0.12)":app.status==="rejected"?"rgba(192,57,43,0.1)":"var(--color-background-secondary)",color:app.status==="approved"?"var(--color-text-success)":app.status==="rejected"?"var(--color-text-danger)":"var(--color-text-secondary)" }}>{app.status}</span>
+              <div style={{ display:"flex",flexDirection:"column",gap:22 }}>
+                {applicants.map((app, idx) => {
+                  const isFM = !!app.familyMemberId;
+                  const displayName = getDisplayName(app);
+                  const sm = getApplicantStatusMeta(app.status);
+                  const location = [app.user.district, app.user.state].filter(Boolean).join(", ");
+                  return (
+                    <article key={app.applicationId} className="applicant-row-card" style={{ display:"flex",background:"var(--color-background-primary)",border:"1px solid var(--color-border-tertiary)",borderRadius:20,overflow:"hidden",boxShadow:"0 3px 14px rgba(0,0,0,0.07)",animationDelay:`${Math.min(idx,10)*0.04}s` }}>
+                      <div style={{ width:9,background:sm.color,flexShrink:0 }} />
+                      <div style={{ flex:1,minWidth:0,padding:"26px 30px",display:"flex",alignItems:"center",gap:26,flexWrap:"wrap" }}>
+                        <Avatar name={displayName||"?"} size={68} />
+                        <div style={{ flex:1,minWidth:280 }}>
+                          <div style={{ display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:12 }}>
+                            <span style={{ fontWeight:900,color:"var(--color-text-primary)",fontSize:30,lineHeight:1.3 }}>{displayName}</span>
+                            {isFM && <span style={{ fontSize:21,fontWeight:900,padding:"4px 14px",borderRadius:100,background:"rgba(24,95,165,0.12)",color:"#185FA5" }}>Family Member</span>}
+                            <span style={{ fontSize:22,fontWeight:900,padding:"5px 16px",borderRadius:100,background:sm.soft,color:sm.color,border:`1px solid ${sm.border}`,display:"inline-flex",alignItems:"center",gap:7,textTransform:"capitalize" }}>
+                              <i className={`ti ${sm.icon}`} style={{ fontSize:21 }} />{app.status}
+                            </span>
+                          </div>
+                          <div style={{ display:"flex",flexDirection:"column",gap:10,fontSize:23.5,fontWeight:700,color:"var(--color-text-secondary)",lineHeight:1.7 }}>
+                            {isFM && (
+                              <span style={{ display:"flex",alignItems:"center",gap:10 }}><i className="ti ti-users" style={{ fontSize:22,color:"var(--color-text-tertiary)" }} />{app.familyMemberRelation} of <strong style={{ fontWeight:900,color:"var(--color-text-primary)" }}>{app.user.fullName}</strong></span>
+                            )}
+                            <span style={{ display:"flex",alignItems:"center",gap:10,wordBreak:"break-word" }}><i className="ti ti-mail" style={{ fontSize:22,color:"var(--color-text-tertiary)" }} />{app.user.email || "Not provided"}</span>
+                            <span style={{ display:"flex",alignItems:"center",gap:10 }}><i className="ti ti-phone" style={{ fontSize:22,color:"var(--color-text-tertiary)" }} />{app.user.phone || "Not provided"}</span>
+                            {location && <span style={{ display:"flex",alignItems:"center",gap:10 }}><i className="ti ti-map-pin" style={{ fontSize:22,color:"var(--color-text-tertiary)" }} />{location}</span>}
+                            <span style={{ display:"flex",alignItems:"center",gap:10,color:"var(--color-text-tertiary)" }}><i className="ti ti-calendar-event" style={{ fontSize:22 }} />Applied {formatIndiaDate(app.appliedAt)}</span>
+                          </div>
+                        </div>
+                        <button onClick={()=>setDetailApp(app)} className="detail-view-btn" style={{ padding:"14px 26px",fontSize:24,fontWeight:900,borderRadius:14,border:"1px solid rgba(83,74,183,0.4)",background:"rgba(83,74,183,0.08)",color:"#534AB7",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:10,fontFamily:"'DM Sans',sans-serif",flexShrink:0 }}>
+                          <i className="ti ti-eye" style={{ fontSize:26 }} /> View details
+                        </button>
                       </div>
-                      <div style={{ fontSize:23,fontWeight:700,color:"var(--color-text-tertiary)",marginTop:5 }}>
-                        {isFM ? `${app.familyMemberRelation} of ${app.user.fullName}` : app.user.email} · {app.user.phone}
-                        {(app.user.district||app.user.state) && ` · ${[app.user.district,app.user.state].filter(Boolean).join(", ")}`}
-                      </div>
-                      <div style={{ fontSize:22,fontWeight:700,color:"var(--color-text-tertiary)",marginTop:3 }}>Applied {formatIndiaDate(app.appliedAt)}</div>
-                    </div>
-                    <button onClick={()=>setDetailApp(app)} style={{ width:46,height:46,borderRadius:12,border:"1px solid var(--color-border-tertiary)",background:"var(--color-background-secondary)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--color-text-secondary)" }}>
-                      <i className="ti ti-eye" style={{ fontSize:29 }} />
-                    </button>
-                  </div>
-                );
-              })
+                    </article>
+                  );
+                })}
+              </div>
             )}
           </div>
 
           {pagination && pagination.totalPages > 1 && (
-            <div style={{ borderTop:"1px solid var(--color-border-tertiary)",padding:"16px 30px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-              <span style={{ fontSize:23,fontWeight:800,color:"var(--color-text-tertiary)" }}>Page {page} / {pagination.totalPages}</span>
-              <div style={{ display:"flex",gap:10 }}>
-                <button disabled={page===1} onClick={()=>setPage(p=>p-1)} style={{ padding:"9px 20px",fontSize:23,fontWeight:800,borderRadius:10,border:"1px solid var(--color-border-secondary)",background:"none",cursor:page===1?"not-allowed":"pointer",opacity:page===1?0.4:1 }}>Prev</button>
-                <button disabled={page===pagination.totalPages} onClick={()=>setPage(p=>p+1)} style={{ padding:"9px 20px",fontSize:23,fontWeight:800,borderRadius:10,border:"1px solid var(--color-border-secondary)",background:"none",cursor:page===pagination.totalPages?"not-allowed":"pointer",opacity:page===pagination.totalPages?0.4:1 }}>Next</button>
+            <div style={{ borderTop:"1px solid var(--color-border-tertiary)",padding:"18px 40px",display:"flex",justifyContent:"space-between",alignItems:"center",background:"var(--color-background-primary)",flexShrink:0 }}>
+              <span style={{ fontSize:23.5,fontWeight:800,color:"var(--color-text-tertiary)" }}>Page {page} / {pagination.totalPages}</span>
+              <div style={{ display:"flex",gap:12 }}>
+                <button disabled={page===1} onClick={()=>setPage(p=>p-1)} style={{ padding:"11px 24px",fontSize:23,fontWeight:800,borderRadius:12,border:"1px solid var(--color-border-secondary)",background:"none",cursor:page===1?"not-allowed":"pointer",opacity:page===1?0.4:1 }}>Prev</button>
+                <button disabled={page===pagination.totalPages} onClick={()=>setPage(p=>p+1)} style={{ padding:"11px 24px",fontSize:23,fontWeight:800,borderRadius:12,border:"1px solid var(--color-border-secondary)",background:"none",cursor:page===pagination.totalPages?"not-allowed":"pointer",opacity:page===pagination.totalPages?0.4:1 }}>Next</button>
               </div>
             </div>
           )}
@@ -1755,6 +1882,7 @@ function ApplicantsListModal({ scholarship, onClose }: { scholarship: Scholarshi
           applicationId={detailApp.applicationId}
           applicantName={getDisplayName(detailApp)}
           isFamilyMember={!!detailApp.familyMemberId}
+          status={detailApp.status}
           onClose={()=>setDetailApp(null)}
         />
       )}
@@ -2094,6 +2222,16 @@ function FilterSidebar({ categories, selectedCategoryIds, onCategoryToggle, sele
   );
 }
 
+// ─── Scholarship Card: one labelled row (side heading + value) ────────────────
+function CardField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display:"flex",alignItems:"flex-start",gap:14,marginBottom:14 }}>
+      <span style={{ fontSize:22,fontWeight:900,color:"var(--color-text-tertiary)",minWidth:175,flexShrink:0,paddingTop:3,fontFamily:"'DM Sans',sans-serif" }}>{label}:</span>
+      <div style={{ flex:1,minWidth:0 }}>{children}</div>
+    </div>
+  );
+}
+
 // ─── Scholarship Card ─────────────────────────────────────────────────────────
 function ScholarshipCard({ scholarship,onEdit,onDelete,onClose:onCloseScholarship,onBeneficiaries,onViewApplicants,deleting,closing,index,categories,showBeneficiaries,pushToast,approvedCount,onApprovedCountChange,onScholarshipAutoClose }: {
   scholarship:Scholarship; onEdit:()=>void; onDelete:()=>void; onClose:()=>void; onBeneficiaries:()=>void; onViewApplicants:()=>void;
@@ -2107,53 +2245,87 @@ function ScholarshipCard({ scholarship,onEdit,onDelete,onClose:onCloseScholarshi
   const isActive = scholarship.status === "active";
   const isClosed = scholarship.status === "closed";
   const isDraft  = scholarship.status === "draft";
+  // Name + amount (and the card accent) use the category's colour.
   const accentColor = category?.color ?? (isActive?"#0F6E56":isClosed?"#64748b":"#534AB7");
   const activeCustomCount = scholarship.customCriteriaValues.filter((v)=>v.coverage!=="all").length;
 
   return (
     <div style={{ marginBottom:showBeneficiaries?0:"1.25rem" }}>
       <div className="schol-card" style={{ background:"var(--color-background-primary)",border:"1px solid var(--color-border-tertiary)",borderTop:`5px solid ${accentColor}`,borderRadius:showBeneficiaries?"18px 18px 0 0":18,padding:"24px 26px",opacity:deleting||closing?0.5:1,animationDelay:`${index*0.06}s`,boxShadow:"0 3px 12px rgba(0,0,0,0.08)",transition:"all 0.2s ease" }}>
-        <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,marginBottom:14 }}>
-          <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
-            {category&&<span style={{ fontSize:22,fontWeight:900,padding:"5px 14px",borderRadius:100,background:`${accentColor}1c`,color:accentColor,border:`1px solid ${accentColor}55` }}>{category.name}</span>}
-            {isActive&&<span style={{ fontSize:22,fontWeight:900,padding:"5px 14px",borderRadius:100,background:"rgba(15,110,86,0.1)",color:"#0F6E56",border:"1px solid rgba(15,110,86,0.32)",display:"inline-flex",alignItems:"center",gap:6 }}><span style={{ width:8,height:8,borderRadius:"50%",background:"#0F6E56",animation:"pulse 2s infinite" }} /> Open</span>}
-            {isClosed&&<span style={{ fontSize:22,fontWeight:900,padding:"5px 14px",borderRadius:100,background:"rgba(100,116,139,0.12)",color:"#64748b",border:"1px solid rgba(100,116,139,0.28)",display:"inline-flex",alignItems:"center",gap:6 }}>🔒 Closed</span>}
-            {isDraft&&<span style={{ fontSize:22,fontWeight:900,padding:"5px 14px",borderRadius:100,background:"rgba(83,74,183,0.1)",color:"#534AB7",border:"1px solid rgba(83,74,183,0.28)",display:"inline-flex",alignItems:"center",gap:6 }}>✏️ Draft</span>}
-            {activeCustomCount>0&&<span style={{ fontSize:22,fontWeight:900,padding:"5px 13px",borderRadius:100,background:"rgba(15,110,86,0.09)",color:"#0F6E56",border:"1px solid rgba(15,110,86,0.28)",display:"inline-flex",alignItems:"center",gap:6 }}><i className="ti ti-list-check" style={{ fontSize:19 }} />{activeCustomCount} custom</span>}
+        {/* Top row: category + status (left) and amount (right) */}
+        <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,marginBottom:6 }}>
+          <div style={{ flex:1,minWidth:0 }}>
+            {category&&(
+              <CardField label="Category">
+                <span style={{ fontSize:22,fontWeight:900,padding:"5px 14px",borderRadius:100,background:`${accentColor}1c`,color:accentColor,border:`1px solid ${accentColor}55`,display:"inline-block" }}>{category.name}</span>
+              </CardField>
+            )}
+            <CardField label="Status">
+              <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
+                {isActive&&<span style={{ fontSize:22,fontWeight:900,padding:"5px 14px",borderRadius:100,background:"rgba(15,110,86,0.1)",color:"#0F6E56",border:"1px solid rgba(15,110,86,0.32)",display:"inline-flex",alignItems:"center",gap:6 }}><span style={{ width:8,height:8,borderRadius:"50%",background:"#0F6E56",animation:"pulse 2s infinite" }} /> Open</span>}
+                {isClosed&&<span style={{ fontSize:22,fontWeight:900,padding:"5px 14px",borderRadius:100,background:"rgba(100,116,139,0.12)",color:"#64748b",border:"1px solid rgba(100,116,139,0.28)",display:"inline-flex",alignItems:"center",gap:6 }}>🔒 Closed</span>}
+                {isDraft&&<span style={{ fontSize:22,fontWeight:900,padding:"5px 14px",borderRadius:100,background:"rgba(83,74,183,0.1)",color:"#534AB7",border:"1px solid rgba(83,74,183,0.28)",display:"inline-flex",alignItems:"center",gap:6 }}>✏️ Draft</span>}
+                {activeCustomCount>0&&<span style={{ fontSize:22,fontWeight:900,padding:"5px 13px",borderRadius:100,background:"rgba(15,110,86,0.09)",color:"#0F6E56",border:"1px solid rgba(15,110,86,0.28)",display:"inline-flex",alignItems:"center",gap:6 }}><i className="ti ti-list-check" style={{ fontSize:19 }} />{activeCustomCount} custom</span>}
+              </div>
+            </CardField>
           </div>
           {scholarship.baseAmount!==""&&(
             <div style={{ textAlign:"right",flexShrink:0 }}>
-              <div style={{ fontSize:44,fontWeight:900,fontFamily:"'DM Sans',sans-serif",color:accentColor }}>₹{Number(scholarship.baseAmount).toLocaleString("en-IN")}</div>
+              <div style={{ fontSize:22,fontWeight:900,color:"var(--color-text-tertiary)",fontFamily:"'DM Sans',sans-serif" }}>Amount:</div>
+              <div style={{ fontSize:44,fontWeight:900,fontFamily:"'DM Sans',sans-serif",color:accentColor,lineHeight:1.15 }}>₹{Number(scholarship.baseAmount).toLocaleString("en-IN")}</div>
               {scholarship.tieredAmounts.length>0&&<div style={{ fontSize:22,fontWeight:800,color:"var(--color-text-tertiary)",marginTop:2 }}>+{scholarship.tieredAmounts.length} tiers</div>}
             </div>
           )}
         </div>
-        <div style={{ fontSize:34,fontWeight:900,color:"var(--color-text-primary)",marginBottom:10,fontFamily:"'DM Sans',sans-serif",lineHeight:1.3 }}>{scholarship.name||"Unnamed scholarship"}</div>
-        {scholarship.description&&<p style={{ fontSize:25.5,fontWeight:700,color:"var(--color-text-secondary)",margin:"0 0 14px",lineHeight:1.65,display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden" }}>{scholarship.description}</p>}
+
+        {/* Scholarship name — no side heading, coloured by its category */}
+        <div style={{ fontSize:34,fontWeight:900,color:accentColor,marginBottom:16,fontFamily:"'DM Sans',sans-serif",lineHeight:1.3 }}>{scholarship.name||"Unnamed scholarship"}</div>
+
+        <CardField label="Description">
+          {scholarship.description
+            ? <p style={{ fontSize:25.5,fontWeight:700,color:"var(--color-text-secondary)",margin:0,lineHeight:1.65,display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden" }}>{scholarship.description}</p>
+            : <span style={{ fontSize:24,fontWeight:700,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>No description provided</span>}
+        </CardField>
+
         {chips.length>0&&(
-          <div style={{ display:"flex",flexWrap:"wrap",gap:10,marginBottom:16 }}>
-            {chips.slice(0,4).map((chip,i)=><span key={i} style={{ fontSize:23,fontWeight:800,color:"var(--color-text-secondary)",display:"inline-flex",alignItems:"center",gap:6 }}><i className="ti ti-check" style={{ fontSize:19,color:accentColor }} /> {chip.label}</span>)}
-            {chips.length>4&&<span style={{ fontSize:23,fontWeight:800,color:"var(--color-text-tertiary)" }}>+{chips.length-4} more</span>}
-          </div>
+          <CardField label="Eligibility">
+            <div style={{ display:"flex",flexWrap:"wrap",gap:10 }}>
+              {chips.slice(0,4).map((chip,i)=><span key={i} style={{ fontSize:23,fontWeight:800,color:"var(--color-text-secondary)",display:"inline-flex",alignItems:"center",gap:6 }}><i className="ti ti-check" style={{ fontSize:19,color:accentColor }} /> {chip.label}</span>)}
+              {chips.length>4&&<span style={{ fontSize:23,fontWeight:800,color:"var(--color-text-tertiary)" }}>+{chips.length-4} more</span>}
+            </div>
+          </CardField>
         )}
+
         {isActive&&!scholarship.maxApprovalsUnlimited&&scholarship.maxApprovals!==""&&typeof scholarship.maxApprovals==="number"&&(
-          <div style={{ marginBottom:16 }}>
-            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
-              <span style={{ fontSize:22,fontWeight:800,color:"var(--color-text-tertiary)" }}>Slots filled</span>
-              <span style={{ fontSize:22,fontWeight:900,color:approvedCount>=scholarship.maxApprovals?"var(--color-text-danger)":"var(--color-text-secondary)" }}>{approvedCount}/{scholarship.maxApprovals}{approvedCount>=scholarship.maxApprovals?" — FULL":""}</span>
+          <CardField label="Slots filled">
+            <div>
+              <div style={{ fontSize:23,fontWeight:900,color:approvedCount>=scholarship.maxApprovals?"var(--color-text-danger)":"var(--color-text-secondary)",marginBottom:6 }}>{approvedCount}/{scholarship.maxApprovals}{approvedCount>=scholarship.maxApprovals?" — FULL":""}</div>
+              <div style={{ height:8,borderRadius:4,background:"var(--color-background-secondary)",overflow:"hidden" }}>
+                <div style={{ height:"100%",width:`${Math.min(100,(approvedCount/scholarship.maxApprovals)*100)}%`,background:approvedCount>=scholarship.maxApprovals?"#C0392B":`linear-gradient(90deg,${accentColor},${accentColor}aa)`,borderRadius:4,transition:"width 0.4s ease" }} />
+              </div>
             </div>
-            <div style={{ height:8,borderRadius:4,background:"var(--color-background-secondary)",overflow:"hidden" }}>
-              <div style={{ height:"100%",width:`${Math.min(100,(approvedCount/scholarship.maxApprovals)*100)}%`,background:approvedCount>=scholarship.maxApprovals?"#C0392B":`linear-gradient(90deg,${accentColor},${accentColor}aa)`,borderRadius:4,transition:"width 0.4s ease" }} />
-            </div>
-          </div>
+          </CardField>
         )}
-        {(scholarship.applicationStart||scholarship.applicationEnd)&&(
-          <div style={{ fontSize:23,fontWeight:800,color:deadlineOver?"var(--color-text-danger)":"var(--color-text-tertiary)",marginBottom:18,display:"flex",alignItems:"center",gap:7 }}>
-            <i className="ti ti-calendar" style={{ fontSize:21 }} />
-            {isClosed&&scholarship.applicationEnd?`Closed on ${formatIndiaDate(scholarship.applicationEnd,{day:"numeric",month:"long"})}`:scholarship.applicationEnd?`Apply by ${formatIndiaDate(scholarship.applicationEnd,{day:"numeric"})}` :""}
-          </div>
+
+        {scholarship.applicationEnd&&(
+          <CardField label={isClosed?"Closed on":"Apply by"}>
+            <span style={{ fontSize:23.5,fontWeight:800,color:deadlineOver?"var(--color-text-danger)":"var(--color-text-secondary)",display:"inline-flex",alignItems:"center",gap:7 }}>
+              <i className="ti ti-calendar" style={{ fontSize:21 }} />
+              {isClosed?formatIndiaDate(scholarship.applicationEnd,{day:"numeric",month:"long"}):formatIndiaDate(scholarship.applicationEnd,{day:"numeric"})}
+            </span>
+          </CardField>
         )}
-        <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap" }}>
+
+        {scholarship.disbursementDate&&(
+          <CardField label="Disbursement">
+            <span style={{ fontSize:23.5,fontWeight:800,color:"var(--color-text-secondary)",display:"inline-flex",alignItems:"center",gap:7 }}>
+              <i className="ti ti-cash" style={{ fontSize:21 }} />
+              {formatIndiaDate(scholarship.disbursementDate,{day:"numeric"})}
+            </span>
+          </CardField>
+        )}
+
+        <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:6 }}>
           {isActive&&(
             <>
               <button onClick={onBeneficiaries} className="action-btn" style={{ padding:"11px 22px",fontSize:23,border:`1px solid ${showBeneficiaries?"#534AB7":"rgba(83,74,183,0.35)"}`,borderRadius:100,background:showBeneficiaries?"linear-gradient(135deg,#534AB7,#7B72D9)":"rgba(83,74,183,0.08)",color:showBeneficiaries?"#fff":"#534AB7",cursor:"pointer",fontWeight:900,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s" }}>
@@ -2675,7 +2847,9 @@ export default function ScholarshipPage() {
   const totalActiveFilters = selectedCategoryIds.length + selectedEligibilities.length + (selectedAgeRange ? 1 : 0);
 
   return (
-    <>
+    // PAGE_ZOOM shrinks everything on this page (including its modals and toasts)
+    // so it looks like a 67% browser zoom while the browser stays at 100%.
+    <div style={{ zoom: PAGE_ZOOM }}>
       <GlobalStyles />
       <div style={{ padding:"2rem 1.5rem",fontFamily:"'DM Sans',sans-serif",fontSize:25 }}>
         {/* Hero Header */}
@@ -2755,17 +2929,17 @@ export default function ScholarshipPage() {
               </div>
             ) : (
               <>
-                {/* KPI stat cards */}
+                {/* KPI stat cards — Active = green, Closed = red, Draft = grey outline */}
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:"1.5rem" }}>
                   {[
                     { key:"active" as StatusTab,label:"Active",value:tabCounts.active,icon:"ti-circle-check",color:"#0F6E56",bg:"rgba(15,110,86,0.09)",border:"rgba(15,110,86,0.28)" },
-                    { key:"closed" as StatusTab,label:"Closed",value:tabCounts.closed,icon:"ti-lock",color:"#64748b",bg:"rgba(100,116,139,0.09)",border:"rgba(100,116,139,0.28)" },
-                    { key:"draft"  as StatusTab,label:"Draft", value:tabCounts.draft, icon:"ti-pencil",color:"#534AB7",bg:"rgba(83,74,183,0.09)",border:"rgba(83,74,183,0.28)" },
+                    { key:"closed" as StatusTab,label:"Closed",value:tabCounts.closed,icon:"ti-lock",color:"#C0392B",bg:"rgba(192,57,43,0.09)",border:"rgba(192,57,43,0.28)" },
+                    { key:"draft"  as StatusTab,label:"Draft", value:tabCounts.draft, icon:"ti-pencil",color:"#64748b",bg:"rgba(100,116,139,0.09)",border:"rgba(100,116,139,0.28)" },
                   ].map((stat) => (
-                    <div key={stat.key} className="stat-card" onClick={()=>setActiveTab(stat.key)} style={{ background:activeTab===stat.key?stat.bg:"var(--color-background-secondary)",borderRadius:16,padding:"18px 22px",border:`1px solid ${activeTab===stat.key?stat.border:"var(--color-border-tertiary)"}`,display:"flex",alignItems:"center",gap:16,cursor:"pointer",transition:"all 0.15s",boxShadow:activeTab===stat.key?`0 0 0 3px ${stat.border}`:"none" }}>
+                    <div key={stat.key} className="stat-card" onClick={()=>setActiveTab(stat.key)} style={{ background:activeTab===stat.key?stat.bg:"var(--color-background-secondary)",borderRadius:16,padding:"18px 22px",border:`2px solid ${stat.color}`,display:"flex",alignItems:"center",gap:16,cursor:"pointer",transition:"all 0.15s",boxShadow:activeTab===stat.key?`0 0 0 4px ${stat.border}`:"none" }}>
                       <div style={{ width:50,height:50,borderRadius:13,background:stat.bg,border:`1px solid ${stat.border}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><i className={`ti ${stat.icon}`} style={{ fontSize:31,color:stat.color }} /></div>
                       <div>
-                        <div style={{ fontSize:22,color:activeTab===stat.key?stat.color:"var(--color-text-secondary)",fontWeight:900,marginBottom:2 }}>{stat.label}</div>
+                        <div style={{ fontSize:22,color:stat.color,fontWeight:900,marginBottom:2 }}>{stat.label}</div>
                         <div style={{ fontSize:44,fontWeight:900,color:stat.color,fontFamily:"'DM Sans',sans-serif",lineHeight:1.1 }}>{stat.value}</div>
                       </div>
                     </div>
@@ -2871,6 +3045,6 @@ export default function ScholarshipPage() {
         <ApplicantsListModal scholarship={applicantsListTarget} onClose={()=>setApplicantsListTarget(null)} />
       )}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-    </>
+    </div>
   );
 }
