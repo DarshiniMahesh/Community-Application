@@ -2,8 +2,11 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { formatIndiaDate, indiaDateInputValue, isIndiaDatePast } from "@/lib/dateTime";
+import { API_BASE as configuredApiBase } from "@/lib/constants";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE = configuredApiBase
+  .replace(/\/api\/?$/, "")
+  .replace(/\/+$/, "");
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type AgeLimit = { min: number | ""; max: number | "" };
