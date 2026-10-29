@@ -1,6 +1,6 @@
 // Community-Application\sangha\src\app\sangha\scholarships\page.tsx
 "use client";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, createContext, useContext } from "react";
 import { formatIndiaDate, indiaDateInputValue, isIndiaDatePast } from "@/lib/dateTime";
 import { API_BASE as configuredApiBase } from "@/lib/constants";
 
@@ -11,7 +11,7 @@ const API_BASE = configuredApiBase
 // Scales the whole page so it looks like a 67% browser zoom (compact, neat layout)
 // while the browser itself stays at 100%. Change this one number to make it
 // larger (e.g. 0.8) or smaller (e.g. 0.6).
-const PAGE_ZOOM = 0.67;
+const PAGE_ZOOM = 0.9;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type AgeLimit = { min: number | ""; max: number | "" };
@@ -65,7 +65,7 @@ interface ScholarshipCriteria {
   invSharesDemat: boolean | null; invOthers: boolean | null;
 }
 interface Scholarship {
-  id: string; name: string; description: string; categoryId: string;
+  id: string; name: string; description : string; categoryId: string;
   baseAmount: number | ""; tieredAmounts: TieredAmount[]; criteria: ScholarshipCriteria;
   customCriteriaValues: CustomCriteriaValue[];
   status: "draft" | "active" | "closed"; visibility: VisibilityType;
@@ -271,6 +271,16 @@ const APPLICANT_STATUS_TABS: ApplicantStatusKey[] = ["all", "pending", "approved
 const getApplicantStatusMeta = (s: string | null | undefined) =>
   APPLICANT_STATUS_META[(s as ApplicantStatusKey) in APPLICANT_STATUS_META ? (s as ApplicantStatusKey) : "pending"];
 
+// ─── Beneficiaries panel tab theme: Pending = grey, Approved = green, Rejected = red ──
+// Each tab always has a coloured outline; the ACTIVE tab is filled with that same colour.
+type BeneficiaryTabKey = "pending" | "approved" | "rejected";
+const BENEFICIARY_TAB_META: Record<BeneficiaryTabKey, { label: string; color: string; icon: string }> = {
+  pending:  { label: "Pending",  color: "#64748b", icon: "ti-clock" },
+  approved: { label: "Approved", color: "#0F6E56", icon: "ti-circle-check" },
+  rejected: { label: "Rejected", color: "#C0392B", icon: "ti-circle-x" },
+};
+const BENEFICIARY_TABS: BeneficiaryTabKey[] = ["pending", "approved", "rejected"];
+
 // ─── Global Styles ─────────────────────────────────────────────────────────────
 // NOTE: DM Sans loads weights up to 900 so the bold headings actually render bold.
 // Text sizes across this page were raised again for a bolder, larger look
@@ -309,6 +319,10 @@ const GLOBAL_STYLES = `
   .sidebar-filter-btn:hover { background:rgba(83,74,183,0.07); }
   .custom-criterion-row { transition:background 0.12s ease; }
   .custom-criterion-row:hover { background:rgba(83,74,183,0.04); }
+
+  /* ── Beneficiaries panel: Pending / Approved / Rejected tabs ── */
+  .benef-tab { transition:all 0.18s ease; font-family:'DM Sans',sans-serif; }
+  .benef-tab:not(.is-active):hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(0,0,0,0.1); }
 
   /* ── All Applicants: one separated card per entry ── */
   .applicant-entry { transition:box-shadow 0.18s ease, border-color 0.18s ease; }
@@ -414,26 +428,49 @@ interface ProfileData {
   memberDocuments: Record<string, any> | null;
 }
 
+// Each profile section passes its accent colour down so its fields, labels and
+// sub-headings are all tinted with the same colour as the section heading.
+const ProfileAccentContext = createContext<string>("#534AB7");
+
 function ProfileSection({ icon, title, accent, children }: { icon: string; title: string; accent: string; children: React.ReactNode; }) {
   const [open, setOpen] = useState(true);
   return (
-    <div style={{ border:"1px solid var(--color-border-tertiary)",borderRadius:14,overflow:"hidden",marginBottom:14 }}>
-      <button onClick={() => setOpen((o) => !o)} style={{ width:"100%",display:"flex",alignItems:"center",gap:12,padding:"13px 16px",background:open?"var(--color-background-secondary)":"none",border:"none",borderBottom:open?"1px solid var(--color-border-tertiary)":"none",cursor:"pointer",textAlign:"left" }}>
-        <span style={{ width:36,height:36,borderRadius:10,background:accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><i className={`ti ${icon}`} style={{ fontSize:25,color:"#fff" }} /></span>
-        <span style={{ fontSize:26,fontWeight:900,color:"var(--color-text-primary)",flex:1,fontFamily:"'DM Sans',sans-serif" }}>{title}</span>
-        <i className="ti ti-chevron-down" style={{ fontSize:23,color:"var(--color-text-tertiary)",transform:open?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.2s" }} />
-      </button>
-      {open && <div style={{ padding:"16px 18px",display:"flex",flexDirection:"column",gap:12,animation:"sectionOpen 0.2s both" }}>{children}</div>}
+    <ProfileAccentContext.Provider value={accent}>
+      <section style={{ border:`1px solid ${accent}40`,borderLeft:`9px solid ${accent}`,borderRadius:20,overflow:"hidden",marginBottom:28,background:"var(--color-background-primary)",boxShadow:"0 4px 18px rgba(0,0,0,0.06)" }}>
+        <button onClick={() => setOpen((o) => !o)} style={{ width:"100%",display:"flex",alignItems:"center",gap:18,padding:"22px 28px",background:`linear-gradient(135deg,${accent}22,${accent}08)`,border:"none",borderBottom:open?`2px solid ${accent}30`:"none",cursor:"pointer",textAlign:"left" }}>
+          <span style={{ width:56,height:56,borderRadius:16,background:accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`0 5px 16px ${accent}55` }}><i className={`ti ${icon}`} style={{ fontSize:32,color:"#fff" }} /></span>
+          <span style={{ fontSize:34,fontWeight:900,color:accent,flex:1,fontFamily:"'DM Sans',sans-serif",letterSpacing:"-0.01em",lineHeight:1.3 }}>{title}</span>
+          <i className="ti ti-chevron-down" style={{ fontSize:30,color:accent,transform:open?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.2s" }} />
+        </button>
+        {open && <div style={{ padding:"30px 32px 34px",display:"flex",flexDirection:"column",gap:26,animation:"sectionOpen 0.2s both" }}>{children}</div>}
+      </section>
+    </ProfileAccentContext.Provider>
+  );
+}
+
+// Lays fields out in a roomy responsive grid so related details sit side by side.
+function ProfileGrid({ children, min = 360 }: { children: React.ReactNode; min?: number }) {
+  return <div style={{ display:"grid",gridTemplateColumns:`repeat(auto-fit,minmax(${min}px,1fr))`,gap:"24px 30px" }}>{children}</div>;
+}
+
+// A small coloured heading used inside a section (e.g. "Insurance", "Documents").
+function ProfileSubHeading({ icon, children }: { icon: string; children: React.ReactNode }) {
+  const accent = useContext(ProfileAccentContext);
+  return (
+    <div style={{ display:"flex",alignItems:"center",gap:12,paddingBottom:12,borderBottom:`2px solid ${accent}30` }}>
+      <i className={`ti ${icon}`} style={{ fontSize:28,color:accent }} />
+      <span style={{ fontSize:27,fontWeight:900,color:accent,fontFamily:"'DM Sans',sans-serif" }}>{children}</span>
     </div>
   );
 }
 
 function ProfileField({ label, value }: { label: string; value?: string | number | null }) {
+  const accent = useContext(ProfileAccentContext);
   if (!value && value !== 0) return null;
   return (
-    <div style={{ display:"flex",gap:10,alignItems:"flex-start" }}>
-      <span style={{ fontSize:21,fontWeight:900,color:"var(--color-text-tertiary)",minWidth:235,paddingTop:2,flexShrink:0 }}>{label}</span>
-      <span style={{ fontSize:25,fontWeight:700,color:"var(--color-text-primary)",lineHeight:1.55 }}>{String(value)}</span>
+    <div style={{ minWidth:0,padding:"18px 22px",borderRadius:14,background:"var(--color-background-secondary)",border:"1px solid var(--color-border-tertiary)",borderLeft:`5px solid ${accent}` }}>
+      <div style={{ fontSize:20,fontWeight:900,color:accent,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:10,lineHeight:1.4 }}>{label}</div>
+      <div style={{ fontSize:27,fontWeight:700,color:"var(--color-text-primary)",lineHeight:1.75,wordBreak:"break-word" }}>{String(value)}</div>
     </div>
   );
 }
@@ -441,8 +478,8 @@ function ProfileField({ label, value }: { label: string; value?: string | number
 function BoolBadge({ value, label }: { value: boolean | null | undefined; label: string }) {
   if (value === null || value === undefined) return null;
   return (
-    <span style={{ fontSize:22,fontWeight:900,padding:"4px 11px",borderRadius:8,background:value?"rgba(15,110,86,0.12)":"rgba(100,116,139,0.1)",color:value?"var(--color-text-success)":"var(--color-text-tertiary)",border:`1px solid ${value?"rgba(15,110,86,0.3)":"var(--color-border-tertiary)"}` }}>
-      {value ? <><i className="ti ti-check" style={{ fontSize:18,marginRight:4 }} />{label}</> : <><i className="ti ti-minus" style={{ fontSize:18,marginRight:4 }} />No {label}</>}
+    <span style={{ fontSize:23,fontWeight:900,padding:"8px 16px",borderRadius:100,background:value?"rgba(15,110,86,0.12)":"rgba(100,116,139,0.1)",color:value?"var(--color-text-success)":"var(--color-text-tertiary)",border:`1px solid ${value?"rgba(15,110,86,0.3)":"var(--color-border-tertiary)"}` }}>
+      {value ? <><i className="ti ti-check" style={{ fontSize:21,marginRight:6 }} />{label}</> : <><i className="ti ti-minus" style={{ fontSize:21,marginRight:6 }} />No {label}</>}
     </span>
   );
 }
@@ -457,7 +494,7 @@ function PursuedBadge({ value }: { value: boolean | null | undefined }) {
   }
   return value ? (
     <span style={{ fontSize:22,fontWeight:900,padding:"4px 11px",borderRadius:8,background:"rgba(15,110,86,0.12)",color:"var(--color-text-success)",border:"1px solid rgba(15,110,86,0.3)" }}>
-      <i className="ti ti-check" style={{ fontSize:18,marginRight:4 }} />Yes
+      <i className="ti ti-check" style={{ fontSize:21,marginRight:4 }} />Yes
     </span>
   ) : (
     <span style={{ fontSize:22,fontWeight:900,padding:"4px 11px",borderRadius:8,background:"rgba(192,57,43,0.08)",color:"var(--color-text-danger)",border:"1px solid rgba(192,57,43,0.25)" }}>
@@ -553,100 +590,111 @@ function ProfileViewerModal({ scholarshipId, profileId, applicantName, familyMem
   const NOT_PROVIDED = "Not provided";
 
   return (
-    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:3000,padding:"1.5rem",backdropFilter:"blur(6px)",animation:"fadeIn 0.18s ease",overflowY:"auto" }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background:"var(--color-background-primary,#ffffff)",borderRadius:22,width:"100%",maxWidth:990,boxShadow:"0 20px 72px rgba(0,0,0,0.32)",animation:"slideUp 0.28s cubic-bezier(0.16,1,0.3,1) both",overflow:"hidden",border:"1px solid var(--color-border-tertiary)",marginTop:"auto",marginBottom:"auto" }}>
-        <div style={{ height:6,background:"linear-gradient(90deg,#534AB7,#7B72D9)" }} />
-        <div style={{ padding:"22px 24px 18px",borderBottom:"1px solid var(--color-border-tertiary)",display:"flex",alignItems:"center",gap:14,background:"linear-gradient(135deg,rgba(83,74,183,0.07),transparent)" }}>
-          <Avatar name={isFamilyMember ? (familyMemberName ?? "?") : fullName} size={56} />
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3000,padding:"1.5rem",backdropFilter:"blur(6px)",animation:"fadeIn 0.18s ease",overflowY:"auto" }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:"var(--color-background-primary,#ffffff)",borderRadius:26,width:"100%",maxWidth:1500,maxHeight:"96vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 90px rgba(0,0,0,0.4)",animation:"slideUp 0.28s cubic-bezier(0.16,1,0.3,1) both",overflow:"hidden",border:"1px solid var(--color-border-tertiary)",fontFamily:"'DM Sans',sans-serif" }}>
+        <div style={{ height:8,background:"linear-gradient(90deg,#534AB7,#7B72D9)",flexShrink:0 }} />
+        <div style={{ padding:"30px 36px 26px",borderBottom:"1px solid var(--color-border-tertiary)",display:"flex",alignItems:"center",gap:24,background:"linear-gradient(135deg,rgba(83,74,183,0.12),transparent)",flexShrink:0 }}>
+          <Avatar name={isFamilyMember ? (familyMemberName ?? "?") : fullName} size={84} />
           <div style={{ flex:1,minWidth:0 }}>
-            <div style={{ fontSize:32,fontWeight:900,color:"var(--color-text-primary)",fontFamily:"'DM Sans',sans-serif" }}>{isFamilyMember ? familyMemberName : fullName}</div>
-            {isFamilyMember && <div style={{ fontSize:23,fontWeight:700,color:"var(--color-text-secondary)",marginTop:3 }}><i className="ti ti-users" style={{ fontSize:20,marginRight:5 }} />{familyMemberRelation} of <strong>{fullName}</strong></div>}
+            <div style={{ fontSize:42,fontWeight:900,color:"var(--color-text-primary)",fontFamily:"'DM Sans',sans-serif",lineHeight:1.25 }}>{isFamilyMember ? familyMemberName : fullName}</div>
+            {isFamilyMember && <div style={{ fontSize:26,fontWeight:700,color:"var(--color-text-secondary)",marginTop:8,lineHeight:1.6 }}><i className="ti ti-users" style={{ fontSize:24,marginRight:8 }} />{familyMemberRelation} of <strong>{fullName}</strong></div>}
             {/* Header contact chips only for the profile owner. For a family-member applicant they would
                 sit under the family member's name and look like THEIR contact, so they're omitted;
                 the Contact Information section below labels them as the account holder's. */}
             {!isFamilyMember && (
-              <div style={{ display:"flex",gap:12,marginTop:6,flexWrap:"wrap" }}>
-                {primaryEmail && <span style={{ fontSize:22,fontWeight:700,color:"var(--color-text-tertiary)" }}><i className="ti ti-mail" style={{ fontSize:19,marginRight:4 }} />{primaryEmail}</span>}
-                {primaryPhone && <span style={{ fontSize:22,fontWeight:700,color:"var(--color-text-tertiary)" }}><i className="ti ti-phone" style={{ fontSize:19,marginRight:4 }} />{primaryPhone}</span>}
+              <div style={{ display:"flex",gap:28,marginTop:10,flexWrap:"wrap" }}>
+                {primaryEmail && <span style={{ fontSize:24,fontWeight:700,color:"var(--color-text-secondary)" }}><i className="ti ti-mail" style={{ fontSize:23,marginRight:8,color:"#534AB7" }} />{primaryEmail}</span>}
+                {primaryPhone && <span style={{ fontSize:24,fontWeight:700,color:"var(--color-text-secondary)" }}><i className="ti ti-phone" style={{ fontSize:23,marginRight:8,color:"#534AB7" }} />{primaryPhone}</span>}
               </div>
             )}
           </div>
-          <button onClick={onClose} style={{ width:40,height:40,border:"1px solid var(--color-border-tertiary)",borderRadius:11,background:"var(--color-background-secondary)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--color-text-secondary)",flexShrink:0 }}><i className="ti ti-x" style={{ fontSize:25 }} /></button>
+          <button onClick={onClose} style={{ width:54,height:54,border:"1px solid var(--color-border-tertiary)",borderRadius:15,background:"var(--color-background-secondary)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--color-text-secondary)",flexShrink:0,alignSelf:"flex-start" }}><i className="ti ti-x" style={{ fontSize:30 }} /></button>
         </div>
-        <div style={{ padding:"18px 20px 24px",maxHeight:"72vh",overflowY:"auto" }}>
-          {loading && <div style={{ padding:"3rem",textAlign:"center",color:"var(--color-text-tertiary)",display:"flex",flexDirection:"column",alignItems:"center",gap:14 }}><i className="ti ti-loader-2 ti-spin" style={{ fontSize:42,color:"#534AB7" }} /><p style={{ margin:0,fontSize:25,fontWeight:700 }}>Loading profile…</p></div>}
-          {error && <div style={{ padding:"1.75rem",textAlign:"center",color:"var(--color-text-danger)",border:"1px solid var(--color-border-tertiary)",borderRadius:14 }}><i className="ti ti-alert-circle" style={{ fontSize:34,display:"block",marginBottom:10 }} /><p style={{ margin:0,fontSize:25,fontWeight:700 }}>{error}</p></div>}
+        <div style={{ padding:"30px 34px 36px",flex:1,overflowY:"auto",background:"var(--color-background-secondary,#f4f5f9)" }}>
+          {loading && <div style={{ padding:"4rem",textAlign:"center",color:"var(--color-text-tertiary)",display:"flex",flexDirection:"column",alignItems:"center",gap:16 }}><i className="ti ti-loader-2 ti-spin" style={{ fontSize:52,color:"#534AB7" }} /><p style={{ margin:0,fontSize:27,fontWeight:700 }}>Loading profile…</p></div>}
+          {error && <div style={{ padding:"2.5rem",textAlign:"center",color:"var(--color-text-danger)",border:"1px solid var(--color-border-tertiary)",borderRadius:16,background:"var(--color-background-primary)" }}><i className="ti ti-alert-circle" style={{ fontSize:42,display:"block",marginBottom:12 }} /><p style={{ margin:0,fontSize:27,fontWeight:700 }}>{error}</p></div>}
           {!loading && !error && data && (
             <>
-              {/* ── NEW: Contact Information (profile owner only) ── */}
+              {/* ── Contact Information (profile owner only) ── */}
               <ProfileSection icon="ti-address-book" title="Contact Information" accent="#534AB7">
                 {isFamilyMember && (
-                  <div style={{ fontSize:22,fontWeight:700,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>
+                  <div style={{ fontSize:24,fontWeight:700,color:"var(--color-text-tertiary)",fontStyle:"italic",lineHeight:1.7 }}>
                     These are the contact details of the account holder, {fullName}.
                   </div>
                 )}
-                <ProfileField label="Primary Email"   value={primaryEmail   || NOT_PROVIDED} />
-                <ProfileField label="Secondary Email" value={secondaryEmail || NOT_PROVIDED} />
-                <ProfileField label="Primary Phone"   value={primaryPhone   || NOT_PROVIDED} />
-                <ProfileField label="Secondary Phone" value={secondaryPhone || NOT_PROVIDED} />
+                <ProfileGrid>
+                  <ProfileField label="Primary Email"   value={primaryEmail   || NOT_PROVIDED} />
+                  <ProfileField label="Secondary Email" value={secondaryEmail || NOT_PROVIDED} />
+                  <ProfileField label="Primary Phone"   value={primaryPhone   || NOT_PROVIDED} />
+                  <ProfileField label="Secondary Phone" value={secondaryPhone || NOT_PROVIDED} />
+                </ProfileGrid>
               </ProfileSection>
 
-              <ProfileSection icon="ti-user" title="Personal Details" accent="#534AB7">
-                <ProfileField label="Full name" value={fullName} />
-                <ProfileField label="Gender" value={pd?.gender} />
-                <ProfileField label="Date of birth" value={pd?.date_of_birth ? formatIndiaDate(pd.date_of_birth, { day: "numeric", month: "long" }) : null} />
-                <ProfileField label="Marital status" value={pd?.marital_status} />
-                <ProfileField label="Father's name" value={pd?.fathers_name} />
-                <ProfileField label="Mother's name" value={pd?.mothers_name} />
-                {pd?.wife_name && <ProfileField label="Wife's name" value={pd.wife_name} />}
-                {pd?.husbands_name && <ProfileField label="Husband's name" value={pd.husbands_name} />}
-                <ProfileField label="Disability" value={pd?.has_disability} />
+              <ProfileSection icon="ti-user" title="Personal Details" accent="#185FA5">
+                <ProfileGrid>
+                  <ProfileField label="Full name" value={fullName} />
+                  <ProfileField label="Gender" value={pd?.gender} />
+                  <ProfileField label="Date of birth" value={pd?.date_of_birth ? formatIndiaDate(pd.date_of_birth, { day: "numeric", month: "long" }) : null} />
+                  <ProfileField label="Marital status" value={pd?.marital_status} />
+                  <ProfileField label="Father's name" value={pd?.fathers_name} />
+                  <ProfileField label="Mother's name" value={pd?.mothers_name} />
+                  {pd?.wife_name && <ProfileField label="Wife's name" value={pd.wife_name} />}
+                  {pd?.husbands_name && <ProfileField label="Husband's name" value={pd.husbands_name} />}
+                  <ProfileField label="Disability" value={pd?.has_disability} />
+                </ProfileGrid>
               </ProfileSection>
 
               <ProfileSection icon="ti-flame" title="Religious Details" accent="#993C1D">
-                <ProfileField label="Gotra" value={rd?.gotra} />
-                <ProfileField label="Pravara" value={rd?.pravara} />
-                <ProfileField label="Kuladevata" value={rd?.kuladevata !== "other" ? rd?.kuladevata : rd?.kuladevata_other} />
-                <ProfileField label="Surname in use" value={rd?.surname_in_use} />
-                <ProfileField label="Priest name" value={rd?.priest_name} />
-                {rd?.demi_gods && pgArrayToString(rd.demi_gods) && (
-                  <div style={{ display:"flex",gap:10,alignItems:"flex-start" }}>
-                    <span style={{ fontSize:21,fontWeight:900,color:"var(--color-text-tertiary)",minWidth:235,flexShrink:0,paddingTop:2 }}>Demi gods</span>
-                    <span style={{ fontSize:25,fontWeight:700,color:"var(--color-text-primary)" }}>{pgArrayToString(rd.demi_gods)}</span>
-                  </div>
-                )}
+                <ProfileGrid>
+                  <ProfileField label="Gotra" value={rd?.gotra} />
+                  <ProfileField label="Pravara" value={rd?.pravara} />
+                  <ProfileField label="Kuladevata" value={rd?.kuladevata !== "other" ? rd?.kuladevata : rd?.kuladevata_other} />
+                  <ProfileField label="Surname in use" value={rd?.surname_in_use} />
+                  <ProfileField label="Priest name" value={rd?.priest_name} />
+                  <ProfileField label="Demi gods" value={rd?.demi_gods ? pgArrayToString(rd.demi_gods) : null} />
+                </ProfileGrid>
               </ProfileSection>
-              <ProfileSection icon="ti-users" title="Family" accent="#185FA5">
-                <ProfileField label="Family type" value={data.familyInfo?.family_type} />
+
+              <ProfileSection icon="ti-users" title="Family" accent="#7B3F9E">
+                <ProfileGrid>
+                  <ProfileField label="Family type" value={data.familyInfo?.family_type} />
+                </ProfileGrid>
                 {data.familyMembers.length > 0 && (
-                  <div style={{ display:"flex",flexDirection:"column",gap:8,marginTop:4 }}>
-                    {data.familyMembers.map((fm) => (
-                      <div key={fm.id} style={{ display:"flex",alignItems:"center",gap:12,padding:"11px 13px",borderRadius:11,background:"var(--color-background-secondary)",border:"1px solid var(--color-border-tertiary)" }}>
-                        <Avatar name={fm.name || "?"} size={38} />
-                        <div style={{ flex:1,minWidth:0 }}>
-                          <div style={{ fontSize:25,fontWeight:900,color:"var(--color-text-primary)" }}>{fm.name}</div>
-                          <div style={{ fontSize:22,fontWeight:700,color:"var(--color-text-tertiary)" }}>{[fm.relation,fm.age?`${fm.age}y`:null,fm.gender].filter(Boolean).join(" · ")}</div>
+                  <>
+                    <ProfileSubHeading icon="ti-users-group">Family members ({data.familyMembers.length})</ProfileSubHeading>
+                    <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(420px,1fr))",gap:20 }}>
+                      {data.familyMembers.map((fm) => (
+                        <div key={fm.id} style={{ display:"flex",alignItems:"center",gap:18,padding:"20px 24px",borderRadius:16,background:"var(--color-background-secondary)",border:"1px solid var(--color-border-tertiary)",borderLeft:"5px solid #7B3F9E" }}>
+                          <Avatar name={fm.name || "?"} size={60} />
+                          <div style={{ flex:1,minWidth:0 }}>
+                            <div style={{ fontSize:28,fontWeight:900,color:"var(--color-text-primary)",lineHeight:1.4 }}>{fm.name}</div>
+                            <div style={{ fontSize:23,fontWeight:700,color:"var(--color-text-secondary)",marginTop:4,lineHeight:1.6 }}>{[fm.relation,fm.age?`${fm.age}y`:null,fm.gender].filter(Boolean).join(" · ")}</div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  </>
                 )}
-                {data.familyMembers.length === 0 && <span style={{ fontSize:23,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>No family members added</span>}
+                {data.familyMembers.length === 0 && <span style={{ fontSize:25,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>No family members added</span>}
               </ProfileSection>
+
               <ProfileSection icon="ti-map-pin" title="Location" accent="#0F6E56">
                 {addr ? (
-                  <>
+                  <ProfileGrid>
                     <ProfileField label="City" value={addr.city} />
                     <ProfileField label="District" value={addr.district} />
                     <ProfileField label="State" value={addr.state} />
                     <ProfileField label="Pincode" value={addr.pincode} />
-                  </>
-                ) : <span style={{ fontSize:23,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>No address recorded</span>}
+                  </ProfileGrid>
+                ) : <span style={{ fontSize:25,color:"var(--color-text-tertiary)",fontStyle:"italic" }}>No address recorded</span>}
               </ProfileSection>
-              <ProfileSection icon="ti-currency-rupee" title="Economic Details" accent="#0F6E56">
-                <ProfileField label="Self income" value={ed?.self_income ? `₹${Number(ed.self_income).toLocaleString("en-IN")}/yr` : null} />
-                <ProfileField label="Family income" value={ed?.family_income ? `₹${Number(ed.family_income).toLocaleString("en-IN")}/yr` : null} />
-                <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginTop:4 }}>
+
+              <ProfileSection icon="ti-currency-rupee" title="Economic Details" accent="#854F0B">
+                <ProfileGrid>
+                  <ProfileField label="Self income" value={ed?.self_income ? `₹${Number(ed.self_income).toLocaleString("en-IN")}/yr` : null} />
+                  <ProfileField label="Family income" value={ed?.family_income ? `₹${Number(ed.family_income).toLocaleString("en-IN")}/yr` : null} />
+                </ProfileGrid>
+                <div style={{ display:"flex",gap:12,flexWrap:"wrap" }}>
                   <BoolBadge value={ed?.fac_own_house} label="Owns house" />
                   <BoolBadge value={ed?.fac_rented_house} label="Rented house" />
                   <BoolBadge value={ed?.fac_agricultural_land} label="Agri land" />
@@ -655,29 +703,32 @@ function ProfileViewerModal({ scholarshipId, profileId, applicantName, familyMem
                 </div>
                 {data.memberInsurance && (
                   <>
-                    <div style={{ fontSize:21,fontWeight:900,color:"var(--color-text-tertiary)",marginTop:6 }}>Insurance</div>
-                    <div style={{ padding:"12px 14px",borderRadius:11,background:"var(--color-background-secondary)",border:"1px solid var(--color-border-tertiary)",display:"flex",flexDirection:"column",gap:8 }}>
+                    <ProfileSubHeading icon="ti-shield-check">Insurance</ProfileSubHeading>
+                    <ProfileGrid>
                       <ProfileField label="Health" value={pgArrayToString(data.memberInsurance.health_coverage)} />
                       <ProfileField label="Life" value={pgArrayToString(data.memberInsurance.life_coverage)} />
                       <ProfileField label="Term" value={pgArrayToString(data.memberInsurance.term_coverage)} />
                       <ProfileField label="Konkani card" value={pgArrayToString(data.memberInsurance.konkani_card_coverage)} />
-                    </div>
+                    </ProfileGrid>
                   </>
                 )}
                 {data.memberDocuments && (
                   <>
-                    <div style={{ fontSize:21,fontWeight:900,color:"var(--color-text-tertiary)",marginTop:6 }}>Documents</div>
-                    <div style={{ padding:"12px 14px",borderRadius:11,background:"var(--color-background-secondary)",border:"1px solid var(--color-border-tertiary)",display:"flex",flexDirection:"column",gap:8 }}>
+                    <ProfileSubHeading icon="ti-id">Documents</ProfileSubHeading>
+                    <ProfileGrid>
                       <ProfileField label="Aadhaar" value={data.memberDocuments.aadhaar_coverage} />
                       <ProfileField label="PAN" value={data.memberDocuments.pan_coverage} />
                       <ProfileField label="Voter ID" value={data.memberDocuments.voter_id_coverage} />
                       <ProfileField label="Driving licence" value={data.memberDocuments.dl_coverage} />
-                    </div>
+                    </ProfileGrid>
                   </>
                 )}
               </ProfileSection>
             </>
           )}
+        </div>
+        <div style={{ padding:"20px 36px",borderTop:"1px solid var(--color-border-tertiary)",background:"var(--color-background-primary)",flexShrink:0,display:"flex",justifyContent:"flex-end" }}>
+          <button onClick={onClose} className="action-btn" style={{ padding:"14px 38px",fontSize:25,fontWeight:900,borderRadius:14,border:"1px solid var(--color-border-secondary)",background:"var(--color-background-secondary)",color:"var(--color-text-secondary)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif" }}>Close</button>
         </div>
       </div>
     </div>
@@ -1896,7 +1947,7 @@ function BeneficiariesPanel({ scholarship, onClose, pushToast, onCountChange, on
   const [applicants, setApplicants] = useState<ApplicantRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [filterTab, setFilterTab] = useState<"pending" | "approved" | "rejected">("pending");
+  const [filterTab, setFilterTab] = useState<BeneficiaryTabKey>("pending");
   const [memberSearch, setMemberSearch] = useState("");
   const [lastSlotPending, setLastSlotPending] = useState<LastSlotPending | null>(null);
   const [lastSlotLoading, setLastSlotLoading] = useState(false);
@@ -1905,6 +1956,7 @@ function BeneficiariesPanel({ scholarship, onClose, pushToast, onCountChange, on
   const approvedCount = applicants.filter((a) => a.approval_status === "approved").length;
   const pendingCount  = applicants.filter((a) => a.approval_status === "pending").length;
   const rejectedCount = applicants.filter((a) => a.approval_status === "rejected").length;
+  const tabCountFor = (k: BeneficiaryTabKey) => k === "pending" ? pendingCount : k === "approved" ? approvedCount : rejectedCount;
   const isUnlimited   = scholarship.maxApprovalsUnlimited;
   const maxApprovals  = scholarship.maxApprovals;
   const isFull = !isUnlimited && maxApprovals !== "" && typeof maxApprovals === "number" && approvedCount >= maxApprovals;
@@ -2041,10 +2093,34 @@ function BeneficiariesPanel({ scholarship, onClose, pushToast, onCountChange, on
             </div>
           )}
 
-          <div style={{ display:"flex",gap:6,marginBottom:16,background:"var(--color-background-secondary)",borderRadius:14,padding:5,border:"1px solid var(--color-border-tertiary)" }}>
-            {[{key:"pending",label:`Pending (${pendingCount})`},{key:"approved",label:`Approved (${approvedCount})`},{key:"rejected",label:`Rejected (${rejectedCount})`}].map((t) => (
-              <button key={t.key} onClick={()=>setFilterTab(t.key as typeof filterTab)} style={{ flex:1,padding:"11px 12px",fontSize:23,fontWeight:filterTab===t.key?900:800,borderRadius:10,border:"none",background:filterTab===t.key?"var(--color-background-primary)":"transparent",color:filterTab===t.key?"var(--color-text-primary)":"var(--color-text-secondary)",cursor:"pointer",boxShadow:filterTab===t.key?"0 2px 6px rgba(0,0,0,0.1)":"none",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s" }}>{t.label}</button>
-            ))}
+          {/* ── Pending (grey) / Approved (green) / Rejected (red) tabs ──
+               Every tab keeps a coloured outline; the active tab is filled with that same colour. ── */}
+          <div role="tablist" aria-label="Filter beneficiaries by status" style={{ display:"flex",gap:10,marginBottom:16,background:"var(--color-background-secondary)",borderRadius:16,padding:6,border:"1px solid var(--color-border-tertiary)" }}>
+            {BENEFICIARY_TABS.map((key) => {
+              const m = BENEFICIARY_TAB_META[key];
+              const active = filterTab === key;
+              return (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={()=>setFilterTab(key)}
+                  className={`benef-tab${active ? " is-active" : ""}`}
+                  style={{
+                    flex:1,padding:"12px 14px",fontSize:23,fontWeight:900,borderRadius:12,cursor:"pointer",
+                    display:"flex",alignItems:"center",justifyContent:"center",gap:10,
+                    border:`2px solid ${m.color}`,
+                    background:active ? m.color : "transparent",
+                    color:active ? "#fff" : m.color,
+                    boxShadow:active ? `0 6px 18px ${m.color}59` : "none",
+                    transform:active ? "translateY(-1px)" : "none",
+                  }}
+                >
+                  <i className={`ti ${m.icon}`} style={{ fontSize:24 }} />
+                  {m.label} ({tabCountFor(key)})
+                </button>
+              );
+            })}
           </div>
 
           {filterTab === "pending" && pendingCount > 0 && (
@@ -2090,7 +2166,7 @@ function BeneficiariesPanel({ scholarship, onClose, pushToast, onCountChange, on
                       <div style={{ display:"flex",gap:10,flexWrap:"wrap",marginTop:4,alignItems:"center" }}>
                         {group.email&&<span style={{ fontSize:22,fontWeight:700,color:"var(--color-text-tertiary)" }}>{group.email}</span>}
                         {group.age>0&&<span style={{ fontSize:22,fontWeight:800,color:"var(--color-text-secondary)" }}>{group.age}y · {group.gender}</span>}
-                        {(group.city||group.state)&&<span style={{ fontSize:22,fontWeight:700,color:"var(--color-text-tertiary)" }}><i className="ti ti-map-pin" style={{ fontSize:18,marginRight:3 }} />{[group.city,group.state].filter(Boolean).join(", ")}</span>}
+                        {(group.city||group.state)&&<span style={{ fontSize:22,fontWeight:700,color:"var(--color-text-tertiary)" }}><i className="ti ti-map-pin" style={{ fontSize:21,marginRight:3 }} />{[group.city,group.state].filter(Boolean).join(", ")}</span>}
                         {group.family_income&&<span style={{ fontSize:21.5,fontWeight:900,padding:"2px 10px",borderRadius:6,background:"rgba(15,110,86,0.1)",color:"var(--color-text-success)" }}>{parseIncome(group.family_income)}/yr</span>}
                       </div>
                     </div>
@@ -2437,7 +2513,7 @@ function AllApplicantsView({
       {/* ── Year / From / To — each its own clearly separated, labelled card ── */}
       <div style={{ display:"flex",flexWrap:"wrap",alignItems:"flex-end",gap:14,marginBottom:22 }}>
         <div className="filter-field-card" style={{ display:"flex",flexDirection:"column",gap:6,padding:"11px 16px",borderRadius:14,border:"1px solid var(--color-border-secondary)",background:"var(--color-background-primary)",boxShadow:"0 2px 8px rgba(0,0,0,0.05)",minWidth:170 }}>
-          <label style={{ fontSize:18,fontWeight:900,color:"var(--color-text-tertiary)",textTransform:"uppercase",letterSpacing:"0.04em" }}>Year</label>
+          <label style={{ fontSize:21,fontWeight:900,color:"var(--color-text-tertiary)",textTransform:"uppercase",letterSpacing:"0.04em" }}>Year</label>
           <select value={yearFilter} onChange={(e)=>handleYearChange(e.target.value)} style={{ fontSize:23,fontWeight:800,padding:"8px 12px",borderRadius:10,border:"1px solid var(--color-border-secondary)",background:"var(--color-background-secondary)",minHeight:0 }}>
             <option value="">All Years</option>
             {Array.from({length:6},(_,i)=>Number(indiaDateInputValue().slice(0,4))-i).map((y)=>(<option key={y} value={String(y)}>{y}</option>))}
@@ -2445,12 +2521,12 @@ function AllApplicantsView({
         </div>
 
         <div className="filter-field-card" style={{ display:"flex",flexDirection:"column",gap:6,padding:"11px 16px",borderRadius:14,border:"1px solid var(--color-border-secondary)",background:"var(--color-background-primary)",boxShadow:"0 2px 8px rgba(0,0,0,0.05)",minWidth:170 }}>
-          <label style={{ fontSize:18,fontWeight:900,color:"var(--color-text-tertiary)",textTransform:"uppercase",letterSpacing:"0.04em" }}>From</label>
+          <label style={{ fontSize:21,fontWeight:900,color:"var(--color-text-tertiary)",textTransform:"uppercase",letterSpacing:"0.04em" }}>From</label>
           <input type="date" value={startDate} max={endDate||undefined} onChange={(e)=>handleDateChange("start",e.target.value)} style={{ fontSize:21,padding:"8px 11px",borderRadius:10,border:"1px solid var(--color-border-secondary)",background:"var(--color-background-secondary)",minHeight:0 }} />
         </div>
 
         <div className="filter-field-card" style={{ display:"flex",flexDirection:"column",gap:6,padding:"11px 16px",borderRadius:14,border:"1px solid var(--color-border-secondary)",background:"var(--color-background-primary)",boxShadow:"0 2px 8px rgba(0,0,0,0.05)",minWidth:170 }}>
-          <label style={{ fontSize:18,fontWeight:900,color:"var(--color-text-tertiary)",textTransform:"uppercase",letterSpacing:"0.04em" }}>To</label>
+          <label style={{ fontSize:21,fontWeight:900,color:"var(--color-text-tertiary)",textTransform:"uppercase",letterSpacing:"0.04em" }}>To</label>
           <input type="date" value={endDate} min={startDate||undefined} onChange={(e)=>handleDateChange("end",e.target.value)} style={{ fontSize:21,padding:"8px 11px",borderRadius:10,border:"1px solid var(--color-border-secondary)",background:"var(--color-background-secondary)",minHeight:0 }} />
         </div>
 
