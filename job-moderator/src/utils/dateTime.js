@@ -26,4 +26,4 @@ function formatIndiaDate(value) {
     : '—';
 }
 
-module.exports = { formatIndiaDate };
+export { formatIndiaDate };
