@@ -147,8 +147,18 @@ async function getGeneralReport(req, res) {
         `SELECT p.status::text AS status, COUNT(*) AS count FROM profiles p GROUP BY p.status ORDER BY count DESC`
       ),
 
+      // ── Sangha status breakdown ───────────────────────────────────────────
+      // Counts come ONLY from sanghas.status (never profiles.status), limited to
+      // 'approved' and 'rejected', and respect the selected date range
+      // (sanghas.created_at). pending_approval / suspended are NOT counted.
       pool.query(
-        `SELECT status::text AS status, COUNT(*) AS count FROM sanghas GROUP BY status ORDER BY count DESC`
+        `SELECT s.status::text AS status, COUNT(*) AS count
+         FROM sanghas s
+         WHERE s.status::text IN ('approved', 'rejected')
+           AND s.created_at >= COALESCE($1::timestamptz, '-infinity')
+           AND s.created_at <= COALESCE($2::timestamptz, 'infinity')
+         GROUP BY s.status::text`,
+        [dateStart, dateEnd]
       ),
 
      pool.query(
@@ -326,6 +336,17 @@ async function getGeneralReport(req, res) {
     const ftRow = familyTypeQ.rows[0] || {};
     const docRow = documentsQ.rows[0] || {};
 
+    // Sangha status distribution: always exactly [approved, rejected], zero-filled.
+    const sanghaStatusCounts = { approved: 0, rejected: 0 };
+    sanghaStatusQ.rows.forEach((r) => {
+      const key = String(r.status || "").toLowerCase();
+      if (key in sanghaStatusCounts) sanghaStatusCounts[key] = toNum(r.count);
+    });
+    const sanghaStatusDist = [
+      { status: "approved", count: sanghaStatusCounts.approved },
+      { status: "rejected", count: sanghaStatusCounts.rejected },
+    ];
+
     const buildInsGender = (label, row) => {
       const r = row[0] || {};
       const maleYes   = toNum(r.male_yes);
@@ -372,7 +393,7 @@ async function getGeneralReport(req, res) {
       sanghas_by_state:    sanghasByStateQ.rows.map((r) => ({ state: r.state, count: toNum(r.count) })),
       gender_distribution: genderQ.rows.map((r) => ({ gender: r.gender, count: toNum(r.count) })),
       user_status_dist:    userStatusQ.rows.map((r) => ({ status: r.status, count: toNum(r.count) })),
-      sangha_status_dist:  sanghaStatusQ.rows.map((r) => ({ status: r.status, count: toNum(r.count) })),
+      sangha_status_dist:  sanghaStatusDist,
       top_sanghas:         topSanghasQ.rows.map((r) => ({
         sangha_name: r.sangha_name, state: r.state, member_count: toNum(r.member_count),
       })),

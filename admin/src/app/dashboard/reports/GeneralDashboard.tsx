@@ -1,6 +1,5 @@
 //Community-Application\admin\src\app\dashboard\reports\GeneralDashboard.tsx
 "use client";
-import { DateRange } from "./DateRangePicker";
 import { useState } from "react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -20,7 +19,7 @@ import { DateRange } from "./DateRangePicker";
 interface Generaldata {
   users: {
     total: number; approved: number; submitted: number;
-    under_review: number; changes_requested: number; draft: number;
+    under_review: number; changes_requested: number; draft?: number;
     rejected: number; new_this_period: number;
   };
   sanghas: {
@@ -110,6 +109,9 @@ const SANGHA_STATUS_COLOR_MAP: Record<string, string> = {
   rejected:         C.rose,
   suspended:        C.teal,
 };
+
+// Sangha Status Breakdown only shows these two statuses, in this order.
+const SANGHA_CHART_STATUSES = ["approved", "rejected"] as const;
 
 const fmt         = (n?: number) => n == null ? "—" : n.toLocaleString("en-IN");
 const calcPct     = (p: number, t: number): number => t ? Math.round((p / t) * 100) : 0;
@@ -342,6 +344,16 @@ function sortedGenderDistribution(data: { gender: string; count: number }[]) {
   });
 }
 
+// ── Sangha status chart data: exactly Approved + Rejected (from sanghas.status) ──
+function buildSanghaStatusData(dist: { status: string; count: number }[] | undefined) {
+  const counts: Record<string, number> = { approved: 0, rejected: 0 };
+  (dist || []).forEach(d => {
+    const key = String(d.status || "").toLowerCase().replace(/\s+/g, "_").trim();
+    if (key in counts) counts[key] += Number(d.count) || 0;
+  });
+  return SANGHA_CHART_STATUSES.map(status => ({ status, count: counts[status] }));
+}
+
 // ── Main Export ───────────────────────────────────────────────────────────────
 export default function GeneralDashboard({
   data, loading, error, onRefresh, onGoToAdvanced, onGoToCustomReport,
@@ -378,6 +390,10 @@ export default function GeneralDashboard({
     d => !EXCLUDED_USER_STATUSES.has(d.status.toLowerCase())
   );
   const filteredUserStatusTotal = filteredUserStatusDist.reduce((acc, d) => acc + d.count, 0);
+
+  // Sangha status breakdown: only Approved + Rejected, total = approved + rejected
+  const sanghaStatusData  = buildSanghaStatusData(data.sangha_status_dist);
+  const sanghaStatusTotal = sanghaStatusData.reduce((acc, d) => acc + d.count, 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -442,11 +458,6 @@ export default function GeneralDashboard({
     </div>
   </div>
 </div>
-       
-           
-
-          
-        
 
       {/* ── Registrations Trend (combined) ──────────────────────────────── */}
       <ChartCard
@@ -610,7 +621,7 @@ export default function GeneralDashboard({
         </ChartCard>
 
         <ChartCard
-          title="User Status" subtitle="Approved / Under review / Changes requested / Rejected"
+          title="User Status" subtitle="Approved/Rejected"
           onDetails={() => onGoToAdvanced("status")}
           onReport={() => onGoToCustomReport(["personal-Details"],"user")}
         >
@@ -750,24 +761,32 @@ export default function GeneralDashboard({
       {/* Sangha Charts row: Status Pie + Top Sanghas */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <ChartCard
-          title="Sangha Status Breakdown"
+          title="Sangha Status Breakdown" subtitle="Approved / Rejected"
           onDetails={() => onGoToAdvanced("as-status")}
           onReport={() => onGoToCustomReport(["personalDetails"], "sanghas")}
         >
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={data.sangha_status_dist} dataKey="count" nameKey="status"
-                cx="50%" cy="46%" innerRadius={55} outerRadius={84}
-                paddingAngle={3} strokeWidth={2} stroke="#fff">
-                {data.sangha_status_dist.map((entry, i) => {
-                  const key = entry.status.toLowerCase().replace(/\s+/g, "_").trim();
-                  return <Cell key={i} fill={SANGHA_STATUS_COLOR_MAP[key] || C.sky} />;
-                })}
-              </Pie>
-              <Tooltip content={<PieTip total={s.total} active={undefined} payload={undefined} />} />
-              <Legend formatter={statusLabel} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: C.slate500 }} />
-            </PieChart>
-          </ResponsiveContainer>
+          {sanghaStatusTotal === 0 ? (
+            <div style={{
+              height: 220, display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 12, color: C.slate400, textAlign: "center", padding: "0 16px",
+            }}>
+              No approved or rejected sanghas for the selected period
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={sanghaStatusData} dataKey="count" nameKey="status"
+                  cx="50%" cy="46%" innerRadius={55} outerRadius={84}
+                  paddingAngle={3} strokeWidth={2} stroke="#fff">
+                  {sanghaStatusData.map((entry, i) => (
+                    <Cell key={i} fill={SANGHA_STATUS_COLOR_MAP[entry.status] || C.sky} />
+                  ))}
+                </Pie>
+                <Tooltip content={<PieTip total={sanghaStatusTotal} active={undefined} payload={undefined} />} />
+                <Legend formatter={statusLabel} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: C.slate500 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </ChartCard>
 
         <ChartCard

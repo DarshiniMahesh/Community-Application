@@ -374,7 +374,7 @@ function LoadingState() {
   );
 }
 
-type TipProps = { active?: boolean; payload?: any[]; label?: string; total?: number };
+type TipProps = { active?: boolean; payload?: readonly any[]; label?: string|number; total?: number };
 
 const PieTip = ({ active, payload, total }: TipProps) => {
   if (!active || !payload?.length) return null;
@@ -1325,7 +1325,7 @@ function UserTab({ data, loading, onGoToCustomReport }: {
             <div><div className="adv-sec-title">Status Overview</div><div className="adv-sec-sub">Registration status breakdown across the platform</div></div>
           </div>
           {statusGenderBarData.length > 0 ? (
-            <Card title="Status by Gender" subtitle="Approved · Under Review · Changes Requested · Rejected — Male (blue) · Female (pink)"
+            <Card title="Status by Gender" subtitle="Approved · Rejected — Male (blue) · Female (pink)"
               onReport={() => goCustom?.(["personal-details"], "user")}>
               <GenderBar data={statusGenderBarData} height={200} />
             </Card>
