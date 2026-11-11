@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList,
 } from "recharts";
 import {
   Users, Building2, CheckCircle2, Clock,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { GeneralReport } from "./page";
 import { DateRange } from "./DateRangePicker";
+import ScrollableChart, { estimateLabelWidth } from "./ScrollableChart";
 
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -127,6 +128,13 @@ const baseCard: React.CSSProperties = {
 
 // ── FIX 2: Dark axis label style used across all charts ──────────────────────
 const AXIS_TICK_STYLE = { fontSize: 12, fill: "#111827", fontWeight: 600 };
+
+// ── Users by State: dynamic sizing constants ─────────────────────────────────
+const STATE_ROW_HEIGHT   = 60;   // px per state (3 grouped bars + breathing room)
+const STATE_CHART_PAD    = 70;   // legend + axis + margins
+const STATE_MIN_HEIGHT   = 260;
+const STATE_VIEW_HEIGHT  = 480;  // viewport height cap; taller content scrolls vertically
+const STATE_MIN_WIDTH    = 480;  // narrower cards scroll horizontally instead of compressing
 
 // ── Tooltips ──────────────────────────────────────────────────────────────────
 const ChartTip = ({ active, payload, label }: any) => {
@@ -247,7 +255,7 @@ function ChartCard({
         <p style={{ fontSize: 13, fontWeight: 700, color: C.slate800, letterSpacing: "-0.01em" }}>{title}</p>
         {subtitle && <p style={{ fontSize: 11, color: C.slate400, marginTop: 2 }}>{subtitle}</p>}
       </div>
-      <div style={{ flex: 1 }}>{children}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
       {!noDefaultActions && (
         <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
           <ActionBtn icon={BarChart2}       label="Details"           hoverColor={C.sky}    hoverBg={C.skyLight}  hoverBorder={C.skyBorder} onClick={onDetails} />
@@ -385,6 +393,10 @@ export default function GeneralDashboard({
 
   const genderStateData = buildGenderStateData(data);
   const sortedGender    = sortedGenderDistribution(data.gender_distribution);
+
+  // Users by State: chart dimensions are derived from the actual dataset
+  const stateAxisWidth = estimateLabelWidth(genderStateData.map(d => d.state), { pxPerChar: 7.4, pad: 18, min: 120, max: 260 });
+  const stateInnerH    = Math.max(STATE_MIN_HEIGHT, genderStateData.length * STATE_ROW_HEIGHT + STATE_CHART_PAD);
 
   const filteredUserStatusDist = data.user_status_dist.filter(
     d => !EXCLUDED_USER_STATUSES.has(d.status.toLowerCase())
@@ -551,45 +563,67 @@ export default function GeneralDashboard({
         onReport={() => onGoToCustomReport(["location-information"],"user")}
       >
         {/*
-          Each state gets 3 grouped (side-by-side) bars.
-          height: 3 bars × 10px each + 8px gap between groups × states, min 260.
-          barSize=10 keeps each of the 3 bins distinct and readable.
-          barCategoryGap="30%" gives breathing room between state groups.
-          barGap={3} adds a small gap between the 3 bars within each group.
+          Scrollable chart viewport.
+          - Inner height = states × STATE_ROW_HEIGHT (+ padding) → every state keeps the same spacing.
+          - Viewport is capped at STATE_VIEW_HEIGHT; taller content scrolls vertically.
+          - Y-axis width is measured from the longest state name, so labels are never clipped.
+          - Narrow cards (< STATE_MIN_WIDTH) scroll horizontally instead of squeezing the bars.
+          - Axis is linear from 0, with no minimum bar length, so bar lengths are true to the counts.
+            Exact values are shown as labels next to each non-zero bar and in the tooltip.
         */}
-        <ResponsiveContainer width="100%" height={Math.max(260, genderStateData.length * 46)}>
-          <BarChart
-            data={genderStateData}
-            layout="vertical"
-            barSize={10}
-            barCategoryGap="30%"
-            barGap={3}
+        {genderStateData.length === 0 ? (
+          <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.slate400 }}>
+            No state data available
+          </div>
+        ) : (
+          <ScrollableChart
+            innerHeight={stateInnerH}
+            minInnerWidth={STATE_MIN_WIDTH}
+            maxHeight={STATE_VIEW_HEIGHT}
+            ariaLabel="Users by state chart"
           >
-            <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} horizontal={false} />
-            <XAxis
-              type="number"
-              tick={AXIS_TICK_STYLE}
-              tickLine={false}
-              axisLine={false}
-              domain={[0, "auto"]}
-              allowDataOverflow={false}
-            />
-            <YAxis
-              dataKey="state"
-              type="category"
-              tick={AXIS_TICK_STYLE}
-              tickLine={false}
-              axisLine={false}
-              width={120}
-            />
-            <Tooltip content={<ChartTip />} />
-            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
-            {/* No stackId — each renders as its own separate grouped bar */}
-            <Bar dataKey="male"   name="Male"   fill={C.genderMale}   radius={[0, 4, 4, 0]} minPointSize={2} />
-            <Bar dataKey="female" name="Female" fill={C.genderFemale} radius={[0, 4, 4, 0]} minPointSize={2} />
-            <Bar dataKey="other"  name="Other"  fill={C.genderOther}  radius={[0, 4, 4, 0]} minPointSize={2} />
-          </BarChart>
-        </ResponsiveContainer>
+            <BarChart
+              data={genderStateData}
+              layout="vertical"
+              barSize={10}
+              barCategoryGap="30%"
+              barGap={3}
+              margin={{ top: 4, right: 56, left: 0, bottom: 4 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={C.slate100} horizontal={false} />
+              <XAxis
+                type="number"
+                tick={AXIS_TICK_STYLE}
+                tickLine={false}
+                axisLine={false}
+                domain={[0, "auto"]}
+                allowDecimals={false}
+                tickFormatter={(v: number) => v.toLocaleString("en-IN")}
+              />
+              <YAxis
+                dataKey="state"
+                type="category"
+                tick={AXIS_TICK_STYLE}
+                tickLine={false}
+                axisLine={false}
+                interval={0}
+                width={stateAxisWidth}
+              />
+              <Tooltip content={<ChartTip />} />
+              <Legend verticalAlign="top" height={28} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: C.slate500 }} />
+              {/* No stackId — each renders as its own separate grouped bar */}
+              <Bar dataKey="male"   name="Male"   fill={C.genderMale}   radius={[0, 4, 4, 0]}>
+                <LabelList dataKey="male" position="right" formatter={(v: any) => (Number(v) > 0 ? fmt(Number(v)) : "")} style={{ fontSize: 10, fontWeight: 700, fill: C.slate700 }} />
+              </Bar>
+              <Bar dataKey="female" name="Female" fill={C.genderFemale} radius={[0, 4, 4, 0]}>
+                <LabelList dataKey="female" position="right" formatter={(v: any) => (Number(v) > 0 ? fmt(Number(v)) : "")} style={{ fontSize: 10, fontWeight: 700, fill: C.slate700 }} />
+              </Bar>
+              <Bar dataKey="other"  name="Other"  fill={C.genderOther}  radius={[0, 4, 4, 0]}>
+                <LabelList dataKey="other" position="right" formatter={(v: any) => (Number(v) > 0 ? fmt(Number(v)) : "")} style={{ fontSize: 10, fontWeight: 700, fill: C.slate700 }} />
+              </Bar>
+            </BarChart>
+          </ScrollableChart>
+        )}
       </ChartCard>
 
       {/* User Charts row: Gender + Status + Districts */}

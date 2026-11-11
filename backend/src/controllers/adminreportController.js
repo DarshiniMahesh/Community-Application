@@ -820,18 +820,18 @@ safe(`
         ) t GROUP BY label
       `),
 
-      // ── 9. City counts: profile heads + family members (use profile's address) ──
+      // ── 9. City counts: profile heads + family members (use profile's CURRENT address) ──
       safe(`
         WITH combined_cities AS (
           -- Profile heads
           SELECT TRIM(a.city) AS city
-          FROM profiles p JOIN addresses a ON a.profile_id = p.id
+          FROM profiles p JOIN addresses a ON a.profile_id = p.id AND a.address_type = 'current'
           WHERE p.status = 'approved' AND a.city IS NOT NULL AND TRIM(a.city) != ''
           UNION ALL
-          -- Family members mapped to profile head's address
+          -- Family members mapped to profile head's current address
           SELECT TRIM(a.city) AS city
           FROM profiles p
-          JOIN addresses a ON a.profile_id = p.id
+          JOIN addresses a ON a.profile_id = p.id AND a.address_type = 'current'
           JOIN family_members fm ON fm.profile_id = p.id
           WHERE p.status = 'approved' AND a.city IS NOT NULL AND TRIM(a.city) != ''
             AND fm.status = 'active'
@@ -842,16 +842,16 @@ safe(`
         GROUP BY city ORDER BY count DESC LIMIT 100
       `),
 
-      // ── 10. Geographic gender: profile heads + family members ────────────────
+      // ── 10. Geographic gender: profile heads + family members (CURRENT address) ──
       safe(`
         WITH combined_geo AS (
           SELECT TRIM(a.city) AS city, LOWER(pd.gender::text) AS gender
-          FROM profiles p JOIN addresses a ON a.profile_id = p.id
+          FROM profiles p JOIN addresses a ON a.profile_id = p.id AND a.address_type = 'current'
           JOIN personal_details pd ON pd.profile_id = p.id
           WHERE p.status = 'approved' AND a.city IS NOT NULL AND TRIM(a.city) != ''
           UNION ALL
           SELECT TRIM(a.city) AS city, LOWER(fm.gender::text) AS gender
-          FROM profiles p JOIN addresses a ON a.profile_id = p.id
+          FROM profiles p JOIN addresses a ON a.profile_id = p.id AND a.address_type = 'current'
           JOIN family_members fm ON fm.profile_id = p.id
           WHERE p.status = 'approved' AND a.city IS NOT NULL AND TRIM(a.city) != ''
             AND fm.status = 'active'

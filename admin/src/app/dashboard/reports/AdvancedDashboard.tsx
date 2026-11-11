@@ -13,6 +13,7 @@ import {
   BarChart3, Clock, UserCheck, RefreshCw, ExternalLink, X,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import ScrollableChart, { estimateLabelWidth } from "./ScrollableChart";
 
 interface AdvancedDashboardProps {
   initialSection?:    string;
@@ -331,6 +332,19 @@ const AXIS_X_COLOR   = "#111827";
 const AXIS_Y_COLOR   = "#111827";
 const AXIS_FONT_SIZE = 13;
 
+// Exact labels sent by the backend (getAdminAdvancedReportsuser, maritalGenderRows), in display order.
+const MARITAL_LABELS = [
+  "Single (Never Married)", "Married", "Single & Divorced", "Single & Widowed",
+];
+
+// Full-time / part-time chart colours
+const FT_MALE_COLOR   = "#6366f1";
+const FT_FEMALE_COLOR = "#a78bfa";
+const FT_OTHER_COLOR  = "#c7d2fe";
+const PT_MALE_COLOR   = "#f59e0b";
+const PT_FEMALE_COLOR = "#fcd34d";
+const PT_OTHER_COLOR  = "#fde68a";
+
 const USER_NAV = [
   { id: "au-status",       label: "Status Overview",        icon: CheckCircle,   color: "#6366f1" },
   { id: "au-demographics", label: "Demographics",           icon: Users,         color: "#0ea5e9" },
@@ -401,6 +415,23 @@ const BarTip = ({ active, payload, label }: TipProps) => {
         </p>
       ))}
     </div>
+  );
+};
+
+// X-axis tick for the Marital Status chart: wraps "Single & Divorced" etc. into two lines.
+const MaritalXAxisTick = ({ x, y, payload }: any) => {
+  const label: string = String(payload?.value ?? "");
+  const idx = label.indexOf(" ");
+  const twoLines = label.startsWith("Single") && idx > 0;
+  const line1 = twoLines ? label.slice(0, idx) : label;
+  const line2 = twoLines ? label.slice(idx + 1) : "";
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={0} dy={14} textAnchor="middle" fill={AXIS_X_COLOR} fontSize={11} fontWeight={600}>
+        <tspan x={0} dy={0}>{line1}</tspan>
+        {line2 && <tspan x={0} dy={14}>{line2}</tspan>}
+      </text>
+    </g>
   );
 };
 
@@ -486,6 +517,171 @@ function GenderBarV({ data, height = 260 }: { data: { label: string; male: numbe
         {hasOther && <Bar dataKey="other" name="Other" fill={GC.other} stackId="g" radius={[0,4,4,0]} />}
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+// ─── GenderBarVScroll — scrollable horizontal stacked bars (used by Profession Breakdown) ──────
+// Inner height = rows × rowHeight; Y-axis width is measured from the longest label (never clipped);
+// the viewport is capped at `maxHeight`, taller content scrolls vertically; narrow cards scroll sideways.
+// Axis is linear from 0 with no minimum bar length; exact totals are labelled at the end of each bar.
+function GenderBarVScroll({
+  data, rowHeight = 38, maxHeight = 420,
+}: {
+  data: { label: string; male: number; female: number; other?: number }[];
+  rowHeight?: number; maxHeight?: number;
+}) {
+  if (!data?.length) {
+    return <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>No data</div>;
+  }
+  const hasOther = data.some(d => (d.other ?? 0) > 0);
+  const axisW    = estimateLabelWidth(data.map(d => d.label), { pxPerChar: 8, pad: 18, min: 140, max: 280 });
+  const innerH   = Math.max(220, data.length * rowHeight + 70);
+
+  const TotalLabel = ({ x, y, width, height, index }: any) => {
+    const row = data[index];
+    if (!row) return null;
+    const t = (row.male || 0) + (row.female || 0) + (row.other || 0);
+    if (t <= 0) return null;
+    return (
+      <text x={Number(x) + Number(width) + 6} y={Number(y) + Number(height) / 2} dy={4} fontSize={11} fontWeight={700} fill="#111827">
+        {t.toLocaleString()}
+      </text>
+    );
+  };
+
+  return (
+    <ScrollableChart innerHeight={innerH} minInnerWidth={420} maxHeight={maxHeight} ariaLabel="Breakdown chart by gender">
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 56, top: 5, bottom: 5 }} barCategoryGap="25%">
+        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+        <XAxis
+          type="number"
+          domain={[0, "auto"]}
+          tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_X_COLOR, fontWeight: 600 }}
+          tickLine={false}
+          axisLine={false}
+          allowDecimals={false}
+          tickFormatter={(v: number) => v.toLocaleString()}
+        />
+        <YAxis
+          dataKey="label"
+          type="category"
+          width={axisW}
+          interval={0}
+          tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }}
+          tickLine={false}
+          axisLine={false}
+        />
+        <Tooltip content={<BarTip />} />
+        <Legend verticalAlign="top" height={28} iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "12px", color: "#111827", fontWeight: 600 }} />
+        <Bar dataKey="male" name="Male" fill={GC.male} stackId="g" />
+        <Bar dataKey="female" name="Female" fill={GC.female} stackId="g" radius={hasOther ? [0,0,0,0] : [0,4,4,0]}>
+          {!hasOther && <LabelList content={TotalLabel} />}
+        </Bar>
+        {hasOther && (
+          <Bar dataKey="other" name="Other" fill={GC.other} stackId="g" radius={[0,4,4,0]}>
+            <LabelList content={TotalLabel} />
+          </Bar>
+        )}
+      </BarChart>
+    </ScrollableChart>
+  );
+}
+
+// ─── GeoScrollChart — scrollable stacked columns (used by Geographic Distribution) ─────────────
+// Inner width = categories × slot, where the slot is sized from the longest city name, so every
+// city keeps its own label space. Long names wrap onto two lines; the full name is in the tooltip.
+// Axis is linear from 0, no minimum bar length; the stack total is labelled above each column.
+interface GeoSeries { key: string; name: string; color: string }
+
+const GeoXAxisTick = ({ x, y, payload, maxChars }: any) => {
+  const label: string = String(payload?.value ?? "");
+  let line1 = label;
+  let line2 = "";
+  if (label.length > maxChars) {
+    const words = label.split(" ");
+    if (words.length > 1) {
+      const mid = Math.ceil(words.length / 2);
+      line1 = words.slice(0, mid).join(" ");
+      line2 = words.slice(mid).join(" ");
+    }
+  }
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{label}</title>
+      <text x={0} y={0} dy={16} textAnchor="middle" fill={AXIS_X_COLOR} fontSize={12} fontWeight={600}>
+        <tspan x={0} dy={0}>{line1}</tspan>
+        {line2 && <tspan x={0} dy={14}>{line2}</tspan>}
+      </text>
+    </g>
+  );
+};
+
+function GeoScrollChart({
+  data, series, height = 380,
+}: {
+  data: Array<Record<string, any> & { label: string }>;
+  series: GeoSeries[];
+  height?: number;
+}) {
+  if (!data?.length) {
+    return <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>No data</div>;
+  }
+  const SLOT_PX_PER_CHAR = 7.6;
+  const slot   = estimateLabelWidth(data.map(d => d.label), { pxPerChar: SLOT_PX_PER_CHAR, pad: 28, min: 96, max: 240 });
+  const innerW = data.length * slot + 80;
+  const maxChars = Math.max(6, Math.floor((slot - 12) / SLOT_PX_PER_CHAR));
+  const lastKey  = series[series.length - 1]?.key;
+
+  const TotalLabel = ({ x, y, width, index }: any) => {
+    const row = data[index];
+    if (!row) return null;
+    const t = series.reduce((sum, s) => sum + (Number(row[s.key]) || 0), 0);
+    if (t <= 0) return null;
+    return (
+      <text x={Number(x) + Number(width) / 2} y={Number(y) - 6} textAnchor="middle" fontSize={11} fontWeight={700} fill="#0d9488">
+        {t.toLocaleString()}
+      </text>
+    );
+  };
+
+  return (
+    <ScrollableChart innerHeight={height} innerWidth={innerW} minInnerWidth={420} ariaLabel="Population by city chart">
+      <BarChart data={data} margin={{ top: 34, right: 24, left: 4, bottom: 8 }} barCategoryGap="25%">
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+        <XAxis
+          dataKey="label"
+          interval={0}
+          height={52}
+          tickLine={false}
+          axisLine={{ stroke: "#e2e8f0" }}
+          tick={(p: any) => <GeoXAxisTick {...p} maxChars={maxChars} />}
+        />
+        <YAxis
+          allowDecimals={false}
+          domain={[0, "auto"]}
+          width={52}
+          tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={(v: number) => v.toLocaleString()}
+        />
+        <Tooltip content={<BarTip />} />
+        <Legend verticalAlign="top" height={28} iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "12px", color: "#111827", fontWeight: 600 }} />
+        {series.map((s, i) => (
+          <Bar
+            key={s.key}
+            dataKey={s.key}
+            name={s.name}
+            fill={s.color}
+            stackId="g"
+            maxBarSize={56}
+            radius={i === series.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+          >
+            {s.key === lastKey && <LabelList content={TotalLabel} />}
+          </Bar>
+        ))}
+      </BarChart>
+    </ScrollableChart>
   );
 }
 
@@ -735,6 +931,83 @@ function SanghaMembersChart({
   );
 }
 
+// ─── SanghaMemberTypeChart helpers (defined once, outside the component) ──────
+interface MemberTypeChartRow {
+  name:      string;
+  fullName:  string;
+  ft_male:   number;
+  ft_female: number;
+  ft_other:  number;
+  pt_male:   number;
+  pt_female: number;
+  pt_other:  number;
+}
+
+const MemberTypeTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  const row: MemberTypeChartRow | undefined = payload[0]?.payload;
+  const ftMale   = payload.find((p: any) => p.dataKey === "ft_male")?.value   ?? 0;
+  const ftFemale = payload.find((p: any) => p.dataKey === "ft_female")?.value ?? 0;
+  const ftOther  = payload.find((p: any) => p.dataKey === "ft_other")?.value  ?? 0;
+  const ptMale   = payload.find((p: any) => p.dataKey === "pt_male")?.value   ?? 0;
+  const ptFemale = payload.find((p: any) => p.dataKey === "pt_female")?.value ?? 0;
+  const ptOther  = payload.find((p: any) => p.dataKey === "pt_other")?.value  ?? 0;
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 16px", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,.1)", minWidth: 200 }}>
+      <p style={{ fontWeight: 800, color: "#111827", marginBottom: 8, fontSize: 13 }}>{row?.fullName || label}</p>
+      <div style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
+        <p style={{ fontWeight: 700, color: FT_MALE_COLOR, fontSize: 11, marginBottom: 4, textTransform: "uppercase" }}>Full-Time</p>
+        <div style={{ display: "flex", gap: 16 }}>
+          <span style={{ color: "#374151" }}>Male: <strong style={{ color: FT_MALE_COLOR }}>{ftMale}</strong></span>
+          <span style={{ color: "#374151" }}>Female: <strong style={{ color: FT_FEMALE_COLOR, filter: "brightness(0.7)" }}>{ftFemale}</strong></span>
+          {ftOther > 0 && <span style={{ color: "#374151" }}>Other: <strong style={{ color: "#111827" }}>{ftOther}</strong></span>}
+          <span style={{ color: "#374151" }}>Total: <strong style={{ color: "#111827" }}>{ftMale + ftFemale + ftOther}</strong></span>
+        </div>
+      </div>
+      <div>
+        <p style={{ fontWeight: 700, color: PT_MALE_COLOR, fontSize: 11, marginBottom: 4, textTransform: "uppercase" }}>Part-Time</p>
+        <div style={{ display: "flex", gap: 16 }}>
+          <span style={{ color: "#374151" }}>Male: <strong style={{ color: PT_MALE_COLOR }}>{ptMale}</strong></span>
+          <span style={{ color: "#374151" }}>Female: <strong style={{ color: PT_FEMALE_COLOR, filter: "brightness(0.7)" }}>{ptFemale}</strong></span>
+          {ptOther > 0 && <span style={{ color: "#374151" }}>Other: <strong style={{ color: "#111827" }}>{ptOther}</strong></span>}
+          <span style={{ color: "#374151" }}>Total: <strong style={{ color: "#111827" }}>{ptMale + ptFemale + ptOther}</strong></span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Sangha name tick: sits below the axis line, centred, max 2 lines (full name is in the tooltip).
+const MemberTypeXAxisTick = ({ x, y, payload }: any) => {
+  const name: string = String(payload?.value ?? "");
+  const words = name.split(" ");
+  const mid = Math.ceil(words.length / 2);
+  const line1 = words.slice(0, mid).join(" ");
+  const line2 = words.slice(mid).join(" ");
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={0} dy={16} textAnchor="middle" fill={AXIS_X_COLOR} fontSize={11} fontWeight={600}>
+        <tspan x={0} dy={0}>{line1}</tspan>
+        {line2 && <tspan x={0} dy={14}>{line2}</tspan>}
+      </text>
+    </g>
+  );
+};
+
+// Total label shown on top of each (FT / PT) stack; zero totals are hidden.
+const makeStackTotalLabel = (rows: MemberTypeChartRow[], prefix: "ft" | "pt", color: string) =>
+  function StackTotalLabel({ x, y, width, index }: any) {
+    const row = rows[index];
+    if (!row) return null;
+    const total = (row[`${prefix}_male` as const] || 0) + (row[`${prefix}_female` as const] || 0) + (row[`${prefix}_other` as const] || 0);
+    if (total === 0) return null;
+    return (
+      <text x={Number(x) + Number(width) / 2} y={Number(y) - 4} textAnchor="middle" fontSize={10} fontWeight={700} fill={color}>
+        {total}
+      </text>
+    );
+  };
+
 // ─── SanghaMemberTypeChart ────────────────────────────────────────────────────
 function SanghaMemberTypeChart({
   data,
@@ -762,7 +1035,7 @@ function SanghaMemberTypeChart({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const rechartsData = useMemo(() =>
+  const rechartsData: MemberTypeChartRow[] = useMemo(() =>
     rows
       .filter(r => selectedSanghas.includes(r.sangha_name))
       .map(r => ({
@@ -770,17 +1043,17 @@ function SanghaMemberTypeChart({
         fullName: r.sangha_name,
         ft_male:   r.fulltime_male   || 0,
         ft_female: r.fulltime_female || 0,
+        ft_other:  r.fulltime_other  || 0,
         pt_male:   r.parttime_male   || 0,
         pt_female: r.parttime_female || 0,
+        pt_other:  r.parttime_other  || 0,
       })),
     [rows, selectedSanghas]
   );
 
+  const hasFtOther = rechartsData.some(d => d.ft_other > 0);
+  const hasPtOther = rechartsData.some(d => d.pt_other > 0);
 
-const FT_MALE_COLOR   = "#6366f1";  
-const FT_FEMALE_COLOR = "#a78bfa";   
-const PT_MALE_COLOR   = "#f59e0b";   
-const PT_FEMALE_COLOR = "#fcd34d";   
   if (!rows.length) {
     return (
       <div className="no-data">
@@ -793,52 +1066,17 @@ const PT_FEMALE_COLOR = "#fcd34d";
     );
   }
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (!active || !payload?.length) return null;
-    const row = rechartsData.find(d => d.name === label);
-    const ftMale   = payload.find((p: any) => p.dataKey === "ft_male")?.value   ?? 0;
-    const ftFemale = payload.find((p: any) => p.dataKey === "ft_female")?.value ?? 0;
-    const ptMale   = payload.find((p: any) => p.dataKey === "pt_male")?.value   ?? 0;
-    const ptFemale = payload.find((p: any) => p.dataKey === "pt_female")?.value ?? 0;
-    return (
-      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 16px", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,.1)", minWidth: 200 }}>
-        <p style={{ fontWeight: 800, color: "#111827", marginBottom: 8, fontSize: 13 }}>{row?.fullName || label}</p>
-        <div style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
-          <p style={{ fontWeight: 700, color: FT_MALE_COLOR, fontSize: 11, marginBottom: 4, textTransform: "uppercase" }}>Full-Time</p>
-          <div style={{ display: "flex", gap: 16 }}>
-            <span style={{ color: "#374151" }}>Male: <strong style={{ color: FT_MALE_COLOR }}>{ftMale}</strong></span>
-            <span style={{ color: "#374151" }}>Female: <strong style={{ color: FT_FEMALE_COLOR, filter: "brightness(0.7)" }}>{ftFemale}</strong></span>
-            <span style={{ color: "#374151" }}>Total: <strong style={{ color: "#111827" }}>{ftMale + ftFemale}</strong></span>
-          </div>
-        </div>
-        <div>
-          <p style={{ fontWeight: 700, color: PT_MALE_COLOR, fontSize: 11, marginBottom: 4, textTransform: "uppercase" }}>Part-Time</p>
-          <div style={{ display: "flex", gap: 16 }}>
-            <span style={{ color: "#374151" }}>Male: <strong style={{ color: PT_MALE_COLOR }}>{ptMale}</strong></span>
-            <span style={{ color: "#374151" }}>Female: <strong style={{ color: PT_FEMALE_COLOR, filter: "brightness(0.7)" }}>{ptFemale}</strong></span>
-            <span style={{ color: "#374151" }}>Total: <strong style={{ color: "#111827" }}>{ptMale + ptFemale}</strong></span>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const legendItems = [
+    { color: FT_MALE_COLOR, label: "Full-Time Male", pattern: "solid" },
+    { color: FT_FEMALE_COLOR, label: "Full-Time Female", pattern: "light" },
+    ...(hasFtOther ? [{ color: FT_OTHER_COLOR, label: "Full-Time Other", pattern: "light" }] : []),
+    { color: PT_MALE_COLOR, label: "Part-Time Male", pattern: "solid" },
+    { color: PT_FEMALE_COLOR, label: "Part-Time Female", pattern: "light" },
+    ...(hasPtOther ? [{ color: PT_OTHER_COLOR, label: "Part-Time Other", pattern: "light" }] : []),
+  ];
 
-  const CustomXAxisTick = ({ x, y, payload }: any) => {
-    const row = rechartsData.find(d => d.name === payload.value);
-    const name = row?.name || payload.value;
-    const words = name.split(" ");
-    const mid = Math.ceil(words.length / 2);
-    const line1 = words.slice(0, mid).join(" ");
-    const line2 = words.slice(mid).join(" ");
-    return (
-      <g transform={`translate(${x},${y})`}>
-        <text x={0} y={0} dy={14} textAnchor="middle" fill={AXIS_X_COLOR} fontSize={11} fontWeight={600}>
-          <tspan x={0} dy={0}>{line1}</tspan>
-          {line2 && <tspan x={0} dy={14}>{line2}</tspan>}
-        </text>
-      </g>
-    );
-  };
+  // Wide inner chart + horizontal scroll when many sanghas are selected
+  const innerMinWidth = rechartsData.length > 6 ? rechartsData.length * 140 : undefined;
 
   return (
     <Card
@@ -883,12 +1121,7 @@ const PT_FEMALE_COLOR = "#fcd34d";
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", marginBottom: 16 }}>
-        {[
-          { color: FT_MALE_COLOR, label: "Full-Time Male", pattern: "solid" },
-          { color: FT_FEMALE_COLOR, label: "Full-Time Female", pattern: "light" },
-          { color: PT_MALE_COLOR, label: "Part-Time Male", pattern: "solid" },
-          { color: PT_FEMALE_COLOR, label: "Part-Time Female", pattern: "light" },
-        ].map(item => (
+        {legendItems.map(item => (
           <span key={item.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151", fontWeight: 500 }}>
             <span style={{ width: 12, height: 12, borderRadius: 3, background: item.color, border: item.pattern === "light" ? "1.5px solid rgba(0,0,0,0.15)" : "none", display: "inline-block", flexShrink: 0 }} />
             {item.label}
@@ -896,40 +1129,62 @@ const PT_FEMALE_COLOR = "#fcd34d";
         ))}
       </div>
 
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 0 }}>
-        <div style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", paddingRight: 4, flexShrink: 0, userSelect: "none" }}>Members</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {rechartsData.length === 0 ? (
-            <div className="no-data"><span>No sanghas selected</span></div>
-          ) : (
-            <ResponsiveContainer width="100%" height={Math.max(320, rechartsData.length * 80)}>
-              <BarChart data={rechartsData} margin={{ top: 10, right: 20, left: -10, bottom: rechartsData.length > 4 ? 60 : 40 }} barCategoryGap="25%" barGap={4}>
+      {rechartsData.length === 0 ? (
+        <div className="no-data"><span>No sanghas selected</span></div>
+      ) : (
+        <div style={{ overflowX: "auto", width: "100%" }}>
+          <div style={{ width: "100%", minWidth: innerMinWidth, height: 360 }}>
+            <ResponsiveContainer width="100%" height={360}>
+              <BarChart
+                data={rechartsData}
+                margin={{ top: 24, right: 20, left: 8, bottom: 8 }}
+                barCategoryGap="25%"
+                barGap={4}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="name" tick={<CustomXAxisTick />} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} interval={0} height={rechartsData.length > 4 ? 60 : 50} />
-                <YAxis tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }} tickLine={false} axisLine={false} allowDecimals={false} />
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.03)" }} />
-                <Bar dataKey="ft_male" name="FT Male" fill={FT_MALE_COLOR} stackId="ft" maxBarSize={32} radius={[0,0,4,4]} />
-                <Bar dataKey="ft_female" name="FT Female" fill={FT_FEMALE_COLOR} stackId="ft" maxBarSize={32} radius={[4,4,0,0]}>
-                  <LabelList content={({ x, y, width, index }: any) => {
-                    const row = rechartsData[index]; if (!row) return null;
-                    const total = (row.ft_male || 0) + (row.ft_female || 0); if (total === 0) return null;
-                    return <text x={Number(x) + Number(width) / 2} y={Number(y) - 4} textAnchor="middle" fontSize={10} fontWeight={700} fill={FT_MALE_COLOR}>{total}</text>;
-                  }} />
+                <XAxis
+                  dataKey="name"
+                  tick={<MemberTypeXAxisTick />}
+                  tickLine={false}
+                  axisLine={{ stroke: "#e2e8f0" }}
+                  interval={0}
+                  height={76}
+                  label={{ value: "Sanghas", position: "insideBottom", offset: 0, style: { fontSize: 11, fontWeight: 700, fill: "#374151", textTransform: "uppercase", letterSpacing: "0.08em" } }}
+                />
+                <YAxis
+                  tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={false}
+                  allowDecimals={false}
+                  width={56}
+                  label={{ value: "Members", angle: -90, position: "insideLeft", offset: 4, style: { textAnchor: "middle", fontSize: 11, fontWeight: 700, fill: "#374151", textTransform: "uppercase", letterSpacing: "0.08em" } }}
+                />
+                <Tooltip content={<MemberTypeTooltip />} cursor={{ fill: "rgba(0,0,0,0.03)" }} />
+
+                <Bar dataKey="ft_male" name="FT Male" fill={FT_MALE_COLOR} stackId="ft" maxBarSize={32} radius={hasFtOther ? [0,0,0,0] : [0,0,4,4]} />
+                <Bar dataKey="ft_female" name="FT Female" fill={FT_FEMALE_COLOR} stackId="ft" maxBarSize={32} radius={hasFtOther ? [0,0,0,0] : [4,4,0,0]}>
+                  {!hasFtOther && <LabelList content={makeStackTotalLabel(rechartsData, "ft", FT_MALE_COLOR)} />}
                 </Bar>
-                <Bar dataKey="pt_male" name="PT Male" fill={PT_MALE_COLOR} stackId="pt" maxBarSize={32} radius={[0,0,4,4]} />
-                <Bar dataKey="pt_female" name="PT Female" fill={PT_FEMALE_COLOR} stackId="pt" maxBarSize={32} radius={[4,4,0,0]}>
-                  <LabelList content={({ x, y, width, index }: any) => {
-                    const row = rechartsData[index]; if (!row) return null;
-                    const total = (row.pt_male || 0) + (row.pt_female || 0); if (total === 0) return null;
-                    return <text x={Number(x) + Number(width) / 2} y={Number(y) - 4} textAnchor="middle" fontSize={10} fontWeight={700} fill={PT_MALE_COLOR}>{total}</text>;
-                  }} />
+                {hasFtOther && (
+                  <Bar dataKey="ft_other" name="FT Other" fill={FT_OTHER_COLOR} stackId="ft" maxBarSize={32} radius={[4,4,0,0]}>
+                    <LabelList content={makeStackTotalLabel(rechartsData, "ft", FT_MALE_COLOR)} />
+                  </Bar>
+                )}
+
+                <Bar dataKey="pt_male" name="PT Male" fill={PT_MALE_COLOR} stackId="pt" maxBarSize={32} radius={hasPtOther ? [0,0,0,0] : [0,0,4,4]} />
+                <Bar dataKey="pt_female" name="PT Female" fill={PT_FEMALE_COLOR} stackId="pt" maxBarSize={32} radius={hasPtOther ? [0,0,0,0] : [4,4,0,0]}>
+                  {!hasPtOther && <LabelList content={makeStackTotalLabel(rechartsData, "pt", PT_MALE_COLOR)} />}
                 </Bar>
+                {hasPtOther && (
+                  <Bar dataKey="pt_other" name="PT Other" fill={PT_OTHER_COLOR} stackId="pt" maxBarSize={32} radius={[4,4,0,0]}>
+                    <LabelList content={makeStackTotalLabel(rechartsData, "pt", PT_MALE_COLOR)} />
+                  </Bar>
+                )}
               </BarChart>
             </ResponsiveContainer>
-          )}
+          </div>
         </div>
-      </div>
-      <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>Sanghas</div>
+      )}
     </Card>
   );
 }
@@ -1029,7 +1284,7 @@ function TopSanghasChart({
             <div className="geo-dropdown" style={{ width: 280 }}>
               <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                 <button onClick={() => setSelectedSanghas(sorted.map(s => s.sangha_name))} style={{ flex: 1, fontSize: 11, fontWeight: 600, color: "#0284c7", background: "#e0f2fe", border: "none", borderRadius: 6, padding: "4px 0", cursor: "pointer" }}>All</button>
-                <button onClick={() => setSelectedSanghas(sorted.slice(0, 10).map(s => s.sangha_name))} style={{ flex: 1, fontSize: 11, fontWeight: 600, color: "#374151", background: "#f1f5f9", border: "none", borderRadius: 6, padding: "4px 0", cursor: "pointer" }}>Tby default op 10</button>
+                <button onClick={() => setSelectedSanghas(sorted.slice(0, 10).map(s => s.sangha_name))} style={{ flex: 1, fontSize: 11, fontWeight: 600, color: "#374151", background: "#f1f5f9", border: "none", borderRadius: 6, padding: "4px 0", cursor: "pointer" }}>Top 10 </button>
               </div>
               {sorted.map(s => (
                 <label key={s.sangha_name} className="geo-dropdown-item">
@@ -1198,10 +1453,11 @@ function UserTab({ data, loading, onGoToCustomReport }: {
     return () => observer.disconnect();
   }, [data]);
 
+  // Fallback (count-only) city rows: all cities, largest first; a filter selection narrows them.
   const filteredGeo = useMemo(() => {
     if (!data?.geographic) return [];
     const sorted = [...data.geographic].sort((a, b) => b.count - a.count);
-    if (selectedCities.length === 0) return sorted.slice(0, 8);
+    if (selectedCities.length === 0) return sorted;
     return sorted.filter(g => selectedCities.includes(g.city));
   }, [data, selectedCities]);
 
@@ -1241,9 +1497,20 @@ function UserTab({ data, loading, onGoToCustomReport }: {
   const maritalGenderData = (dem.maritalStatusGender || []).map((m: any) => ({
     label: m.label, male: m.male || 0, female: m.female || 0, other: m.other || 0,
   }));
-  const maritalBarData = maritalGenderData.length > 0
+  const maritalBarData: { label: string; male: number; female: number; other: number }[] = maritalGenderData.length > 0
     ? maritalGenderData
     : dem.maritalStatus.map((m: any) => ({ label: m.label, male: m.count, female: 0, other: 0 }));
+
+  // Marital chart rows: the four exact backend labels, plus "Other" only when it has data
+  const maritalRow = (label: string) => {
+    const m = maritalBarData.find(x => x.label === label);
+    return { label, male: m?.male ?? 0, female: m?.female ?? 0, other: m?.other ?? 0 };
+  };
+  const maritalChartData = MARITAL_LABELS.map(maritalRow);
+  const maritalOtherRow = maritalRow("Other");
+  if (maritalOtherRow.male + maritalOtherRow.female + maritalOtherRow.other > 0) {
+    maritalChartData.push(maritalOtherRow);
+  }
 
   const ageGenderData = (dem.ageGroupsGender || []).map((a: any) => ({ label: a.label, male: a.male || 0, female: a.female || 0, other: a.other || 0 }));
   const ageBarData = ageGenderData.length > 0 ? ageGenderData : dem.ageGroups.map((a: any) => ({ label: a.label, male: a.count, female: 0, other: 0 }));
@@ -1278,11 +1545,21 @@ function UserTab({ data, loading, onGoToCustomReport }: {
     ? employmentGenderData
     : (eco.employment || []).map((e: any) => ({ label: e.label, male: e.count, female: 0, other: 0 }));
 
+  // Geographic: every city the backend returns (largest total first), narrowed only by the filter.
+  // No frontend cap — the scrollable chart keeps every city reachable.
   const geoGenderData = (data.geographicGender || [])
     .filter((g: any) => selectedCities.length === 0 || selectedCities.includes(g.city))
-    .sort((a: any, b: any) => (b.male + b.female) - (a.male + a.female))
-    .slice(0, selectedCities.length > 0 ? undefined : 8)
+    .sort((a: any, b: any) => ((b.male || 0) + (b.female || 0) + (b.other || 0)) - ((a.male || 0) + (a.female || 0) + (a.other || 0)))
     .map((g: any) => ({ label: g.city, male: g.male || 0, female: g.female || 0, other: g.other || 0 }));
+
+  const geoHasOther = geoGenderData.some(g => g.other > 0);
+  const geoSeries: GeoSeries[] = [
+    { key: "male",   name: "Male",   color: GC.male   },
+    { key: "female", name: "Female", color: GC.female },
+    ...(geoHasOther ? [{ key: "other", name: "Other", color: GC.other }] : []),
+  ];
+  const geoCountSeries: GeoSeries[] = [{ key: "count", name: "Population", color: "#0d9488" }];
+  const geoCountData = filteredGeo.map(g => ({ label: g.city, count: g.count }));
 
   const religious      = data.religious || {};
   const gotraData      = (religious.gotras          || []).slice(0, 10);
@@ -1421,20 +1698,15 @@ function UserTab({ data, loading, onGoToCustomReport }: {
             {maritalBarData.length === 0 ? (
               <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>No marital data</div>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={240}>
                 <BarChart
-                  data={[
-                    { label: "Single (Never Married)", ...(maritalBarData.find(m => m.label === "Single (Never Married)") ?? { male: 0, female: 0, other: 0 }) },
-                    { label: "Married",               ...(maritalBarData.find(m => m.label === "Married")               ?? { male: 0, female: 0, other: 0 }) },
-                    { label: "Single(Divorced)",     ...(maritalBarData.find(m => m.label === "Single(Divorced)")     ?? { male: 0, female: 0, other: 0 }) },
-                    { label: "Single(Widowed)",      ...(maritalBarData.find(m => m.label === "Single(Widowed)")      ?? { male: 0, female: 0, other: 0 }) },
-                  ]}
+                  data={maritalChartData}
                   margin={{ left: -16, right: 8, top: 8, bottom: 8 }}
                   barCategoryGap="28%"
                   barGap={3}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: AXIS_X_COLOR, fontWeight: 600 }} tickLine={false} axisLine={false} interval={0} angle={0} textAnchor="middle" height={36} />
+                  <XAxis dataKey="label" tick={<MaritalXAxisTick />} tickLine={false} axisLine={false} interval={0} height={48} />
                   <YAxis tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip content={<BarTip />} />
                   <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "12px", color: "#111827", fontWeight: 600, paddingTop: 8 }} />
@@ -1460,7 +1732,7 @@ function UserTab({ data, loading, onGoToCustomReport }: {
             </Card>
             <Card title="Profession Breakdown" subtitle="Approved users — Male · Female · Other"
               onReport={() => goCustom?.(["education-profession"], "user")}>
-              <GenderBarV data={professionBarData} height={Math.max(220, professionBarData.length * 32)} />
+              <GenderBarVScroll data={professionBarData} />
             </Card>
           </div>
           <div className="grid-2 mt-5">
@@ -1512,28 +1784,17 @@ function UserTab({ data, loading, onGoToCustomReport }: {
             ))}
           </div>
           <Card
-            title={selectedCities.length === 0 ? "Top Cities by Population (Users + Family Members)" : `${selectedCities.length} Cities Selected`}
-            subtitle="Male · Female — geographic spread including family members"
+            title={selectedCities.length === 0 ? "Cities by Population (Users + Family Members)" : `${selectedCities.length} Cities Selected`}
+            subtitle="Male · Female — geographic spread including family members · scroll to see every city"
+            badge={`${geoGenderData.length > 0 ? geoGenderData.length : geoCountData.length} cities`}
             onReport={() => goCustom?.(["location-information"], "user")}
           >
             {geoGenderData.length > 0 ? (
-              <GenderBar data={geoGenderData} height={260} />
-            ) : filteredGeo.length === 0 ? (
+              <GeoScrollChart data={geoGenderData} series={geoSeries} />
+            ) : geoCountData.length === 0 ? (
               <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>No data</div>
             ) : (
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={filteredGeo} margin={{ top: 20, right: 24, left: -16, bottom: 4 }} barCategoryGap="30%">
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="city" tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_X_COLOR, fontWeight: 600 }} axisLine={false} tickLine={false}
-                    tickFormatter={(v) => typeof v === "string" ? (v.length > 12 ? v.slice(0, 11) + "…" : v) : v} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: AXIS_FONT_SIZE, fill: AXIS_Y_COLOR, fontWeight: 600 }} axisLine={false} tickLine={false} width={28} />
-                  <Tooltip content={<BarTip />} />
-                  <Bar dataKey="count" radius={[8,8,0,0]} maxBarSize={72} name="Population">
-                    {filteredGeo.map((_e, idx) => <Cell key={idx} fill={GEO_PALETTE[idx % GEO_PALETTE.length]} />)}
-                    <LabelList dataKey="count" position="top" style={{ fontSize: 11, fontWeight: 700, fill: "#0d9488" }} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <GeoScrollChart data={geoCountData} series={geoCountSeries} />
             )}
           </Card>
         </section>
