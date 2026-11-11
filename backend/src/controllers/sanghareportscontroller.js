@@ -1,6 +1,111 @@
 // Community-Application\backend\src\controllers\sanghareportscontroller.js
 const pool = require('../config/db');
 
+// ─── Supported report statuses (draft is intentionally never part of reports) ─
+const STATUS_GROUPS = {
+  approved:          ['approved'],
+  pending:           ['submitted', 'under_review'],
+  rejected:          ['rejected'],
+  changes_requested: ['changes_requested'],
+};
+const ALL_REPORT_STATUSES = [
+  ...STATUS_GROUPS.approved,
+  ...STATUS_GROUPS.pending,
+  ...STATUS_GROUPS.rejected,
+  ...STATUS_GROUPS.changes_requested,
+];
+// Constant list (never user input) for use in static SQL fragments
+const REPORT_STATUS_SQL = ALL_REPORT_STATUSES.map(s => `'${s}'`).join(',');
+
+// Returns an array of raw statuses, or null when the requested status is not a supported report status
+function resolveStatuses(status, includeAllStatuses = false) {
+  const key = String(status ?? '').toLowerCase().trim();
+  if (key === '' || key === 'null' || key === 'undefined') {
+    return includeAllStatuses ? ALL_REPORT_STATUSES : STATUS_GROUPS.approved;
+  }
+  if (key === 'all') return ALL_REPORT_STATUSES;
+  if (key === 'submitted' || key === 'under_review') return STATUS_GROUPS.pending;
+  if (key === 'changes') return STATUS_GROUPS.changes_requested;
+  if (STATUS_GROUPS[key]) return STATUS_GROUPS[key];
+  return null;
+}
+
+// ─── Marital status mapping (DB value ⇄ display label) ──────────────────────
+const MARITAL_ALIASES = {
+  'single_never_married':   'single_never_married',
+  'single (never married)': 'single_never_married',
+  'never_married':          'single_never_married',
+  'single':                 'single_never_married',
+  'married':                'married',
+  'single_divorced':        'single_divorced',
+  'single / divorced':      'single_divorced',
+  'divorced':               'single_divorced',
+  'single_widowed':         'single_widowed',
+  'single / widowed':       'single_widowed',
+  'widowed':                'single_widowed',
+};
+
+function resolveMarital(v) {
+  const key = String(v ?? '').toLowerCase().trim();
+  if (key === '' || key === 'null' || key === 'undefined') return { value: null };
+  const mapped = MARITAL_ALIASES[key];
+  if (!mapped) return { error: 'Invalid marital status filter' };
+  return { value: mapped };
+}
+
+function parseAgeRange(minRaw, maxRaw) {
+  const has = v => v !== undefined && v !== null && v !== '' && v !== 'null' && v !== 'undefined';
+  let min = null;
+  let max = null;
+  if (has(minRaw)) {
+    min = Number(minRaw);
+    if (!Number.isInteger(min) || min < 0 || min > 150) return { error: 'Invalid minimum age' };
+  }
+  if (has(maxRaw)) {
+    max = Number(maxRaw);
+    if (!Number.isInteger(max) || max < 0 || max > 150) return { error: 'Invalid maximum age' };
+  }
+  if (min !== null && max !== null && min > max) {
+    return { error: 'Minimum age cannot be greater than maximum age' };
+  }
+  return { min, max };
+}
+
+// Age in whole years, calculated on the India calendar date (same rule as the rest of the module)
+const AGE_SQL = `EXTRACT(YEAR FROM AGE((NOW() AT TIME ZONE 'Asia/Kolkata')::date, pd.date_of_birth))::int`;
+
+// Builds marital-status + age clauses. Pushes values into `params` (parameterized).
+function buildProfileFilters({ maritalStatus, ageMin, ageMax }, params) {
+  let clause = '';
+
+  const marital = resolveMarital(maritalStatus);
+  if (marital.error) return { error: marital.error };
+  if (marital.value) {
+    params.push(marital.value);
+    clause += ` AND pd.marital_status::text = $${params.length}`;
+  }
+
+  const age = parseAgeRange(ageMin, ageMax);
+  if (age.error) return { error: age.error };
+  if (age.min !== null || age.max !== null) {
+    clause += ` AND pd.date_of_birth IS NOT NULL`;
+    if (age.min !== null) {
+      params.push(age.min);
+      clause += ` AND ${AGE_SQL} >= $${params.length}::int`;
+    }
+    if (age.max !== null) {
+      params.push(age.max);
+      clause += ` AND ${AGE_SQL} <= $${params.length}::int`;
+    }
+  }
+
+  return { clause };
+}
+
+function cleanDate(v) {
+  return (v && v !== 'null' && v !== 'undefined') ? v : null;
+}
+
 // ─── Helper: Get sangha ID from user ID ────────────────────────────────────
 async function getSanghaId(userId) {
   console.log("👉 getSanghaId called with userId:", userId);
@@ -53,6 +158,148 @@ function buildDateFilter(dateFrom, dateTo, existingParamCount = 1, dateField = '
 }
 
 // ════════════════════════════════════════════════════════════
+// REGISTRATION TREND HELPERS (India calendar dates)
+// ════════════════════════════════════════════════════════════
+const REPORT_TZ = 'Asia/Kolkata';
+// Registration timestamps are stored as UTC `timestamp without time zone`.
+const DB_STORED_TZ = 'UTC';
+// Built only from the constants above, never from user input.
+const REGISTRATION_IST_DATE = `((COALESCE(submitted_at, created_at) AT TIME ZONE '${DB_STORED_TZ}') AT TIME ZONE '${REPORT_TZ}')::date`;
+const REPORT_DEBUG = process.env.REPORT_DEBUG === 'true';
+
+function debugLog(...args) {
+  if (REPORT_DEBUG) console.log('[EnhancedReports]', ...args);
+}
+
+// null  → not provided
+// false → provided but invalid
+// string → valid 'YYYY-MM-DD'
+function normalizeYmd(v) {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (s === '' || s === 'null' || s === 'undefined') return null;
+
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(s);
+  if (!m) return false;
+
+  const y  = Number(m[1]);
+  const mo = Number(m[2]);
+  const d  = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== mo - 1 ||
+    dt.getUTCDate() !== d
+  ) return false;
+
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+function parseYmdUtc(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+function formatYmdUtc(dt) {
+  return dt.toISOString().slice(0, 10);
+}
+
+function todayIst() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: REPORT_TZ }).format(new Date());
+}
+function addDaysYmd(s, days) {
+  const dt = parseYmdUtc(s);
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return formatYmdUtc(dt);
+}
+// `s` must be the 1st of a month
+function addMonthsYmd(s, months) {
+  const [y, m] = s.split('-').map(Number);
+  return formatYmdUtc(new Date(Date.UTC(y, m - 1 + months, 1)));
+}
+function diffDaysYmd(a, b) {
+  return Math.round((parseYmdUtc(b).getTime() - parseYmdUtc(a).getTime()) / 86400000);
+}
+// Monday start
+function startOfWeekYmd(s) {
+  const dow = parseYmdUtc(s).getUTCDay(); // 0 = Sunday
+  return addDaysYmd(s, -((dow + 6) % 7));
+}
+function startOfMonthYmd(s) {
+  return `${s.slice(0, 7)}-01`;
+}
+
+// Inclusive India-calendar-date range on registration timestamps. Fully parameterized.
+function buildRegistrationIstRange(dateFrom, dateTo, existingParamCount = 1) {
+  let clause = '';
+  const params = [];
+  if (dateFrom) {
+    params.push(dateFrom);
+    clause += ` AND ${REGISTRATION_IST_DATE} >= $${existingParamCount + params.length}::date`;
+  }
+  if (dateTo) {
+    params.push(dateTo);
+    clause += ` AND ${REGISTRATION_IST_DATE} <= $${existingParamCount + params.length}::date`;
+  }
+  return { clause, params };
+}
+
+// Turns per-day rows into a zero-filled day / week / month series. Never invents registrations.
+function buildRegistrationTrend(dayRows, dateFrom, dateTo) {
+  if (!Array.isArray(dayRows) || dayRows.length === 0) {
+    return { granularity: 'day', series: [] };
+  }
+
+  let firstDate = dayRows[0].date;
+  let lastDate  = dayRows[0].date;
+  for (const r of dayRows) {
+    if (r.date < firstDate) firstDate = r.date;
+    if (r.date > lastDate)  lastDate  = r.date;
+  }
+
+  const start = dateFrom || firstDate;
+  let end     = dateTo || todayIst();
+  if (end < lastDate) end = lastDate;
+
+  const span = diffDaysYmd(start, end) + 1;
+  const granularity = span <= 92 ? 'day' : span <= 549 ? 'week' : 'month';
+
+  const bucketOf =
+    granularity === 'day'  ? (s => s) :
+    granularity === 'week' ? startOfWeekYmd :
+                             startOfMonthYmd;
+
+  const buckets = new Map();
+  for (const r of dayRows) {
+    const key = bucketOf(r.date);
+    const cur = buckets.get(key) || { registrations: 0, approvals: 0, rejections: 0 };
+    cur.registrations += Number(r.registrations) || 0;
+    cur.approvals     += Number(r.approvals)     || 0;
+    cur.rejections    += Number(r.rejections)    || 0;
+    buckets.set(key, cur);
+  }
+
+  const series = [];
+  const firstBucket = bucketOf(start);
+  const lastBucket  = bucketOf(end);
+  let cursor = firstBucket;
+  while (cursor <= lastBucket) {
+    const b = buckets.get(cursor) || { registrations: 0, approvals: 0, rejections: 0 };
+    series.push({
+      date:          cursor,
+      registrations: String(b.registrations),
+      approvals:     String(b.approvals),
+      rejections:    String(b.rejections),
+    });
+    cursor =
+      granularity === 'day'  ? addDaysYmd(cursor, 1) :
+      granularity === 'week' ? addDaysYmd(cursor, 7) :
+                               addMonthsYmd(cursor, 1);
+  }
+
+  return { granularity, series };
+}
+
+// ════════════════════════════════════════════════════════════
 // REPORTS & LOGS
 // ════════════════════════════════════════════════════════════
 const getReports = async (req, res) => {
@@ -68,7 +315,7 @@ const getReports = async (req, res) => {
          COUNT(*) FILTER (WHERE status IN ('submitted','under_review')) AS pending_users,
          COUNT(*) FILTER (WHERE status='changes_requested')             AS changes_requested,
          COUNT(*)                                                        AS total_users
-       FROM profiles WHERE sangha_id = $1`,
+       FROM profiles WHERE sangha_id = $1 AND status::text IN (${REPORT_STATUS_SQL})`,
       [sanghaId]
     );
     res.json(result.rows[0]);
@@ -92,7 +339,7 @@ const getActivityLogs = async (req, res) => {
        FROM profiles p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
-       WHERE p.sangha_id = $1
+       WHERE p.sangha_id = $1 AND p.status::text IN (${REPORT_STATUS_SQL})
        ORDER BY COALESCE(p.submitted_at, p.created_at) DESC`,
       [sanghaId]
     );
@@ -107,46 +354,57 @@ const getActivityLogs = async (req, res) => {
 // ENHANCED REPORTS
 // ════════════════════════════════════════════════════════════
 const getEnhancedReports = async (req, res) => {
-   try {
+  try {
     const { id: userId } = req.user;
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
-    const rawFrom  = req.query.dateFrom;
-    const rawTo    = req.query.dateTo;
-    const dateFrom = (rawFrom && rawFrom !== 'null' && rawFrom !== 'undefined') ? rawFrom : null;
-    const dateTo   = (rawTo   && rawTo   !== 'null' && rawTo   !== 'undefined') ? rawTo   : null;
-    console.log("dateFrom:", dateFrom);
-    console.log("dateTo:", dateTo);
-    const df = buildDateFilter(dateFrom, dateTo, 1, 'created_at');
+    // 1. Parse and validate dates (India calendar dates, YYYY-MM-DD)
+    const dateFrom = normalizeYmd(req.query.dateFrom);
+    const dateTo   = normalizeYmd(req.query.dateTo);
+    if (dateFrom === false || dateTo === false) {
+      return res.status(400).json({ message: 'Invalid date. Use YYYY-MM-DD.' });
+    }
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      return res.status(400).json({ message: 'dateFrom cannot be after dateTo' });
+    }
 
-const [
-  locationCount,
-  educationCount,
-  economicCount,
-  insuranceCount,
-  documentCount,
-  religiousCount,
-] = await Promise.all([
-  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM addresses WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_education WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM economic_details WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_insurance WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_documents WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM religious_details WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-]);
+    // 2. One range shared by currentCounts and the registration trend
+    const range = buildRegistrationIstRange(dateFrom, dateTo, 1);
+    const sqlParams = [sanghaId, ...range.params];
 
-    const [currentCounts, trendData, dailyRegs] = await Promise.all([
+    debugLog('userId:', userId);
+    debugLog('sanghaId:', sanghaId);
+    debugLog('dateFrom:', dateFrom, 'dateTo:', dateTo);
+    debugLog('SQL params:', sqlParams);
+
+    const [
+      locationCount,
+      educationCount,
+      economicCount,
+      insuranceCount,
+      documentCount,
+      religiousCount,
+    ] = await Promise.all([
+      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM addresses WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_education WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM economic_details WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_insurance WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_documents WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM religious_details WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+    ]);
+
+    const [currentCounts, trendData, dailyRegsResult] = await Promise.all([
       pool.query(
         `SELECT
            COUNT(*) FILTER (WHERE status = 'approved')                       AS approved,
            COUNT(*) FILTER (WHERE status = 'rejected')                       AS rejected,
            COUNT(*) FILTER (WHERE status IN ('submitted', 'under_review'))   AS pending,
            COUNT(*) FILTER (WHERE status = 'changes_requested')              AS changes_requested,
-           COUNT(*) FILTER (WHERE status = 'draft')                          AS draft,
            COUNT(*)                                                           AS total
-         FROM profiles WHERE sangha_id = $1 ${df.clause}`,
-        [sanghaId, ...df.params]
+         FROM profiles
+         WHERE sangha_id = $1 AND status::text IN (${REPORT_STATUS_SQL}) ${range.clause}`,
+        sqlParams
       ),
       pool.query(
         `SELECT
@@ -159,40 +417,53 @@ const [
            COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '30 days')                        AS total_last30,
            COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '60 days'
                              AND created_at < NOW()-INTERVAL '30 days')                          AS total_prev30
-         FROM profiles WHERE sangha_id = $1`,
+         FROM profiles
+         WHERE sangha_id = $1 AND status::text IN (${REPORT_STATUS_SQL})`,
         [sanghaId]
       ),
+      // Registration trend: submission date, falling back to profile creation for legacy rows.
+      // Deliberately NOT wrapped in safe() so SQL errors surface instead of an empty chart.
       pool.query(
         `SELECT
-           TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date,
-           COUNT(*) AS registrations,
-           COUNT(*) FILTER (WHERE status='approved') AS approvals,
-           COUNT(*) FILTER (WHERE status='rejected') AS rejections
+           TO_CHAR(${REGISTRATION_IST_DATE}, 'YYYY-MM-DD')             AS date,
+           COUNT(*)::int                                               AS registrations,
+           (COUNT(*) FILTER (WHERE status::text = 'approved'))::int    AS approvals,
+           (COUNT(*) FILTER (WHERE status::text = 'rejected'))::int    AS rejections
          FROM profiles
-         WHERE sangha_id=$1 AND created_at >= NOW()-INTERVAL '30 days'
-         GROUP BY DATE(created_at)
-         ORDER BY DATE(created_at) ASC`,
-        [sanghaId]
+         WHERE sangha_id = $1
+           AND status::text IN (${REPORT_STATUS_SQL})
+           AND COALESCE(submitted_at, created_at) IS NOT NULL
+           ${range.clause}
+         GROUP BY 1
+         ORDER BY 1 ASC`,
+        sqlParams
       ),
     ]);
 
-    res.json({
-      counts:             currentCounts.rows[0],
-      trends:             trendData.rows[0],
-      dailyRegistrations: dailyRegs.rows,
-      sectionCounts: {
-  personalDetails:      parseInt(currentCounts.rows[0].approved || 0),
-  locationInformation:  parseInt(locationCount.rows[0].cnt || 0),
-  educationProfession:  parseInt(educationCount.rows[0].cnt || 0),
-  economicDetails:      parseInt(economicCount.rows[0].cnt || 0),
-  insuranceCoverage:    parseInt(insuranceCount.rows[0].cnt || 0),
-  documentationStatus:  parseInt(documentCount.rows[0].cnt || 0),
-  religiousDetails:     parseInt(religiousCount.rows[0].cnt || 0),
-},
+    debugLog('per-day rows:', dailyRegsResult.rows.length);
+    debugLog('sample rows:', dailyRegsResult.rows.slice(0, 3));
 
+    // 8. Build trend and respond
+    const trend = buildRegistrationTrend(dailyRegsResult.rows, dateFrom, dateTo);
+    debugLog('granularity:', trend.granularity, 'buckets:', trend.series.length);
+
+    res.json({
+      counts:                  currentCounts.rows[0],
+      trends:                  trendData.rows[0],
+      dailyRegistrations:      trend.series,
+      registrationGranularity: trend.granularity,
+      sectionCounts: {
+        personalDetails:      parseInt(currentCounts.rows[0].approved || 0),
+        locationInformation:  parseInt(locationCount.rows[0].cnt || 0),
+        educationProfession:  parseInt(educationCount.rows[0].cnt || 0),
+        economicDetails:      parseInt(economicCount.rows[0].cnt || 0),
+        insuranceCoverage:    parseInt(insuranceCount.rows[0].cnt || 0),
+        documentationStatus:  parseInt(documentCount.rows[0].cnt || 0),
+        religiousDetails:     parseInt(religiousCount.rows[0].cnt || 0),
+      },
     });
   } catch (err) {
-    console.error(err);
+    console.error('[getEnhancedReports]', err.message, err.code);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -245,9 +516,11 @@ const getAdvancedReports = async (req, res) => {
     const totalPopulation =
       parseInt(popRow.family_count || 0) + parseInt(popRow.member_count || 0);
 
+    // Pending = submitted + under_review (grouped under the label 'submitted').
+    // Only supported report statuses are aggregated.
     const statusGenderRows = await safe(`
       SELECT
-        p.status AS label,
+        (CASE WHEN p.status::text IN ('submitted','under_review') THEN 'submitted' ELSE p.status::text END) AS label,
         COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male')   AS male,
         COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female') AS female,
         COUNT(*) FILTER (WHERE pd.gender IS NOT NULL
@@ -256,8 +529,8 @@ const getAdvancedReports = async (req, res) => {
       FROM profiles p
       LEFT JOIN personal_details pd ON pd.profile_id = p.id
       WHERE p.sangha_id=$1 ${allStatusDateFilter}
-        AND p.status IN ('approved','rejected','changes_requested','submitted','draft')
-      GROUP BY p.status
+        AND p.status::text IN (${REPORT_STATUS_SQL})
+      GROUP BY 1
       ORDER BY total DESC
     `, [sanghaId, ...drSubmitted.params]);
 
@@ -701,9 +974,19 @@ const getAdvancedReports = async (req, res) => {
 const getExportData = async (req, res) => {
   try {
     const { id: userId } = req.user;
-    const { category, filter, dateFrom, dateTo } = req.body;
+    const { category, filter, dateFrom: rawFrom, dateTo: rawTo, maritalStatus, ageMin, ageMax } = req.body || {};
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
+
+    const dateFrom = cleanDate(rawFrom);
+    const dateTo   = cleanDate(rawTo);
+
+    // Registration status is explicit: only the 'status' category can request other statuses.
+    let statuses = STATUS_GROUPS.approved;
+    if (category === 'status') {
+      statuses = resolveStatuses(filter || 'approved');
+      if (!statuses) return res.status(400).json({ message: 'Unsupported status filter' });
+    }
 
     const BASE_SELECT = `
       SELECT DISTINCT
@@ -714,24 +997,15 @@ const getExportData = async (req, res) => {
     `;
     let extraCols = '', joinClause = '';
     const baseCond = `WHERE p.sangha_id = $1`;
-    let params = [sanghaId];
+    let params = [sanghaId, statuses];
     const df = buildDateFilter(dateFrom, dateTo, params.length, 'p.submitted_at');
     if (df.clause) params = [...params, ...df.params];
     const dateClause = df.clause;
-    let statusCond = `AND p.status = 'approved'`;
+    let statusCond = `AND p.status::text = ANY($2::text[])`;
     const paramOffset = params.length;
 
     switch (category) {
-      case 'status': {
-        const f = (filter||'approved').toLowerCase();
-        if (f==='pending'||f==='submitted') statusCond=`AND p.status IN ('submitted','under_review')`;
-        else if (f==='changes'||f==='changes_requested') statusCond=`AND p.status='changes_requested'`;
-        else if (f==='rejected') statusCond=`AND p.status='rejected'`;
-        else if (f==='draft') statusCond=`AND p.status='draft'`;
-        else if (f==='all'||f==='') statusCond='';
-        else { statusCond=`AND p.status=$${paramOffset+1}`; params.push(f); }
-        break;
-      }
+      case 'status': break;
       case 'city': { joinClause=`JOIN addresses a ON a.profile_id=p.id`; extraCols=`, TRIM(a.city) AS "City",a.district AS "District",a.state AS "State",a.pincode AS "Pincode"`; if(filter){statusCond+=` AND LOWER(TRIM(a.city))=LOWER($${paramOffset+1})`;params.push(filter);} break; }
       case 'gender': { extraCols=`, pd.gender::text AS "Gender",pd.date_of_birth AS "Date of Birth"`; if(filter){statusCond+=` AND LOWER(pd.gender::text)=LOWER($${paramOffset+1})`;params.push(filter);} break; }
       case 'age_group': {
@@ -749,11 +1023,11 @@ const getExportData = async (req, res) => {
       case 'family_type': { joinClause=`JOIN family_info fi ON fi.profile_id=p.id`; extraCols=`, fi.family_type::text AS "Family Type"`; if(filter){statusCond+=` AND LOWER(fi.family_type::text) LIKE LOWER($${paramOffset+1})`;params.push(`%${filter}%`);} break; }
       case 'marital': {
         extraCols = `, pd.marital_status AS "Marital Status", pd.date_of_birth AS "Date of Birth"`;
-        const f = (filter || '').toLowerCase();
-        if (f === 'married') statusCond += ` AND pd.marital_status = 'married'`;
-        else if (f === 'single' || f === 'single_never_married') statusCond += ` AND pd.marital_status = 'single_never_married'`;
-        else if (f === 'single_divorced') statusCond += ` AND pd.marital_status = 'single_divorced'`;
-        else if (f === 'single_widowed') statusCond += ` AND pd.marital_status = 'single_widowed'`;
+        if (filter) {
+          const m = resolveMarital(filter);
+          if (m.error) return res.status(400).json({ message: m.error });
+          if (m.value) { statusCond += ` AND pd.marital_status::text = $${paramOffset+1}`; params.push(m.value); }
+        }
         break;
       }
       case 'gotra': case 'kuladevata': case 'pravara': case 'surname': case 'ancestral': {
@@ -767,13 +1041,17 @@ const getExportData = async (req, res) => {
       default: break;
     }
 
-    const sql = `${BASE_SELECT} ${extraCols} FROM profiles p JOIN users u ON u.id=p.user_id LEFT JOIN personal_details pd ON pd.profile_id=p.id ${joinClause} ${baseCond} ${statusCond} ${dateClause} ORDER BY "Full Name" LIMIT 5000`;
+    // Optional marital-status / age filters (parameterized) — applied after category-specific params
+    const pf = buildProfileFilters({ maritalStatus, ageMin, ageMax }, params);
+    if (pf.error) return res.status(400).json({ message: pf.error });
+
+    const sql = `${BASE_SELECT} ${extraCols} FROM profiles p JOIN users u ON u.id=p.user_id LEFT JOIN personal_details pd ON pd.profile_id=p.id ${joinClause} ${baseCond} ${statusCond} ${dateClause} ${pf.clause} ORDER BY "Full Name" LIMIT 5000`;
     try {
       const result = await pool.query(sql, params);
       return res.json(result.rows);
     } catch (queryErr) {
       console.warn('[getExportData] Main query failed, using safe fallback:', queryErr.message);
-      const fallback = await pool.query(`SELECT DISTINCT TRIM(CONCAT(pd.first_name,' ',COALESCE(pd.last_name,''))) AS "Full Name",u.email AS "Email",u.phone AS "Phone",p.status AS "Status",TO_CHAR(p.submitted_at,'DD-Mon-YYYY') AS "Submitted At" FROM profiles p JOIN users u ON u.id=p.user_id LEFT JOIN personal_details pd ON pd.profile_id=p.id WHERE p.sangha_id=$1 AND p.status='approved' ORDER BY "Full Name" LIMIT 5000`, [sanghaId]);
+      const fallback = await pool.query(`SELECT DISTINCT TRIM(CONCAT(pd.first_name,' ',COALESCE(pd.last_name,''))) AS "Full Name",u.email AS "Email",u.phone AS "Phone",p.status AS "Status",TO_CHAR(p.submitted_at,'DD-Mon-YYYY') AS "Submitted At" FROM profiles p JOIN users u ON u.id=p.user_id LEFT JOIN personal_details pd ON pd.profile_id=p.id WHERE p.sangha_id=$1 AND p.status::text = ANY($2::text[]) ORDER BY "Full Name" LIMIT 5000`, [sanghaId, statuses]);
       return res.json(fallback.rows);
     }
   } catch (err) {
@@ -784,17 +1062,39 @@ const getExportData = async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // FULL EXPORT DATA  (includes _profile_id for frontend)
+// Body: { sections, status, includeAllStatuses, maritalStatus, ageMin, ageMax, dateFrom, dateTo }
+//   status: 'approved' | 'pending' | 'rejected' | 'changes_requested' | 'all'
+//   When status is omitted the legacy behaviour applies (approved only,
+//   or every supported status when includeAllStatuses is true).
 // ════════════════════════════════════════════════════════════
 const getFullExportData = async (req, res) => {
   try {
     const { id: userId } = req.user;
-    const { sections = [], includeAllStatuses = false, dateFrom, dateTo } = req.body;
+    const {
+      sections = [],
+      includeAllStatuses = false,
+      status,
+      maritalStatus,
+      ageMin,
+      ageMax,
+      dateFrom: rawFrom,
+      dateTo:   rawTo,
+    } = req.body || {};
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
-    const statusFilter = includeAllStatuses ? '' : `AND p.status = 'approved'`;
-    const df = buildDateFilter(dateFrom, dateTo, 1, 'p.submitted_at');
-    const dateFilter = df.clause;
+    const sectionList = Array.isArray(sections) ? sections : [];
+
+    const statuses = resolveStatuses(status, includeAllStatuses === true);
+    if (!statuses) return res.status(400).json({ message: 'Unsupported status filter' });
+
+    const params = [sanghaId, statuses];
+
+    const df = buildDateFilter(cleanDate(rawFrom), cleanDate(rawTo), params.length, 'p.submitted_at');
+    params.push(...df.params);
+
+    const pf = buildProfileFilters({ maritalStatus, ageMin, ageMax }, params);
+    if (pf.error) return res.status(400).json({ message: pf.error });
 
     const baseRows = await pool.query(
       `SELECT
@@ -809,10 +1109,13 @@ const getFullExportData = async (req, res) => {
        FROM profiles p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
-       WHERE p.sangha_id = $1 ${statusFilter} ${dateFilter}
+       WHERE p.sangha_id = $1
+         AND p.status::text = ANY($2::text[])
+         ${df.clause}
+         ${pf.clause}
        ORDER BY "Full Name"
        LIMIT 5000`,
-      [sanghaId, ...df.params]
+      params
     );
 
     const rowMap = new Map();
@@ -820,7 +1123,7 @@ const getFullExportData = async (req, res) => {
     const profileIds = baseRows.rows.map(r => r.profile_id);
     if (profileIds.length === 0) return res.json([]);
 
-    if (sections.includes('economic-details')) {
+    if (sectionList.includes('economic-details')) {
       const ecRows = await pool.query(
         `SELECT profile_id,
            self_income::text AS "Self Income (Individual)", family_income::text AS "Family Income (Annual)",
@@ -834,32 +1137,6 @@ const getFullExportData = async (req, res) => {
       for (const ec of ecRows.rows) {
         const r = rowMap.get(ec.profile_id);
         if (r) Object.assign(r, ec);
-      }
-
-      const insRows = await pool.query(
-        `SELECT profile_id,
-           array_to_string(health_coverage::text[],       ', ') AS "Health Insurance",
-           array_to_string(life_coverage::text[],         ', ') AS "Life Insurance",
-           array_to_string(term_coverage::text[],         ', ') AS "Term Insurance",
-           array_to_string(konkani_card_coverage::text[], ', ') AS "Konkani Card"
-         FROM member_insurance
-         WHERE profile_id = ANY($1)
-           AND LOWER(member_relation) = 'self'
-         ORDER BY profile_id, sort_order`,
-        [profileIds]
-      );
-      const insMap = new Map();
-      for (const ins of insRows.rows) {
-        if (!insMap.has(ins.profile_id)) insMap.set(ins.profile_id, ins);
-      }
-      for (const [pid, ins] of insMap) {
-        const r = rowMap.get(pid);
-        if (r) {
-          r["Health Insurance"] = ins["Health Insurance"] || '';
-          r["Life Insurance"]   = ins["Life Insurance"]   || '';
-          r["Term Insurance"]   = ins["Term Insurance"]   || '';
-          r["Konkani Card"]     = ins["Konkani Card"]     || '';
-        }
       }
 
       const docRows = await pool.query(
@@ -891,7 +1168,67 @@ const getFullExportData = async (req, res) => {
       }
     }
 
-    if (sections.includes('education-profession')) {
+    // ── Insurance Coverage (independent section) ──────────────────────────
+    // One row per registered user (no duplicates): the user's own ('self')
+    // coverage + a summary of which family members hold any coverage.
+    // Per-member detail stays in the Family Members table.
+    if (sectionList.includes('insurance-coverage')) {
+      for (const r of rowMap.values()) {
+        r["Health Coverage"]        = '';
+        r["Life Coverage"]          = '';
+        r["Term Coverage"]          = '';
+        r["Konkani Card Coverage"]  = '';
+        r["Insured Family Members"] = '';
+      }
+
+      const selfIns = await pool.query(
+        `SELECT DISTINCT ON (profile_id) profile_id,
+           array_to_string(health_coverage::text[],       ', ') AS "Health Coverage",
+           array_to_string(life_coverage::text[],         ', ') AS "Life Coverage",
+           array_to_string(term_coverage::text[],         ', ') AS "Term Coverage",
+           array_to_string(konkani_card_coverage::text[], ', ') AS "Konkani Card Coverage"
+         FROM member_insurance
+         WHERE profile_id = ANY($1)
+           AND LOWER(COALESCE(member_relation,'')) = 'self'
+         ORDER BY profile_id, sort_order`,
+        [profileIds]
+      );
+      for (const ins of selfIns.rows) {
+        const r = rowMap.get(ins.profile_id);
+        if (r) {
+          r["Health Coverage"]       = ins["Health Coverage"]       || '';
+          r["Life Coverage"]         = ins["Life Coverage"]         || '';
+          r["Term Coverage"]         = ins["Term Coverage"]         || '';
+          r["Konkani Card Coverage"] = ins["Konkani Card Coverage"] || '';
+        }
+      }
+
+      const hasCov = col =>
+        `(COALESCE(cardinality(${col}::text[]),0) > 0 AND NOT (${col}::text[] <@ ARRAY['none','no']::text[]))`;
+
+      const famIns = await pool.query(
+        `SELECT profile_id,
+           STRING_AGG(
+             COALESCE(NULLIF(TRIM(member_name),''),'Unnamed') || ' (' || COALESCE(member_relation,'') || ')',
+             ', ' ORDER BY sort_order
+           ) AS "Insured Family Members"
+         FROM member_insurance
+         WHERE profile_id = ANY($1)
+           AND LOWER(COALESCE(member_relation,'')) <> 'self'
+           AND (
+             ${hasCov('health_coverage')} OR ${hasCov('life_coverage')} OR
+             ${hasCov('term_coverage')}   OR ${hasCov('konkani_card_coverage')}
+           )
+         GROUP BY profile_id`,
+        [profileIds]
+      );
+      for (const fi of famIns.rows) {
+        const r = rowMap.get(fi.profile_id);
+        if (r) r["Insured Family Members"] = fi["Insured Family Members"] || '';
+      }
+    }
+
+    if (sectionList.includes('education-profession')) {
       const eduRows = await pool.query(
         `SELECT me.profile_id, me.member_name AS "Member Name", me.member_relation AS "Relation",
            COALESCE(
@@ -933,7 +1270,7 @@ const getFullExportData = async (req, res) => {
       }
     }
 
-    if (sections.includes('location-information')) {
+    if (sectionList.includes('location-information')) {
       const addrRows = await pool.query(
         `SELECT profile_id, TRIM(city) AS "City", district AS "District", state AS "State", pincode AS "Pincode"
          FROM addresses WHERE profile_id = ANY($1) LIMIT 5000`,
@@ -954,7 +1291,7 @@ const getFullExportData = async (req, res) => {
       }
     }
 
-    if (sections.includes('religious-details')) {
+    if (sectionList.includes('religious-details')) {
       const relRows = await pool.query(
         `SELECT rd.profile_id, rd.gotra AS "Gotra", rd.pravara AS "Pravara",
            rd.upanama_general AS "Upanama General", rd.upanama_proper AS "Upanama Proper",
@@ -1007,8 +1344,9 @@ const getFamilyMembersData = async (req, res) => {
          TRIM(CONCAT(COALESCE(pd.first_name,''),' ',COALESCE(pd.middle_name||' ',''),COALESCE(pd.last_name,''))) AS full_name
        FROM profiles p
        LEFT JOIN personal_details pd ON pd.profile_id = p.id
-       WHERE p.id = ANY($1) AND p.sangha_id = $2`,
-      [profileIds, sanghaId]
+       WHERE p.id = ANY($1) AND p.sangha_id = $2
+         AND p.status::text = ANY($3::text[])`,
+      [profileIds, sanghaId, ALL_REPORT_STATUSES]
     );
 
     const validIds = profileRes.rows.map(r => r.id);
