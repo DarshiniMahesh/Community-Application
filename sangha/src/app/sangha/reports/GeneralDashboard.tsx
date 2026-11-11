@@ -5,20 +5,19 @@ import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
 } from "recharts";
 import {
   TrendingUp, TrendingDown, Minus, Users, CheckCircle2, Clock,
-  AlertCircle, FileEdit, RefreshCw, FileSpreadsheet, Loader2,
+  AlertCircle, RefreshCw, FileSpreadsheet, Loader2,
   ArrowRight, MapPin, GraduationCap, Wallet, Shield, Activity,
   UserCheck, UserX, BookOpen, BarChart2,
 } from "lucide-react";
 import { EnhancedReport } from "./page";
-import { formatIndiaDate } from "@/lib/dateTime";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-export function n(s: string | undefined | null): number {
-  return parseInt(s ?? "0", 10) || 0;
+export function n(s: string | number | undefined | null): number {
+  const v = typeof s === "number" ? s : parseInt(s ?? "0", 10);
+  return Number.isFinite(v) ? v : 0;
 }
 export function calcPct(value: string | number, total: number): number {
   const v = typeof value === "string" ? n(value) : value;
@@ -36,21 +35,6 @@ function TrendBadge({ current, previous }: { current: number; previous: number }
   if (pct < 0) return <span className="inline-flex items-center gap-1 text-xs text-rose-600 font-medium"><TrendingDown className="w-3 h-3" />{pct}% vs prev period</span>;
   return <span className="inline-flex items-center gap-1 text-xs text-slate-500"><Minus className="w-3 h-3" />Unchanged</span>;
 }
-
-const AreaTooltip = ({ active, payload, label }: any) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-xl px-4 py-3 text-sm">
-      <p className="font-semibold text-slate-900 mb-2 text-xs uppercase tracking-wider">{label}</p>
-      {payload.map((p: any) => (
-        <p key={p.name} className="text-xs flex items-center gap-2" style={{ color: p.color }}>
-          <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: p.color }} />
-          {p.name}: <span className="font-bold ml-1 text-slate-800">{p.value}</span>
-        </p>
-      ))}
-    </div>
-  );
-};
 
 const PieTooltipContent = ({ active, payload, total }: any) => {
   if (!active || !payload?.length) return null;
@@ -185,6 +169,11 @@ interface Props {
   error: boolean;
   onRefresh: () => void;
   onGoToAdvanced: (section?: string) => void;
+  /**
+   * sections  → Custom Report sections to open
+   * category  → status to pre-filter by: "approved" | "pending" | "changes_requested" | "rejected" | "all"
+   *             (any other value, e.g. an analytics section name, keeps the default approved-only view)
+   */
   onGoToCustomReport: (sections: string[], category?: string) => void;
 }
 
@@ -216,40 +205,39 @@ export default function GeneralDashboard({
     );
   }
 
-  const { counts, trends, dailyRegistrations } = data;
-  const total = n(counts.total);
+  const { counts, trends } = data;
+
+  // Supported report statuses only: approved, pending, changes requested, rejected.
+  // Total is the sum of these four so every figure on the dashboard is consistent.
+  const approvedCount = n(counts.approved);
+  const pendingCount  = n(counts.pending);
+  const changesCount  = n(counts.changes_requested);
+  const rejectedCount = n(counts.rejected);
+  const total = approvedCount + pendingCount + changesCount + rejectedCount;
 
   const pieData = [
-    { name: "Approved",  value: n(counts.approved),         color: "#10b981" },
-    { name: "Pending",   value: n(counts.pending),           color: "#f59e0b" },
-    { name: "Changes",   value: n(counts.changes_requested), color: "#f97316" },
-    { name: "Rejected",  value: n(counts.rejected),          color: "#ef4444" },
-    { name: "Draft",     value: n(counts.draft),             color: "#94a3b8" },
+    { name: "Approved",  value: approvedCount, color: "#10b981" },
+    { name: "Pending",   value: pendingCount,  color: "#f59e0b" },
+    { name: "Changes",   value: changesCount,  color: "#f97316" },
+    { name: "Rejected",  value: rejectedCount, color: "#ef4444" },
   ].filter(d => d.value > 0);
-
-  const chartData = dailyRegistrations.map(d => ({
-    date: formatIndiaDate(d.date, { month: "short", day: "numeric" }),
-    Registrations: n(d.registrations),
-    Approvals: n(d.approvals),
-    Rejections: n((d as any).rejections ?? "0"),
-  }));
 
   const statusKpiCards = [
     {
       icon: CheckCircle2, color: "#10b981", bg: "bg-emerald-50",
-      label: "Approved",        value: n(counts.approved),         status: "approved",
+      label: "Approved",        value: approvedCount, status: "approved",
     },
     {
       icon: Clock, color: "#f59e0b", bg: "bg-amber-50",
-      label: "Pending Review",  value: n(counts.pending),           status: "pending",
+      label: "Pending Review",  value: pendingCount,  status: "pending",
     },
     {
       icon: UserCheck, color: "#f97316", bg: "bg-orange-50",
-      label: "Changes Needed",  value: n(counts.changes_requested), status: "changes_requested",
+      label: "Changes Needed",  value: changesCount,  status: "changes_requested",
     },
     {
       icon: UserX, color: "#ef4444", bg: "bg-red-50",
-      label: "Rejected",        value: n(counts.rejected),          status: "rejected",
+      label: "Rejected",        value: rejectedCount, status: "rejected",
     },
   ];
 
@@ -259,7 +247,7 @@ const sc = data.sectionCounts ?? {};
 const analyticsCards = [
   {
     icon: Users, color: "#0ea5e9", bg: "bg-sky-50",
-    title: "Personal Information", value: sc.personalDetails ?? n(counts.approved),
+    title: "Personal Information", value: sc.personalDetails ?? approvedCount,
     section: "demographics",
     excelSections: ["personal-details"],
   },
@@ -285,7 +273,7 @@ const analyticsCards = [
     icon: Shield, color: "#10b981", bg: "bg-emerald-50",
     title: "Insurance Coverage", value: sc.insuranceCoverage ?? 0,
     section: "insurance",
-    excelSections: ["family-information"],
+    excelSections: ["insurance-coverage"],
   },
   {
     icon: Activity, color: "#f43f5e", bg: "bg-rose-50",
@@ -352,6 +340,8 @@ const analyticsCards = [
       </div>
 
       {/* ── Status KPI Cards — with Details + Excel buttons ── */}
+      {/* Excel passes the card's status ("approved" | "pending" | "changes_requested" | "rejected")
+          so the Custom Report opens pre-filtered to exactly that status. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statusKpiCards.map(card => {
           const pct = calcPct(card.value, total);
@@ -375,7 +365,7 @@ const analyticsCards = [
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
         {/* Pie — with Export button */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm lg:col-span-2">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm lg:col-span-5">
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-sm font-semibold text-slate-800">Status Distribution</p>
@@ -412,55 +402,6 @@ const analyticsCards = [
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
             </PieChart>
           </ResponsiveContainer>
-        </div>
-
-        {/* Area Chart */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm lg:col-span-3">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Registration Trend</p>
-              <p className="text-xs text-slate-500">Registrations, approvals & rejections over selected period</p>
-            </div>
-            <button
-              onClick={() => onGoToAdvanced("demographics")}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs border border-slate-200 text-slate-400
-                hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 transition-all"
-            >
-              <ArrowRight className="w-3.5 h-3.5" />Details
-            </button>
-          </div>
-          {chartData.length === 0 ? (
-            <div className="h-[220px] flex items-center justify-center text-slate-400 text-sm">
-              No activity in the selected period
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={chartData} margin={{ top: 5, right: 8, left: -24, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gradRegs" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradApps" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradRej" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
-                <Tooltip content={<AreaTooltip />} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
-                <Area type="monotone" dataKey="Registrations" stroke="#0ea5e9" strokeWidth={2.5} fill="url(#gradRegs)" dot={false} activeDot={{ r: 5 }} />
-                <Area type="monotone" dataKey="Approvals" stroke="#10b981" strokeWidth={2.5} fill="url(#gradApps)" dot={false} activeDot={{ r: 5 }} />
-                <Area type="monotone" dataKey="Rejections" stroke="#ef4444" strokeWidth={2} fill="url(#gradRej)" dot={false} activeDot={{ r: 4 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
         </div>
       </div>
 
