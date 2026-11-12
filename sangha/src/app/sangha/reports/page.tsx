@@ -1,47 +1,44 @@
 //Community-Application\sangha\src\app\sangha\reports\page.tsx
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { LayoutDashboard, BarChart2, FileSpreadsheet, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import GeneralDashboard from "./GeneralDashboard";
 import AdvancedDashboard from "./AdvancedDashboard";
 import CustomReport from "./CustomReport";
-import DateRangePicker, { DEFAULT_DATE_RANGE, DateRange, toISO } from "./DateRangePicker";
+import DateRangePicker, { getDefaultDateRange, DateRange, toISO } from "./DateRangePicker";
 
+// Supported report statuses only (approved, pending, changes requested, rejected).
+// Draft is intentionally not part of the Reports module.
 export interface Counts {
   approved: string; rejected: string; pending: string;
-  changes_requested: string; draft: string; total: string;
+  changes_requested: string; total: string;
 }
 export interface Trends {
   approved_last30: string; approved_prev30: string;
   submitted_last30: string; submitted_prev30: string;
   total_last30: string; total_prev30: string;
 }
-export interface DailyReg { date: string; registrations: string; approvals: string; rejections: string; }
+
+// One bucket of the registration trend. `date` is YYYY-MM-DD and is the day,
+// the Monday of the week, or the first of the month, depending on the
+// response's registrationGranularity.
+export interface DailyReg {
+  date: string;
+  registrations: string;
+  approvals: string;
+  rejections: string;
+}
+
+export type RegistrationGranularity = "day" | "week" | "month";
+
 export interface EnhancedReport {
-  counts: {
-    approved: string;
-    rejected: string;
-    pending: string;
-    changes_requested: string;
-    draft: string;
-    total: string;
-  };
-  trends: {
-    approved_last30: string;
-    approved_prev30: string;
-    submitted_last30: string;
-    submitted_prev30: string;
-    total_last30: string;
-    total_prev30: string;
-  };
-  dailyRegistrations: Array<{
-    date: string;
-    registrations: string;
-    approvals: string;
-  }>;
-  sectionCounts: {          // ← ADD THIS
+  counts: Counts;
+  trends: Trends;
+  dailyRegistrations: DailyReg[];
+  registrationGranularity?: RegistrationGranularity;
+  sectionCounts: {
     personalDetails: number;
     locationInformation: number;
     educationProfession: number;
@@ -64,8 +61,12 @@ export interface AdvancedReport {
     familyType: { nuclear: number; joint: number };
     maritalStatus: { label: string; count: number }[];
     maritalStatusGender?: { label: string; male: number; female: number; other: number }[];
-    /** Never married, divorced, widowed, married M/F, other — approved profiles with personal_details */
-    maritalDetailedBars?: { label: string; count: number }[];
+    /**
+     * Exactly four marital-status categories (Single (Never Married), Married, Single & Divorced,
+     * Single & Widowed), always in that order and zero-filled. `other` is the gender "other" count.
+     * Source: approved profiles with personal_details.
+     */
+    maritalDetailedBars?: { key?: string; label: string; male: number; female: number; other?: number }[];
   };
   education: {
     degrees: { label: string; count: number }[];
@@ -125,25 +126,33 @@ export default function ReportsPage() {
   const [loading, setLoading]           = useState(true);
   const [advancedLoading, setAdvancedLoading] = useState(false);
   const [error, setError]               = useState(false);
-  const [dateRange, setDateRange]       = useState<DateRange>(DEFAULT_DATE_RANGE);
+  // Lazy initializer: always starts from today's India date, not a module-load timestamp.
+  const [dateRange, setDateRange]       = useState<DateRange>(() => getDefaultDateRange());
   const [customInitSections, setCustomInitSections] = useState<string[]>([]);
   const [customInitCategory, setCustomInitCategory] = useState<string | undefined>();
 
+  // Guards against an older (slower) response overwriting a newer one.
+  const generalRequestId = useRef(0);
+
   const fetchData = useCallback(async (range?: DateRange) => {
+    const requestId = ++generalRequestId.current;
     setLoading(true); setError(false);
     try {
       const r    = range ?? dateRange;
       const from = toISO(r.from);
       const to   = toISO(r.to);
+      // All Time sends no bounds so the backend does not restrict the period.
       const params = (r.preset === "allTime" || !from || !to)
         ? ""
         : `?dateFrom=${from}&dateTo=${to}`;
       const result = await api.get(`/sangha/reports/enhanced${params}`);
-      setData(result);
+      if (requestId !== generalRequestId.current) return; // a newer request superseded this one
+      setData(result as EnhancedReport);
     } catch {
+      if (requestId !== generalRequestId.current) return;
       setError(true); setData(null);
     } finally {
-      setLoading(false);
+      if (requestId === generalRequestId.current) setLoading(false);
     }
   }, [dateRange]);
 
@@ -165,7 +174,8 @@ export default function ReportsPage() {
     }
   }, [dateRange]);
 
-  // Initial load
+  // Initial load, and re-fetch of the general dashboard whenever the date range
+  // changes (fetchData's identity changes with dateRange).
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // Load advanced data when switching to that tab (if not already loaded)
@@ -175,11 +185,10 @@ export default function ReportsPage() {
     }
   }, [activeTab, advancedData, advancedLoading, fetchAdvancedData]);
 
-  // Re-fetch when date range changes, scoped to whichever tab is active
+  // Re-fetch advanced data when the date range changes while that tab is active.
+  // (The general dashboard is already re-fetched by the effect above.)
   useEffect(() => {
-    if (activeTab === "general") {
-      fetchData(dateRange);
-    } else if (activeTab === "advanced") {
+    if (activeTab === "advanced") {
       fetchAdvancedData(dateRange);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,6 +208,9 @@ export default function ReportsPage() {
     if (!advancedData && !advancedLoading) fetchAdvancedData();
   }, [advancedData, advancedLoading, fetchAdvancedData]);
 
+  // sections → Custom Report sections to open
+  // category → requested registration status ("approved" | "pending" | "changes_requested" | "rejected" | "all")
+  //            passed through to CustomReport as initCategory
   const goToCustomReport = useCallback((sections: string[], category?: string) => {
     setCustomInitSections(sections);
     setCustomInitCategory(category);
@@ -264,7 +276,7 @@ export default function ReportsPage() {
             data={data}
             loading={loading}
             error={error}
-            onRefresh={fetchData}
+            onRefresh={() => fetchData()}
             onGoToAdvanced={goToAdvanced}
             onGoToCustomReport={goToCustomReport}
           />

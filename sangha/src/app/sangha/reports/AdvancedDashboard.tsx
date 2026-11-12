@@ -1,3 +1,4 @@
+//Community-Application\sangha\src\app\sangha\reports\AdvancedDashboard.tsx
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
@@ -11,7 +12,11 @@ import {
   Filter, BookOpen, CheckCircle, ChevronRight,
 } from "lucide-react";
 import { AdvancedReport } from "./page";
+import ScrollableChart, { estimateLabelWidth } from "./Scrollablechart";
 import type { DateRange } from "./DateRangePicker";
+
+// Dark shade used for every axis tick label, legend label and chart value label
+export const AXIS_COLOR = "#111827";
 
 // ─── Gender Color Constants ────────────────────────────────────────────────────
 export const GENDER_COLORS = {
@@ -120,7 +125,7 @@ function ChartCard({
   className?: string; onExport?: () => void;
 }) {
   return (
-    <div className={`bg-white border border-slate-200 rounded-2xl p-5 shadow-sm ${className}`}>
+    <div className={`min-w-0 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm ${className}`}>
       <div className="flex items-start justify-between mb-0.5">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-slate-800">{title}</p>
@@ -163,10 +168,10 @@ function GenderStackedBar({
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ left: -20, right: 5, top: 5, bottom: 5 }} layout="horizontal">
         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-        <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
-        <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 10, fill: AXIS_COLOR }} tickLine={false} axisLine={false} />
+        <YAxis tick={{ fontSize: 10, fill: AXIS_COLOR }} tickLine={false} axisLine={false} allowDecimals={false} />
         <Tooltip content={<BarTooltipContent />} />
-        <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
+        <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: AXIS_COLOR }} />
         <Bar dataKey="male"   name="Male"   fill={GENDER_COLORS.male}   stackId="g" radius={[0, 0, 4, 4]} />
         <Bar dataKey="female" name="Female" fill={GENDER_COLORS.female} stackId="g" radius={hasOther ? [0, 0, 0, 0] : [4, 4, 0, 0]} />
         {hasOther && (
@@ -177,82 +182,100 @@ function GenderStackedBar({
   );
 }
 
-// ─── Reusable Gender Stacked Bar (vertical — long labels) ────────────────────
-function GenderStackedBarVertical({
-  data, height = 260,
+// ─── Scrollable Gender Stacked Bar (horizontal bars — long labels, many categories) ──
+// Used by Highest Degree Level, Profession Breakdown and Employment Sector Breakdown.
+// The chart keeps its natural size (one row per category) and scrolls inside its own
+// viewport, so the card header / export button never move and the page never grows.
+function ScrollableGenderBarVertical({
+  data, ariaLabel, minHeight = 260, maxHeight = 380, rowHeight = 44,persistentScrollbar = false,
 }: {
   data: { label: string; male: number; female: number; other?: number }[];
-  height?: number;
+  ariaLabel: string;
+  minHeight?: number;   // lower bound for the natural chart height
+  maxHeight?: number;   // visible viewport cap before the vertical scrollbar appears
+  rowHeight?: number;   // px per category row
+  persistentScrollbar?: boolean;
 }) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center text-slate-400 text-sm" style={{ height }}>
+      <div className="flex items-center justify-center text-slate-400 text-sm" style={{ height: minHeight }}>
         No data available
       </div>
     );
   }
   const hasOther = data.some(d => (d.other ?? 0) > 0);
+
+  // Y-axis is sized to the longest label (no clipping, and no wasted blank space on the left)
+  const yAxisWidth = estimateLabelWidth(data.map(d => d.label), { pxPerChar: 6.8, pad: 14, min: 70, max: 230 });
+  // rows + x-axis + legend
+  const innerHeight = Math.max(minHeight, data.length * rowHeight + 76);
+  // below this width the viewport scrolls sideways instead of squashing the bars
+  const minInnerWidth = yAxisWidth + 260;
+
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 20, top: 5, bottom: 5 }}>
+    <ScrollableChart
+      innerHeight={innerHeight}
+      minInnerWidth={minInnerWidth}
+      maxHeight={maxHeight}
+      ariaLabel={ariaLabel}
+      persistentScrollbar={persistentScrollbar}
+    >
+      <BarChart data={data} layout="vertical" margin={{ left: 0, right: 24, top: 5, bottom: 5 }} barCategoryGap="22%">
         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-        <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
-        <YAxis dataKey="label" type="category" width={185} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-        <Tooltip content={<BarTooltipContent />} />
-        <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
+        <XAxis type="number" tick={{ fontSize: 11, fill: AXIS_COLOR }} tickLine={false} axisLine={false} allowDecimals={false} />
+        <YAxis dataKey="label" type="category" width={yAxisWidth} interval={0} tick={{ fontSize: 11, fill: AXIS_COLOR }} tickLine={false} axisLine={false} />
+        <Tooltip content={<BarTooltipContent />} cursor={{ fill: "#f8fafc" }} />
+        <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: AXIS_COLOR }} />
         <Bar dataKey="male"   name="Male"   fill={GENDER_COLORS.male}   stackId="g" radius={[0, 0, 0, 0]} />
         <Bar dataKey="female" name="Female" fill={GENDER_COLORS.female} stackId="g" radius={hasOther ? [0, 0, 0, 0] : [0, 4, 4, 0]} />
         {hasOther && (
           <Bar dataKey="other" name="Other" fill={GENDER_COLORS.other} stackId="g" radius={[0, 4, 4, 0]} />
         )}
       </BarChart>
-    </ResponsiveContainer>
+    </ScrollableChart>
   );
 }
 
-// ─── Marital Status Bar (single count per category) ──────────────────────────
-function MaritalGroupedBar({
-  data, height = 280,
+// ─── Marital Status × Gender (stacked column per marital-status category) ─────
+interface MaritalBar { key?: string; label: string; male: number; female: number; other?: number }
+
+function MaritalStackedBar({
+  data, height = 320,
 }: {
-  data: { label: string; count: number }[];
+  data: MaritalBar[];
   height?: number;
 }) {
-  if (!data || data.length === 0) {
-    return (
-      <div className="flex items-center justify-center text-slate-400 text-sm" style={{ height }}>
-        No data available
-      </div>
-    );
-  }
+  // "Other" here is the *gender* category (grey), shown only if such users exist.
+  const hasOther = data.some(d => (d.other ?? 0) > 0);
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart
         data={data}
-        margin={{ left: -10, right: 16, top: 8, bottom: 40 }}
-        barCategoryGap="25%"
-        barGap={3}
+        margin={{ left: 0, right: 16, top: 12, bottom: 8 }}
+        barCategoryGap="30%"
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
         <XAxis
           dataKey="label"
-          tick={{ fontSize: 10, fill: "#64748b" }}
+          tick={{ fontSize: 11, fill: AXIS_COLOR }}
           tickLine={false}
           axisLine={false}
-          angle={-20}
-          textAnchor="end"
           interval={0}
         />
         <YAxis
-          tick={{ fontSize: 10, fill: "#94a3b8" }}
+          tick={{ fontSize: 11, fill: AXIS_COLOR }}
           tickLine={false}
           axisLine={false}
           allowDecimals={false}
-          label={{ value: "Number of users", angle: -90, position: "insideLeft", offset: 16, style: { fontSize: 11, fill: "#94a3b8" } }}
+          label={{ value: "Number of users", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 11, fill: AXIS_COLOR, textAnchor: "middle" } }}
         />
         <Tooltip content={<BarTooltipContent />} cursor={{ fill: "#f8fafc" }} />
-        <Bar dataKey="count" name="Users" fill="#0ea5e9" radius={[6, 6, 0, 0]} maxBarSize={40}>
-          <LabelList dataKey="count" position="top" style={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }} />
-        </Bar>
+        <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: AXIS_COLOR }} />
+        <Bar dataKey="male"   name="Male"   fill={GENDER_COLORS.male}   stackId="m" radius={[0, 0, 0, 0]} maxBarSize={72} />
+        <Bar dataKey="female" name="Female" fill={GENDER_COLORS.female} stackId="m" radius={hasOther ? [0, 0, 0, 0] : [6, 6, 0, 0]} maxBarSize={72} />
+        {hasOther && (
+          <Bar dataKey="other" name="Other" fill={GENDER_COLORS.other} stackId="m" radius={[6, 6, 0, 0]} maxBarSize={72} />
+        )}
       </BarChart>
     </ResponsiveContainer>
   );
@@ -278,12 +301,12 @@ function SimpleBarChart({
     <ResponsiveContainer width="100%" height={height}>
       <BarChart layout="vertical" data={data} margin={{ left: 8, right: 30, top: 5, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-        <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
-        <YAxis dataKey="label" type="category" width={130} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+        <XAxis type="number" tick={{ fontSize: 10, fill: AXIS_COLOR }} tickLine={false} axisLine={false} allowDecimals={false} />
+        <YAxis dataKey="label" type="category" width={130} tick={{ fontSize: 11, fill: AXIS_COLOR }} tickLine={false} axisLine={false} />
         <Tooltip content={<BarTooltipContent />} />
         <Bar dataKey="count" name="Count" radius={[0, 6, 6, 0]}>
           {data.map((_: any, i: number) => <Cell key={i} fill={colorPalette[i % colorPalette.length]} />)}
-          <LabelList dataKey="count" position="right" style={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }} />
+          <LabelList dataKey="count" position="right" style={{ fontSize: 10, fontWeight: 700, fill: AXIS_COLOR }} />
         </Bar>
       </BarChart>
     </ResponsiveContainer>
@@ -346,8 +369,8 @@ function InsuranceGenderCard({
         <ResponsiveContainer width="100%" height={90}>
           <BarChart data={barData} margin={{ left: -24, right: 4, top: 4, bottom: 0 }} barCategoryGap="30%">
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
-            <YAxis tick={{ fontSize: 9, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: AXIS_COLOR }} tickLine={false} axisLine={false} />
+            <YAxis tick={{ fontSize: 9, fill: AXIS_COLOR }} tickLine={false} axisLine={false} allowDecimals={false} />
             <Tooltip content={<BarTooltipContent />} />
             <Bar dataKey="yes" name="Yes" fill={INS_COVERAGE_COLORS.yes} radius={[3, 3, 0, 0]} maxBarSize={28} />
             <Bar dataKey="no"  name="No"  fill={INS_COVERAGE_COLORS.no}  radius={[3, 3, 0, 0]} maxBarSize={28} />
@@ -419,6 +442,40 @@ const STATUS_LABELS: Record<string, string> = {
   under_review:      "Under Review",
   changes_requested: "Changes Requested",
   draft:             "Draft",
+};
+
+// ─── Marital status categories (exactly four, fixed order) ────────────────────
+const MARITAL_CATEGORIES: { key: string; label: string }[] = [
+  { key: "single_never_married", label: "Single (Never Married)" },
+  { key: "married",              label: "Married" },
+  { key: "single_divorced",      label: "Single & Divorced" },
+  { key: "single_widowed",       label: "Single & Widowed" },
+];
+
+const MARITAL_STATUS_KEYS: Record<string, string> = {
+  single: "single_never_married",
+  never_married: "single_never_married",
+  "single (never married)": "single_never_married",
+  "single / never married": "single_never_married",
+  married: "married",
+  divorced: "single_divorced",
+  "single & divorced": "single_divorced",
+  "single / divorced": "single_divorced",
+  widowed: "single_widowed",
+  "single & widowed": "single_widowed",
+  "single / widowed": "single_widowed",
+};
+
+function normalizeMaritalStatus(value: string): string | undefined {
+  const normalized = value.trim().toLowerCase();
+  const key = MARITAL_STATUS_KEYS[normalized] ?? normalized;
+  return MARITAL_CATEGORIES.some(category => category.key === key) ? key : undefined;
+}
+
+// Safe numeric conversion (API values may arrive as numbers, numeric strings, null or undefined)
+const toNum = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 };
 
 // ─── PROPS ────────────────────────────────────────────────────────────────────
@@ -537,9 +594,31 @@ export default function AdvancedDashboard({
   const ageBarData = ageGenderData.length > 0 ? ageGenderData
     : dem.ageGroups.map((a: any) => ({ label: a.label, male: a.count, female: 0, other: 0 }));
 
-  // ── Marital Detailed — one total count per status bucket ──
-  const maritalDetailedBarDataAll: { label: string; count: number }[] =
-    dem.maritalDetailedBars ?? [];
+  // The grouped endpoint includes legacy marital-status values as labels; normalize those
+  // before matching them to the four supported chart categories.
+  const maritalApiBars: MaritalBar[] = dem.maritalStatusGender?.length
+    ? dem.maritalStatusGender
+    : dem.maritalDetailedBars ?? [];
+  const maritalCounts = new Map<string, { male: number; female: number; other: number }>();
+  for (const bar of maritalApiBars) {
+    const key = normalizeMaritalStatus(bar.key ?? bar.label);
+    if (!key) continue;
+    const counts = maritalCounts.get(key) ?? { male: 0, female: 0, other: 0 };
+    counts.male += toNum(bar.male);
+    counts.female += toNum(bar.female);
+    counts.other += toNum(bar.other);
+    maritalCounts.set(key, counts);
+  }
+  const maritalBarData: MaritalBar[] = MARITAL_CATEGORIES.map(({ key, label }) => {
+    const counts = maritalCounts.get(key);
+    return {
+      key,
+      label,
+      male:   counts?.male ?? 0,
+      female: counts?.female ?? 0,
+      other:  counts?.other ?? 0,
+    };
+  });
 
   // ── Degrees — all 7 standard levels always shown ───────────
   const rawDegreesGender = (edu.degreesGender || []).map((d: any) => ({
@@ -712,7 +791,7 @@ export default function AdvancedDashboard({
                         {genderData.map((e, i) => <Cell key={i} fill={e.color} />)}
                       </Pie>
                       <Tooltip content={(props) => <PieTooltipContent {...props} total={genderTotal} />} />
-                      <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
+                      <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: AXIS_COLOR }} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="flex gap-2 mt-1">
@@ -756,20 +835,15 @@ export default function AdvancedDashboard({
             <GenderStackedBar data={ageBarData} height={200} />
           </ChartCard>
 
-          {/* ── Marital Status — one bar per status bucket ── */}
-          {maritalDetailedBarDataAll.length > 0 && (
-            <ChartCard
-              title="Users by Marital Status"
-              subtitle="Approved registered users by marital-status category"
-              className="mt-5"
-              onExport={() => onGoToCustomReport(["personal-details"], "marital")}
-            >
-              <MaritalGroupedBar
-                data={maritalDetailedBarDataAll}
-                height={Math.max(300, maritalDetailedBarDataAll.length * 55)}
-              />
-            </ChartCard>
-          )}
+          {/* ── Marital Status — male / female stacked per marital-status category ── */}
+          <ChartCard
+            title="Users by Marital Status"
+            subtitle="Male (blue) · Female (pink) — approved registered users by marital-status category"
+            className="mt-5"
+            onExport={() => onGoToCustomReport(["personal-details"], "marital")}
+          >
+            <MaritalStackedBar data={maritalBarData} height={320} />
+          </ChartCard>
         </section>
 
         {/* ══ 2. EDUCATION & OCCUPATION ════════════════════════ */}
@@ -782,17 +856,23 @@ export default function AdvancedDashboard({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <ChartCard title="Highest Degree Level" subtitle="All 7 levels — Male (blue) · Female (pink)"
               onExport={() => onGoToCustomReport(["education-profession"], "education")}>
-              <GenderStackedBarVertical
+              <ScrollableGenderBarVertical
                 data={degreesBarData}
-                height={Math.max(280, DEGREE_ORDER.length * 38)}
+                ariaLabel="Highest degree level by gender"
+                minHeight={350}
+                maxHeight={380}
+                
               />
             </ChartCard>
 
             <ChartCard title="Profession Breakdown" subtitle="Male (blue) · Female (pink) — employment type"
               onExport={() => onGoToCustomReport(["education-profession"], "occupation")}>
-              <GenderStackedBarVertical
+              <ScrollableGenderBarVertical
                 data={professionBarData}
-                height={Math.max(220, professionBarData.length * 32)}
+                ariaLabel="Profession breakdown by gender"
+                minHeight={275}
+                maxHeight={380}
+                persistentScrollbar
               />
             </ChartCard>
           </div>
@@ -867,9 +947,9 @@ export default function AdvancedDashboard({
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={filteredGeo} margin={{ top: 20, right: 24, left: -16, bottom: 4 }} barCategoryGap="30%">
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="city" tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false}
+                  <XAxis dataKey="city" tick={{ fontSize: 11, fill: AXIS_COLOR }} axisLine={false} tickLine={false}
                     tickFormatter={(v: string) => v.length > 12 ? v.slice(0, 11) + "…" : v} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} width={28} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: AXIS_COLOR }} axisLine={false} tickLine={false} width={28} />
                   <Tooltip content={<BarTooltipContent />} cursor={{ fill: "#f0fdfa" }} />
                   <Bar dataKey="count" radius={[8, 8, 0, 0]} maxBarSize={72} name="Families">
                     {filteredGeo.map((_e, idx) => <Cell key={idx} fill={GEO_BAR_COLORS[idx % GEO_BAR_COLORS.length]} />)}
@@ -898,8 +978,8 @@ export default function AdvancedDashboard({
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={eco.incomeSlabs} margin={{ left: -20, right: 5, top: 5, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: AXIS_COLOR }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: AXIS_COLOR }} tickLine={false} axisLine={false} />
                   <Tooltip content={<BarTooltipContent />} />
                   <Bar dataKey="count" name="Families" radius={[6, 6, 0, 0]}>
                     {eco.incomeSlabs.map((_, i) => <Cell key={i} fill={`hsl(${42 + i * 5}, 90%, ${55 - i * 2}%)`} />)}
@@ -979,8 +1059,8 @@ export default function AdvancedDashboard({
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={assetBarData} margin={{ left: -20, right: 5, top: 5, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} unit="%" domain={[0, 100]} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: AXIS_COLOR }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: AXIS_COLOR }} tickLine={false} axisLine={false} unit="%" domain={[0, 100]} />
                   <Tooltip content={<BarTooltipContent />} />
                   <Bar dataKey="Owned %" fill="#f97316" radius={[6, 6, 0, 0]} />
                 </BarChart>
@@ -991,7 +1071,12 @@ export default function AdvancedDashboard({
           {employmentBarData.length > 0 && (
             <ChartCard title="Employment Sector Breakdown" subtitle="Male (blue) · Female (pink) — Govt, Private, Self-Employed, Entrepreneurs"
               className="mt-5" onExport={() => onGoToCustomReport(["education-profession"], "occupation")}>
-              <GenderStackedBar data={employmentBarData} height={200} />
+              <ScrollableGenderBarVertical
+                data={employmentBarData}
+                ariaLabel="Employment sector breakdown by gender"
+                minHeight={250}
+                maxHeight={380}
+              />
             </ChartCard>
           )}
         </section>
@@ -1047,13 +1132,13 @@ export default function AdvancedDashboard({
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                         <XAxis
                           dataKey="status"
-                          tick={{ fontSize: 11, fill: "#64748b" }}
+                          tick={{ fontSize: 11, fill: AXIS_COLOR }}
                           axisLine={false}
                           tickLine={false}
                         />
                         <YAxis
                           allowDecimals={false}
-                          tick={{ fontSize: 11, fill: "#94a3b8" }}
+                          tick={{ fontSize: 11, fill: AXIS_COLOR }}
                           axisLine={false}
                           tickLine={false}
                         />
@@ -1133,10 +1218,10 @@ export default function AdvancedDashboard({
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={docCompare} margin={{ left: -20, right: 5, top: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: AXIS_COLOR }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: AXIS_COLOR }} tickLine={false} axisLine={false} />
                     <Tooltip content={<BarTooltipContent />} />
-                    <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
+                    <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: AXIS_COLOR }} />
                     <Bar dataKey="Yes"     fill="#22c55e" radius={[4, 4, 0, 0]} stackId="a" />
                     <Bar dataKey="No"      fill="#ef4444"                       stackId="a" />
                     <Bar dataKey="Unknown" fill="#cbd5e1" radius={[0, 0, 4, 4]} stackId="a" />
@@ -1255,7 +1340,7 @@ export default function AdvancedDashboard({
                             </Pie>
                             <Tooltip content={(props) => <PieTooltipContent {...props}
                               total={(religious.ancestralStats?.withChallenge || 0) + (religious.ancestralStats?.withoutChallenge || 0)} />} />
-                            <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: "#64748b" }} />
+                            <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "11px", color: AXIS_COLOR }} />
                           </PieChart>
                         </ResponsiveContainer>
                         <div className="flex flex-col justify-center gap-3">

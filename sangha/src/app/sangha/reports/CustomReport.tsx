@@ -1,3 +1,4 @@
+//Community-Application\sangha\src\app\sangha\reports\CustomReport.tsx
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -35,6 +36,7 @@ export const SECTIONS: {
       "Gender",
       "Date of Birth",
       "Age",
+      "Marital Status",
     ],
   },
   {
@@ -60,6 +62,20 @@ export const SECTIONS: {
       "Invests in Mutual Funds / SIP",
       "Invests in Shares / Demat",
       "Other Investments",
+    ],
+  },
+  {
+    id: "insurance-coverage",
+    label: "Insurance Coverage",
+    icon: "🛡️",
+    color: "#6366f1",
+    bg: "bg-indigo-50",
+    columns: [
+      "Health Coverage",
+      "Life Coverage",
+      "Term Coverage",
+      "Konkani Card Coverage",
+      "Insured Family Members",
     ],
   },
   {
@@ -123,8 +139,70 @@ const BASE_COLUMNS = ["Full Name", "Email", "Phone", "Status"];
 // Columns that must never appear in the main table
 const EXCLUDED_MAIN_COLUMNS = new Set(["Relation", "Submitted At", "Reviewed At"]);
 
-// Family information section id constant
-const FAMILY_SECTION_ID = "family-information";
+// Section id constants
+const FAMILY_SECTION_ID   = "family-information";
+const PERSONAL_SECTION_ID = "personal-details";
+
+// ─── Registration status (backend raw value → display label) ──────────────────
+// Only these statuses are supported in reports. Any other value is ignored.
+const STATUS_LABELS: Record<string, string> = {
+  approved:          "Approved",
+  submitted:         "Pending",
+  under_review:      "Pending",
+  rejected:          "Rejected",
+  changes_requested: "Changes Requested",
+};
+
+type StatusFilter = "approved" | "pending" | "rejected" | "changes_requested" | "all";
+
+const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "approved",          label: "Approved" },
+  { value: "pending",           label: "Pending" },
+  { value: "rejected",          label: "Rejected" },
+  { value: "changes_requested", label: "Changes Requested" },
+  { value: "all",               label: "All Statuses" },
+];
+
+// Maps the dashboard "category" (initCategory) to a status filter.
+// Non-status categories (e.g. "demographics") keep the default approved-only view.
+function statusFromCategory(cat?: string): StatusFilter {
+  const c = (cat ?? "").toLowerCase().trim();
+  if (c === "all") return "all";
+  if (c === "pending" || c === "submitted" || c === "under_review") return "pending";
+  if (c === "changes" || c === "changes_requested") return "changes_requested";
+  if (c === "rejected") return "rejected";
+  return "approved";
+}
+
+// ─── Marital status (DB value → display label) ────────────────────────────────
+const MARITAL_OPTIONS: { value: string; label: string }[] = [
+  { value: "single_never_married", label: "Single (Never Married)" },
+  { value: "married",              label: "Married" },
+  { value: "single_divorced",      label: "Single & Divorced" },
+  { value: "single_widowed",       label: "Single & Widowed" },
+];
+const MARITAL_LABELS: Record<string, string> = Object.fromEntries(
+  MARITAL_OPTIONS.map(o => [o.value, o.label])
+);
+
+// ─── Age filter ───────────────────────────────────────────────────────────────
+type AgePreset = "none" | "18-24" | "25-44" | "45-64" | "custom";
+interface AgeRange { min: number | null; max: number | null; }
+
+const AGE_PRESETS: { value: AgePreset; label: string }[] = [
+  { value: "none",   label: "All ages" },
+  { value: "18-24",  label: "18–24" },
+  { value: "25-44",  label: "25–44" },
+  { value: "45-64",  label: "45–64" },
+  { value: "custom", label: "Custom Range" },
+];
+
+function presetToRange(p: AgePreset): AgeRange | null {
+  if (p === "18-24") return { min: 18, max: 24 };
+  if (p === "25-44") return { min: 25, max: 44 };
+  if (p === "45-64") return { min: 45, max: 64 };
+  return null;
+}
 
 function buildMasterOrder(): string[] {
   const seen = new Set<string>();
@@ -355,6 +433,26 @@ function normalizeForExcel(val: any, colName?: string): string {
   return String(val);
 }
 
+// ─── Normalize main-table rows coming from the API ────────────────────────────
+// • Keeps only supported registration statuses and shows a friendly status label
+//   (raw value preserved in _status)
+// • Maps the marital_status DB value to its display label
+function normalizeRows(data: any[]): TableRow[] {
+  const out: TableRow[] = [];
+  for (const r of data) {
+    const rawStatus = String(r?.Status ?? "").toLowerCase().trim();
+    if (!STATUS_LABELS[rawStatus]) continue;
+    const rawMarital = String(r?.["Marital Status"] ?? "").toLowerCase().trim();
+    out.push({
+      ...r,
+      _status:          rawStatus,
+      Status:           STATUS_LABELS[rawStatus],
+      "Marital Status": rawMarital ? (MARITAL_LABELS[rawMarital] ?? r["Marital Status"]) : null,
+    });
+  }
+  return out;
+}
+
 // ─── Family cell renderer helper ──────────────────────────────────────────────
 function getFamilyCellDisplay(col: string, val: any): { text: string; cls: string } {
   let text = val !== undefined && val !== null ? String(val) : "—";
@@ -412,9 +510,17 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
   const [downloading, setDownloading]           = useState(false);
   const [searchQuery, setSearchQuery]           = useState("");
   const [sidebarSearch, setSidebarSearch]       = useState("");
-  const [includeAllStatuses, setIncludeAllStatuses] = useState(false);
+  const [statusFilter, setStatusFilter]         = useState<StatusFilter>("approved");
   const [sectionOpen, setSectionOpen]           = useState<Record<string, boolean>>({});
   const [openFilter, setOpenFilter]             = useState<{ col: string; rect: DOMRect } | null>(null);
+
+  // ── Personal-details filters (marital status + age) ───────────────────────
+  const [maritalFilter, setMaritalFilter]       = useState<string>("");
+  const [agePreset, setAgePreset]               = useState<AgePreset>("none");
+  const [customAgeMin, setCustomAgeMin]         = useState<string>("");
+  const [customAgeMax, setCustomAgeMax]         = useState<string>("");
+  const [appliedCustomAge, setAppliedCustomAge] = useState<AgeRange | null>(null);
+  const [ageError, setAgeError]                 = useState<string | null>(null);
 
   // ── Family members state ──────────────────────────────────────────────────
   const [familyEntries, setFamilyEntries]             = useState<FamilyEntry[]>([]);
@@ -427,16 +533,36 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
   const [familyVisibleCols, setFamilyVisibleCols]     = useState<string[]>(ALL_FAMILY_COLUMNS);
   const familySectionRef                              = useRef<HTMLDivElement>(null);
 
-  // ── Apply init sections ───────────────────────────────────────────────────
+  // ── Applied (effective) personal filters ──────────────────────────────────
+  // These only apply while the Personal Details section is selected.
+  const personalSelected = selectedSections.includes(PERSONAL_SECTION_ID);
+  const appliedAge: AgeRange | null =
+    agePreset === "custom" ? appliedCustomAge : presetToRange(agePreset);
+  const effMarital = personalSelected ? maritalFilter : "";
+  const effAgeMin  = personalSelected && appliedAge ? appliedAge.min : null;
+  const effAgeMax  = personalSelected && appliedAge ? appliedAge.max : null;
+
+  // ── Apply init sections + init status (from General Dashboard) ───────────
   useEffect(() => {
     if (initSections.length > 0) {
       setSelectedSections(initSections);
+      // Status requested from the dashboard (e.g. "rejected") is honoured explicitly;
+      // it never silently falls back to approved.
+      setStatusFilter(statusFromCategory(initCategory));
+      setColumnFilters([]);
+      setSearchQuery("");
+      setMaritalFilter("");
+      setAgePreset("none");
+      setCustomAgeMin("");
+      setCustomAgeMax("");
+      setAppliedCustomAge(null);
+      setAgeError(null);
       const openMap: Record<string, boolean> = {};
       initSections.forEach(s => { openMap[s] = true; });
       setSectionOpen(openMap);
       onClearInit();
     }
-  }, [initSections]); // eslint-disable-line
+  }, [initSections, initCategory]); // eslint-disable-line
 
   // ── Sync visible columns when sections change ─────────────────────────────
   // "Relation" and any EXCLUDED_MAIN_COLUMNS are never added to the main table
@@ -461,8 +587,14 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
   }, [selectedSections]);
 
   // ── Fetch main data ───────────────────────────────────────────────────────
+  const fetchSeq = useRef(0);
+  const familySelectedRef = useRef(false);
+  familySelectedRef.current = selectedSections.includes(FAMILY_SECTION_ID);
+  const pendingFamilyAutoFetch = useRef(false);
+
   const fetchData = useCallback(async () => {
     if (selectedSections.length === 0) { setRows([]); return; }
+    const seq = ++fetchSeq.current;
     setLoading(true);
     setError(null);
     const dateParams = dateRange
@@ -472,23 +604,24 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
     try {
       const result = await api.post("/sangha/reports/export/full", {
         sections: exportSections.length > 0 ? exportSections : selectedSections,
-        includeAllStatuses,
+        status: statusFilter,
+        includeAllStatuses: statusFilter === "all",
+        ...(effMarital ? { maritalStatus: effMarital } : {}),
+        ...(effAgeMin !== null ? { ageMin: effAgeMin } : {}),
+        ...(effAgeMax !== null ? { ageMax: effAgeMax } : {}),
         ...dateParams,
-      }).catch(async () => {
-        return await api.post("/sangha/reports/export", {
-          category: "status",
-          filter:   includeAllStatuses ? "" : "approved",
-          ...dateParams,
-        });
       });
-      setRows(Array.isArray(result) ? result : []);
+      if (seq !== fetchSeq.current) return; // a newer request superseded this one
+      setRows(normalizeRows(Array.isArray(result) ? result : []));
+      if (familySelectedRef.current) pendingFamilyAutoFetch.current = true;
     } catch {
+      if (seq !== fetchSeq.current) return;
       setError("Failed to load data. Please try again.");
       setRows([]);
     } finally {
-      setLoading(false);
+      if (seq === fetchSeq.current) setLoading(false);
     }
-  }, [selectedSections, includeAllStatuses, dateRange]);
+  }, [selectedSections, statusFilter, effMarital, effAgeMin, effAgeMax, dateRange]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -578,7 +711,6 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
 
   // ── Auto-fetch family when section is selected ────────────────────────────
   const prevFamilySelected = useRef(false);
-  const pendingFamilyAutoFetch = useRef(false);
   useEffect(() => {
     const isSelected = selectedSections.includes(FAMILY_SECTION_ID);
     if (!isSelected) {
@@ -649,6 +781,60 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
   const removeColumnFilter = (col: string) => {
     setColumnFilters(prev => prev.filter(f => f.column !== col));
   };
+
+  // ── Age filter actions ────────────────────────────────────────────────────
+  const handleAgePresetChange = (p: AgePreset) => {
+    setAgePreset(p);
+    setAgeError(null);
+    if (p !== "custom") {
+      setCustomAgeMin("");
+      setCustomAgeMax("");
+      setAppliedCustomAge(null);
+    }
+  };
+
+  const applyCustomAge = () => {
+    const minStr = customAgeMin.trim();
+    const maxStr = customAgeMax.trim();
+    if (!minStr && !maxStr) {
+      setAgeError("Enter a minimum and/or maximum age.");
+      return;
+    }
+    const parse = (s: string): number | null | undefined => {
+      if (!s) return null;
+      if (!/^\d+$/.test(s)) return undefined;
+      const v = Number(s);
+      return v >= 0 && v <= 150 ? v : undefined;
+    };
+    const min = parse(minStr);
+    const max = parse(maxStr);
+    if (min === undefined || max === undefined) {
+      setAgeError("Ages must be whole numbers between 0 and 150.");
+      return;
+    }
+    if (min !== null && max !== null && min > max) {
+      setAgeError("Minimum age cannot be greater than maximum age.");
+      return;
+    }
+    setAgeError(null);
+    setAppliedCustomAge({ min, max });
+  };
+
+  const clearCustomAge = () => {
+    setCustomAgeMin("");
+    setCustomAgeMax("");
+    setAppliedCustomAge(null);
+    setAgeError(null);
+  };
+
+  const ageChipLabel = useMemo(() => {
+    if (!personalSelected || !appliedAge) return null;
+    const { min, max } = appliedAge;
+    if (min !== null && max !== null) return `Age ${min}–${max}`;
+    if (min !== null) return `Age ${min}+`;
+    if (max !== null) return `Age ≤ ${max}`;
+    return null;
+  }, [personalSelected, appliedAge]);
 
   // ── Excel download — booleans → Yes/No, nulls → Not Selected, income formatted ───
   const handleDownload = async () => {
@@ -726,10 +912,15 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
 
   const activeFilters       = columnFilters.filter(f => f.value);
   const activeFamilyFilters = familyColFilters.filter(f => f.value);
-  const getFilterVals       = (col: string) => getUniqueValues(rows, col);
+  // Marital Status header filter always offers the four fixed, user-friendly values
+  const getFilterVals       = (col: string) =>
+    col === "Marital Status" ? MARITAL_OPTIONS.map(o => o.label) : getUniqueValues(rows, col);
   const getFamilyFilterVals = (col: string) => getUniqueValues(allFamilyRows, col);
   const isFamilySectionSelected = selectedSections.includes(FAMILY_SECTION_ID);
   const showFamilyTable         = familyEntries.length > 0 || familyLoading || !!familyError;
+  const statusFilterLabel       =
+    STATUS_FILTER_OPTIONS.find(o => o.value === statusFilter)?.label ?? "";
+  const maritalChipLabel        = effMarital ? (MARITAL_LABELS[effMarital] ?? effMarital) : null;
 
   // ── Date range label ──────────────────────────────────────────────────────
   const dateRangeLabel = useMemo(() => {
@@ -789,24 +980,37 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
             )}
           </div>
 
-          {/* All statuses toggle */}
-          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+          {/* Registration status: All-statuses toggle + explicit status selector */}
+          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 space-y-3">
             <label className="flex items-center gap-2.5 cursor-pointer">
               <div
-                onClick={() => setIncludeAllStatuses(p => !p)}
+                onClick={() => setStatusFilter(prev => prev === "all" ? "approved" : "all")}
                 className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
-                  includeAllStatuses ? "bg-sky-500" : "bg-slate-300"
+                  statusFilter === "all" ? "bg-sky-500" : "bg-slate-300"
                 }`}
               >
                 <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
-                  includeAllStatuses ? "left-4" : "left-0.5"
+                  statusFilter === "all" ? "left-4" : "left-0.5"
                 }`} />
               </div>
               <div>
                 <p className="text-xs font-semibold text-slate-700">All Statuses</p>
-                <p className="text-xs text-slate-400">Include rejected, pending, drafts</p>
+                <p className="text-xs text-slate-400">Include pending, changes requested, rejected</p>
               </div>
             </label>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-1">Registration Status</p>
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value as StatusFilter)}
+                className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white
+                  focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none"
+              >
+                {STATUS_FILTER_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="p-3 space-y-2">
@@ -821,6 +1025,7 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
                 ? ((sec as any).matchedColumns ?? sec.columns)
                 : sec.columns;
               const isFamilySec   = sec.id === FAMILY_SECTION_ID;
+              const isPersonalSec = sec.id === PERSONAL_SECTION_ID;
 
               return (
                 <div
@@ -868,6 +1073,87 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
                         <p className="text-xs text-emerald-700 leading-relaxed">
                           Loads family members for all visible rows in a separate table below. Click individual row buttons to load specific users.
                         </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Personal Details filters: marital status + age */}
+                  {isPersonalSec && isSelected && (
+                    <div className="px-3 pb-2.5 space-y-2">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 mb-1">Marital Status</p>
+                        <select
+                          value={maritalFilter}
+                          onChange={e => setMaritalFilter(e.target.value)}
+                          className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white
+                            focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none"
+                        >
+                          <option value="">All</option>
+                          {MARITAL_OPTIONS.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 mb-1">Age</p>
+                        <select
+                          value={agePreset}
+                          onChange={e => handleAgePresetChange(e.target.value as AgePreset)}
+                          className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white
+                            focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none"
+                        >
+                          {AGE_PRESETS.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+
+                        {agePreset === "custom" && (
+                          <div className="mt-2 space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                min={0}
+                                max={150}
+                                placeholder="Min"
+                                value={customAgeMin}
+                                onChange={e => setCustomAgeMin(e.target.value)}
+                                className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white
+                                  focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none"
+                              />
+                              <span className="text-xs text-slate-400">–</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={150}
+                                placeholder="Max"
+                                value={customAgeMax}
+                                onChange={e => setCustomAgeMax(e.target.value)}
+                                className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white
+                                  focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={applyCustomAge}
+                                className="flex-1 text-xs font-semibold px-2 py-1.5 rounded-lg bg-sky-500
+                                  hover:bg-sky-600 text-white transition-colors"
+                              >
+                                Apply
+                              </button>
+                              <button
+                                onClick={clearCustomAge}
+                                className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 text-slate-500
+                                  hover:bg-slate-50 transition-colors"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                            {ageError && (
+                              <p className="text-xs text-rose-600">{ageError}</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -946,6 +1232,28 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
                 </button>
               )}
             </div>
+
+            {selectedSections.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-medium">
+                Status: <strong>{statusFilterLabel}</strong>
+              </span>
+            )}
+
+            {maritalChipLabel && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-100 border border-sky-200 text-sky-700 text-xs font-medium">
+                <SlidersHorizontal className="w-3 h-3" />
+                {maritalChipLabel}
+                <button onClick={() => setMaritalFilter("")} className="hover:text-sky-900 ml-0.5">×</button>
+              </span>
+            )}
+
+            {ageChipLabel && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-100 border border-sky-200 text-sky-700 text-xs font-medium">
+                <SlidersHorizontal className="w-3 h-3" />
+                {ageChipLabel}
+                <button onClick={() => handleAgePresetChange("none")} className="hover:text-sky-900 ml-0.5">×</button>
+              </span>
+            )}
 
             {dateRangeLabel && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-medium">
@@ -1041,16 +1349,18 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
                           >
                             <div className="flex items-center gap-1.5">
                               <span>{col}</span>
-                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                  onClick={e => handleOpenFilter(col, e)}
-                                  className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${
-                                    activeFilter ? "text-sky-600" : "text-slate-400"
-                                  }`}
-                                  title="Filter column"
-                                >
-                                  <Filter className="w-3 h-3" />
-                                </button>
+                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+  {col !== "Status" && (
+    <button
+      onClick={e => handleOpenFilter(col, e)}
+      className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${
+        activeFilter ? "text-sky-600" : "text-slate-400"
+      }`}
+      title="Filter column"
+    >
+      <Filter className="w-3 h-3" />
+    </button>
+  )}
                                 {!isBase && (
                                   <button
                                     onClick={() => deleteColumn(col)}
@@ -1089,12 +1399,12 @@ export default function CustomReport({ initSections, initCategory, onClearInit, 
                             displayVal = calcAge(row["Date of Birth"]);
                             cellClass  = "text-slate-700 font-mono";
                           } else if (col === "Status") {
+                            // val is already the friendly label (Approved / Pending / Rejected / Changes Requested)
                             const s = String(val ?? "").toLowerCase();
-                            if (s === "approved")               cellClass = "text-emerald-700 font-semibold";
-                            else if (s === "rejected")          cellClass = "text-rose-600 font-semibold";
-                            else if (s === "submitted")         cellClass = "text-amber-600 font-semibold";
-                            else if (s === "draft")             cellClass = "text-slate-500";
-                            else if (s === "changes_requested") cellClass = "text-orange-600 font-semibold";
+                            if (s === "approved")                cellClass = "text-emerald-700 font-semibold";
+                            else if (s === "rejected")           cellClass = "text-rose-600 font-semibold";
+                            else if (s === "pending")            cellClass = "text-amber-600 font-semibold";
+                            else if (s === "changes requested")  cellClass = "text-orange-600 font-semibold";
                           } else if (col === "Gender") {
                             const g = String(val ?? "").toLowerCase();
                             if (g === "male")        cellClass = "text-sky-600 font-medium";

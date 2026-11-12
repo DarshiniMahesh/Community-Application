@@ -38,12 +38,25 @@ const MARITAL_ALIASES = {
   'single':                 'single_never_married',
   'married':                'married',
   'single_divorced':        'single_divorced',
+  'single & divorced':      'single_divorced',
   'single / divorced':      'single_divorced',
   'divorced':               'single_divorced',
   'single_widowed':         'single_widowed',
+  'single & widowed':       'single_widowed',
   'single / widowed':       'single_widowed',
   'widowed':                'single_widowed',
 };
+
+// The four marital-status categories the Advanced Dashboard chart supports, in display order.
+// `key` is the exact value stored in personal_details.marital_status.
+const MARITAL_CATEGORIES = [
+  { key: 'single_never_married', label: 'Single (Never Married)' },
+  { key: 'married',              label: 'Married' },
+  { key: 'single_divorced',      label: 'Single & Divorced' },
+  { key: 'single_widowed',       label: 'Single & Widowed' },
+];
+// Constant list (never user input) for use in static SQL fragments
+const MARITAL_KEYS_SQL = MARITAL_CATEGORIES.map(c => `'${c.key}'`).join(',');
 
 function resolveMarital(v) {
   const key = String(v ?? '').toLowerCase().trim();
@@ -108,13 +121,9 @@ function cleanDate(v) {
 
 // ─── Helper: Get sangha ID from user ID ────────────────────────────────────
 async function getSanghaId(userId) {
-  console.log("👉 getSanghaId called with userId:", userId);
   const res = await pool.query(
     'SELECT id FROM sanghas WHERE sangha_auth_id=$1', [userId]
   );
-  console.log("👉 DB result:", res.rows);
-  const sanghaId = res.rows[0]?.id || null;
-  console.log("👉 Extracted sanghaId:", sanghaId);
   return res.rows[0]?.id || null;
 }
 
@@ -155,148 +164,6 @@ function buildDateFilter(dateFrom, dateTo, existingParamCount = 1, dateField = '
     clauses.push(`${dateField} < ($${existingParamCount + params.length}::date + INTERVAL '1 day')`);
   }
   return { clause: clauses.length ? ' AND ' + clauses.join(' AND ') : '', params };
-}
-
-// ════════════════════════════════════════════════════════════
-// REGISTRATION TREND HELPERS (India calendar dates)
-// ════════════════════════════════════════════════════════════
-const REPORT_TZ = 'Asia/Kolkata';
-// Registration timestamps are stored as UTC `timestamp without time zone`.
-const DB_STORED_TZ = 'UTC';
-// Built only from the constants above, never from user input.
-const REGISTRATION_IST_DATE = `((COALESCE(submitted_at, created_at) AT TIME ZONE '${DB_STORED_TZ}') AT TIME ZONE '${REPORT_TZ}')::date`;
-const REPORT_DEBUG = process.env.REPORT_DEBUG === 'true';
-
-function debugLog(...args) {
-  if (REPORT_DEBUG) console.log('[EnhancedReports]', ...args);
-}
-
-// null  → not provided
-// false → provided but invalid
-// string → valid 'YYYY-MM-DD'
-function normalizeYmd(v) {
-  if (v === undefined || v === null) return null;
-  const s = String(v).trim();
-  if (s === '' || s === 'null' || s === 'undefined') return null;
-
-  const m = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(s);
-  if (!m) return false;
-
-  const y  = Number(m[1]);
-  const mo = Number(m[2]);
-  const d  = Number(m[3]);
-  const dt = new Date(Date.UTC(y, mo - 1, d));
-  if (
-    dt.getUTCFullYear() !== y ||
-    dt.getUTCMonth() !== mo - 1 ||
-    dt.getUTCDate() !== d
-  ) return false;
-
-  return `${m[1]}-${m[2]}-${m[3]}`;
-}
-
-function parseYmdUtc(s) {
-  const [y, m, d] = s.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d));
-}
-function formatYmdUtc(dt) {
-  return dt.toISOString().slice(0, 10);
-}
-
-function todayIst() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: REPORT_TZ }).format(new Date());
-}
-function addDaysYmd(s, days) {
-  const dt = parseYmdUtc(s);
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return formatYmdUtc(dt);
-}
-// `s` must be the 1st of a month
-function addMonthsYmd(s, months) {
-  const [y, m] = s.split('-').map(Number);
-  return formatYmdUtc(new Date(Date.UTC(y, m - 1 + months, 1)));
-}
-function diffDaysYmd(a, b) {
-  return Math.round((parseYmdUtc(b).getTime() - parseYmdUtc(a).getTime()) / 86400000);
-}
-// Monday start
-function startOfWeekYmd(s) {
-  const dow = parseYmdUtc(s).getUTCDay(); // 0 = Sunday
-  return addDaysYmd(s, -((dow + 6) % 7));
-}
-function startOfMonthYmd(s) {
-  return `${s.slice(0, 7)}-01`;
-}
-
-// Inclusive India-calendar-date range on registration timestamps. Fully parameterized.
-function buildRegistrationIstRange(dateFrom, dateTo, existingParamCount = 1) {
-  let clause = '';
-  const params = [];
-  if (dateFrom) {
-    params.push(dateFrom);
-    clause += ` AND ${REGISTRATION_IST_DATE} >= $${existingParamCount + params.length}::date`;
-  }
-  if (dateTo) {
-    params.push(dateTo);
-    clause += ` AND ${REGISTRATION_IST_DATE} <= $${existingParamCount + params.length}::date`;
-  }
-  return { clause, params };
-}
-
-// Turns per-day rows into a zero-filled day / week / month series. Never invents registrations.
-function buildRegistrationTrend(dayRows, dateFrom, dateTo) {
-  if (!Array.isArray(dayRows) || dayRows.length === 0) {
-    return { granularity: 'day', series: [] };
-  }
-
-  let firstDate = dayRows[0].date;
-  let lastDate  = dayRows[0].date;
-  for (const r of dayRows) {
-    if (r.date < firstDate) firstDate = r.date;
-    if (r.date > lastDate)  lastDate  = r.date;
-  }
-
-  const start = dateFrom || firstDate;
-  let end     = dateTo || todayIst();
-  if (end < lastDate) end = lastDate;
-
-  const span = diffDaysYmd(start, end) + 1;
-  const granularity = span <= 92 ? 'day' : span <= 549 ? 'week' : 'month';
-
-  const bucketOf =
-    granularity === 'day'  ? (s => s) :
-    granularity === 'week' ? startOfWeekYmd :
-                             startOfMonthYmd;
-
-  const buckets = new Map();
-  for (const r of dayRows) {
-    const key = bucketOf(r.date);
-    const cur = buckets.get(key) || { registrations: 0, approvals: 0, rejections: 0 };
-    cur.registrations += Number(r.registrations) || 0;
-    cur.approvals     += Number(r.approvals)     || 0;
-    cur.rejections    += Number(r.rejections)    || 0;
-    buckets.set(key, cur);
-  }
-
-  const series = [];
-  const firstBucket = bucketOf(start);
-  const lastBucket  = bucketOf(end);
-  let cursor = firstBucket;
-  while (cursor <= lastBucket) {
-    const b = buckets.get(cursor) || { registrations: 0, approvals: 0, rejections: 0 };
-    series.push({
-      date:          cursor,
-      registrations: String(b.registrations),
-      approvals:     String(b.approvals),
-      rejections:    String(b.rejections),
-    });
-    cursor =
-      granularity === 'day'  ? addDaysYmd(cursor, 1) :
-      granularity === 'week' ? addDaysYmd(cursor, 7) :
-                               addMonthsYmd(cursor, 1);
-  }
-
-  return { granularity, series };
 }
 
 // ════════════════════════════════════════════════════════════
@@ -354,47 +221,34 @@ const getActivityLogs = async (req, res) => {
 // ENHANCED REPORTS
 // ════════════════════════════════════════════════════════════
 const getEnhancedReports = async (req, res) => {
-  try {
+   try {
     const { id: userId } = req.user;
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
 
-    // 1. Parse and validate dates (India calendar dates, YYYY-MM-DD)
-    const dateFrom = normalizeYmd(req.query.dateFrom);
-    const dateTo   = normalizeYmd(req.query.dateTo);
-    if (dateFrom === false || dateTo === false) {
-      return res.status(400).json({ message: 'Invalid date. Use YYYY-MM-DD.' });
-    }
-    if (dateFrom && dateTo && dateFrom > dateTo) {
-      return res.status(400).json({ message: 'dateFrom cannot be after dateTo' });
-    }
+    const rawFrom  = req.query.dateFrom;
+    const rawTo    = req.query.dateTo;
+    const dateFrom = (rawFrom && rawFrom !== 'null' && rawFrom !== 'undefined') ? rawFrom : null;
+    const dateTo   = (rawTo   && rawTo   !== 'null' && rawTo   !== 'undefined') ? rawTo   : null;
+    const df = buildDateFilter(dateFrom, dateTo, 1, 'created_at');
 
-    // 2. One range shared by currentCounts and the registration trend
-    const range = buildRegistrationIstRange(dateFrom, dateTo, 1);
-    const sqlParams = [sanghaId, ...range.params];
+const [
+  locationCount,
+  educationCount,
+  economicCount,
+  insuranceCount,
+  documentCount,
+  religiousCount,
+] = await Promise.all([
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM addresses WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_education WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM economic_details WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_insurance WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_documents WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+  pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM religious_details WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
+]);
 
-    debugLog('userId:', userId);
-    debugLog('sanghaId:', sanghaId);
-    debugLog('dateFrom:', dateFrom, 'dateTo:', dateTo);
-    debugLog('SQL params:', sqlParams);
-
-    const [
-      locationCount,
-      educationCount,
-      economicCount,
-      insuranceCount,
-      documentCount,
-      religiousCount,
-    ] = await Promise.all([
-      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM addresses WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_education WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM economic_details WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_insurance WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM member_documents WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-      pool.query(`SELECT COUNT(DISTINCT profile_id) AS cnt FROM religious_details WHERE profile_id IN (SELECT id FROM profiles WHERE sangha_id=$1 AND status='approved')`, [sanghaId]),
-    ]);
-
-    const [currentCounts, trendData, dailyRegsResult] = await Promise.all([
+    const [currentCounts, trendData, dailyRegs] = await Promise.all([
       pool.query(
         `SELECT
            COUNT(*) FILTER (WHERE status = 'approved')                       AS approved,
@@ -403,8 +257,8 @@ const getEnhancedReports = async (req, res) => {
            COUNT(*) FILTER (WHERE status = 'changes_requested')              AS changes_requested,
            COUNT(*)                                                           AS total
          FROM profiles
-         WHERE sangha_id = $1 AND status::text IN (${REPORT_STATUS_SQL}) ${range.clause}`,
-        sqlParams
+         WHERE sangha_id = $1 AND status::text IN (${REPORT_STATUS_SQL}) ${df.clause}`,
+        [sanghaId, ...df.params]
       ),
       pool.query(
         `SELECT
@@ -421,49 +275,37 @@ const getEnhancedReports = async (req, res) => {
          WHERE sangha_id = $1 AND status::text IN (${REPORT_STATUS_SQL})`,
         [sanghaId]
       ),
-      // Registration trend: submission date, falling back to profile creation for legacy rows.
-      // Deliberately NOT wrapped in safe() so SQL errors surface instead of an empty chart.
       pool.query(
         `SELECT
-           TO_CHAR(${REGISTRATION_IST_DATE}, 'YYYY-MM-DD')             AS date,
-           COUNT(*)::int                                               AS registrations,
-           (COUNT(*) FILTER (WHERE status::text = 'approved'))::int    AS approvals,
-           (COUNT(*) FILTER (WHERE status::text = 'rejected'))::int    AS rejections
+           TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date,
+           COUNT(*) AS registrations,
+           COUNT(*) FILTER (WHERE status='approved') AS approvals,
+           COUNT(*) FILTER (WHERE status='rejected') AS rejections
          FROM profiles
-         WHERE sangha_id = $1
-           AND status::text IN (${REPORT_STATUS_SQL})
-           AND COALESCE(submitted_at, created_at) IS NOT NULL
-           ${range.clause}
-         GROUP BY 1
-         ORDER BY 1 ASC`,
-        sqlParams
+         WHERE sangha_id=$1 AND status::text IN (${REPORT_STATUS_SQL}) AND created_at >= NOW()-INTERVAL '30 days'
+         GROUP BY DATE(created_at)
+         ORDER BY DATE(created_at) ASC`,
+        [sanghaId]
       ),
     ]);
 
-    debugLog('per-day rows:', dailyRegsResult.rows.length);
-    debugLog('sample rows:', dailyRegsResult.rows.slice(0, 3));
-
-    // 8. Build trend and respond
-    const trend = buildRegistrationTrend(dailyRegsResult.rows, dateFrom, dateTo);
-    debugLog('granularity:', trend.granularity, 'buckets:', trend.series.length);
-
     res.json({
-      counts:                  currentCounts.rows[0],
-      trends:                  trendData.rows[0],
-      dailyRegistrations:      trend.series,
-      registrationGranularity: trend.granularity,
+      counts:             currentCounts.rows[0],
+      trends:             trendData.rows[0],
+      dailyRegistrations: dailyRegs.rows,
       sectionCounts: {
-        personalDetails:      parseInt(currentCounts.rows[0].approved || 0),
-        locationInformation:  parseInt(locationCount.rows[0].cnt || 0),
-        educationProfession:  parseInt(educationCount.rows[0].cnt || 0),
-        economicDetails:      parseInt(economicCount.rows[0].cnt || 0),
-        insuranceCoverage:    parseInt(insuranceCount.rows[0].cnt || 0),
-        documentationStatus:  parseInt(documentCount.rows[0].cnt || 0),
-        religiousDetails:     parseInt(religiousCount.rows[0].cnt || 0),
-      },
+  personalDetails:      parseInt(currentCounts.rows[0].approved || 0),
+  locationInformation:  parseInt(locationCount.rows[0].cnt || 0),
+  educationProfession:  parseInt(educationCount.rows[0].cnt || 0),
+  economicDetails:      parseInt(economicCount.rows[0].cnt || 0),
+  insuranceCoverage:    parseInt(insuranceCount.rows[0].cnt || 0),
+  documentationStatus:  parseInt(documentCount.rows[0].cnt || 0),
+  religiousDetails:     parseInt(religiousCount.rows[0].cnt || 0),
+},
+
     });
   } catch (err) {
-    console.error('[getEnhancedReports]', err.message, err.code);
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -473,9 +315,6 @@ const getEnhancedReports = async (req, res) => {
 // ════════════════════════════════════════════════════════════
 const getAdvancedReports = async (req, res) => {
   try {
-    console.log("==== getAdvancedReports HIT ====");
-    console.log("User:", req.user);
-    console.log("Query Params:", req.query);
     const { id: userId } = req.user;
     const sanghaId = await getSanghaId(userId);
     if (!sanghaId) return res.status(404).json({ message: 'Sangha not found' });
@@ -803,77 +642,43 @@ const getAdvancedReports = async (req, res) => {
     const commonRelRes = await safe(`SELECT COUNT(*) AS cnt FROM profiles p JOIN family_history fh ON fh.profile_id = p.id WHERE p.sangha_id=$1 ${approvedDateFilter} AND fh.common_relative_names IS NOT NULL AND TRIM(fh.common_relative_names) != ''`, [sanghaId, ...drSubmitted.params]);
     const withCommonRelatives = parseInt(commonRelRes[0]?.cnt || 0);
 
-    // ─── Marital Status — registered users + family members inferred from relation ───
-    // family_members has no marital_status column, so we:
-    //   1. Count registered users by actual marital_status + gender
-    //   2. Count family members as "married" when relation is husband/wife/spouse
-    const maritalDetailRes = await safe(`
+    // ─── Users by Marital Status × Gender ────────────────────────────────────
+    // Source: personal_details.marital_status (one row per profile — profile_id is UNIQUE,
+    // so the join cannot duplicate users). family_members has no marital_status column,
+    // so family members are deliberately NOT counted here.
+    //
+    // Same filtering as every other Advanced Dashboard chart:
+    //   • p.sangha_id = authenticated Sangha
+    //   • approvedDateFilter  → p.status='approved' (+ dateFrom/dateTo on p.submitted_at when supplied)
+    //     No date filter is added when the range is All Time (dateFrom/dateTo absent).
+    //   • draft profiles are never included (approved only)
+    // Only the four supported values are aggregated; NULL / unsupported values are excluded,
+    // never folded into another bucket and never shown as "Other".
+    const maritalBarRows = await safe(`
       SELECT
-        SUM(never_married_male)   AS never_married_male,
-        SUM(never_married_female) AS never_married_female,
-        SUM(never_married_other)  AS never_married_other,
-        SUM(divorced_male)        AS divorced_male,
-        SUM(divorced_female)      AS divorced_female,
-        SUM(divorced_other)       AS divorced_other,
-        SUM(widowed_male)         AS widowed_male,
-        SUM(widowed_female)       AS widowed_female,
-        SUM(widowed_other)        AS widowed_other,
-        SUM(married_male)         AS married_male,
-        SUM(married_female)       AS married_female,
-        SUM(married_other)        AS married_other,
-        SUM(other_count)          AS other_count
-      FROM (
-        -- Registered users (have explicit marital_status)
-        SELECT
-          COUNT(*) FILTER (WHERE pd.marital_status = 'single_never_married' AND LOWER(pd.gender::text) = 'male')                                                            AS never_married_male,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'single_never_married' AND LOWER(pd.gender::text) = 'female')                                                          AS never_married_female,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'single_never_married' AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                   AS never_married_other,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'single_divorced'       AND LOWER(pd.gender::text) = 'male')                                                            AS divorced_male,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'single_divorced'       AND LOWER(pd.gender::text) = 'female')                                                          AS divorced_female,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'single_divorced'       AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                  AS divorced_other,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'single_widowed'        AND LOWER(pd.gender::text) = 'male')                                                            AS widowed_male,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'single_widowed'        AND LOWER(pd.gender::text) = 'female')                                                          AS widowed_female,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'single_widowed'        AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                  AS widowed_other,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'married'               AND LOWER(pd.gender::text) = 'male')                                                            AS married_male,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'married'               AND LOWER(pd.gender::text) = 'female')                                                          AS married_female,
-          COUNT(*) FILTER (WHERE pd.marital_status = 'married'               AND pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female'))                  AS married_other,
-          COUNT(*) FILTER (WHERE pd.marital_status NOT IN ('single_never_married','single_divorced','single_widowed','married') OR pd.marital_status IS NULL)                 AS other_count
-        FROM profiles p
-        JOIN personal_details pd ON pd.profile_id = p.id
-        WHERE p.sangha_id=$1 ${approvedDateFilter}
-
-        UNION ALL
-
-        -- Family members: infer married from relation (husband/wife/spouse)
-        SELECT
-          0 AS never_married_male,
-          0 AS never_married_female,
-          0 AS never_married_other,
-          0 AS divorced_male,
-          0 AS divorced_female,
-          0 AS divorced_other,
-          0 AS widowed_male,
-          0 AS widowed_female,
-          0 AS widowed_other,
-          COUNT(*) FILTER (WHERE LOWER(fm.relation) IN ('husband','wife','spouse') AND LOWER(fm.gender::text) = 'male')                                            AS married_male,
-          COUNT(*) FILTER (WHERE LOWER(fm.relation) IN ('husband','wife','spouse') AND LOWER(fm.gender::text) = 'female')                                          AS married_female,
-          COUNT(*) FILTER (WHERE LOWER(fm.relation) IN ('husband','wife','spouse') AND fm.gender IS NOT NULL AND LOWER(fm.gender::text) NOT IN ('male','female'))   AS married_other,
-          0 AS other_count
-        FROM profiles p
-        JOIN family_members fm ON fm.profile_id = p.id
-        WHERE p.sangha_id=$1 ${approvedDateFilter}
-      ) t
+        LOWER(TRIM(pd.marital_status)) AS marital_key,
+        COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'male')   AS male,
+        COUNT(*) FILTER (WHERE LOWER(pd.gender::text) = 'female') AS female,
+        COUNT(*) FILTER (WHERE pd.gender IS NOT NULL AND LOWER(pd.gender::text) NOT IN ('male','female')) AS other
+      FROM profiles p
+      JOIN personal_details pd ON pd.profile_id = p.id
+      WHERE p.sangha_id=$1 ${approvedDateFilter}
+        AND LOWER(TRIM(pd.marital_status)) IN (${MARITAL_KEYS_SQL})
+      GROUP BY 1
     `, [sanghaId, ...drSubmitted.params]);
 
-    const md = maritalDetailRes[0] || {};
-    const maritalDetailedBars = [
-      { label: 'Never married',    male: parseInt(md.never_married_male||0),  female: parseInt(md.never_married_female||0),  other: parseInt(md.never_married_other||0)  },
-      { label: 'Divorced',         male: parseInt(md.divorced_male||0),        female: parseInt(md.divorced_female||0),        other: parseInt(md.divorced_other||0)        },
-      { label: 'Widowed',          male: parseInt(md.widowed_male||0),         female: parseInt(md.widowed_female||0),         other: parseInt(md.widowed_other||0)         },
-      { label: 'Married — Male',   male: parseInt(md.married_male||0),         female: 0,                                      other: 0                                     },
-      { label: 'Married — Female', male: 0,                                     female: parseInt(md.married_female||0),         other: 0                                     },
-      { label: 'Other',            male: 0,                                     female: 0,                                      other: parseInt(md.other_count||0)           },
-    ];
+    const maritalByKey = new Map(maritalBarRows.map(r => [r.marital_key, r]));
+    // Always exactly four categories, fixed order, zero-filled when a category has no users.
+    const maritalDetailedBars = MARITAL_CATEGORIES.map(({ key, label }) => {
+      const r = maritalByKey.get(key) || {};
+      return {
+        key,
+        label,
+        male:   parseInt(r.male   || 0, 10),
+        female: parseInt(r.female || 0, 10),
+        other:  parseInt(r.other  || 0, 10),
+      };
+    });
 
     res.json({
       totalApproved,

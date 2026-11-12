@@ -13,6 +13,8 @@ router.get('/enhanced',      requireRole('sangha', 'admin'), rc.getEnhancedRepor
 router.get('/advanced',      requireRole('sangha', 'admin'), rc.getAdvancedReports);
 
 // ── Export data ───────────────────────────────────────────────
+// /export/full accepts: sections, status, includeAllStatuses, maritalStatus, ageMin, ageMax, dateFrom, dateTo
+// /export accepts:      category, filter, maritalStatus, ageMin, ageMax, dateFrom, dateTo
 router.post('/export/full',  requireRole('sangha', 'admin'), rc.getFullExportData);
 router.post('/export',       requireRole('sangha', 'admin'), rc.getExportData);
 
